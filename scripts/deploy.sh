@@ -27,9 +27,10 @@ if [[ ! -f "$DEPLOY_DIR/.env" ]]; then
   umask 022
 fi
 set -a; source "$DEPLOY_DIR/.env"; set +a
+export IMAGE_TAG="${IMAGE_TAG:-latest}"
 
-echo "==> Building images"
-compose build
+echo "==> Pulling image ghcr.io/aaronx3011/agents-task-manager:$IMAGE_TAG"
+compose pull
 
 echo "==> Starting stack"
 compose up -d --wait --wait-timeout 300

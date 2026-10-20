@@ -13,9 +13,7 @@
 name: atm-prod
 
 x-web: &web
-  build:
-    context: ../..
-    dockerfile: Dockerfile
+  image: ghcr.io/aaronx3011/agents-task-manager:${IMAGE_TAG:-latest}
   environment: &web-environment
     DJANGO_DEBUG: "false"
     DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set in the production environment}

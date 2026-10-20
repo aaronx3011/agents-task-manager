@@ -1,12 +1,10 @@
 name: atm-dev
 
-# Development deployment. Build context is the repository root so the same
-# Dockerfile (Node frontend stage + Python runtime) is used everywhere.
+# Development deployment. Runs a prebuilt image published to ghcr.io by CI
+# (IMAGE_TAG is exported by scripts/deploy.sh, e.g. the commit SHA).
 
 x-web: &web
-  build:
-    context: ../..
-    dockerfile: Dockerfile
+  image: ghcr.io/aaronx3011/agents-task-manager:${IMAGE_TAG:-latest}
   environment: &web-environment
     DJANGO_DEBUG: "false"
     DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Generate once on the host, see scripts/deploy.sh}
