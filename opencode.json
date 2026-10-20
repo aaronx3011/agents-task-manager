@@ -7,7 +7,7 @@
     "task-coordinator": {
       "type": "local",
       "command": [".venv/bin/python", "mcp_server.py"],
-      "enabled": false
+      "enabled": true
     }
   }
 }

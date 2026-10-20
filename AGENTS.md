@@ -24,11 +24,21 @@ Single context. The glossary, decisions and stable API contract live in GitHub
 documentation issues, not a local GLOSSARY.md or ADR directory.
 See `docs/agents/domain.md` for the pointers and reading rules.
 
-## Work coordination
-Use the `task-coordination` and `task-reporting` skills when MCP is operational.
-The service is the authority for atomic claims; GitHub Issues is the repository's
-planning and documentation authority. Link them by URLs/task IDs.
-During initial bootstrap, use issue #2 and explicitly report MCP unavailability.
+## Work coordination — mandatory
+The `task-coordinator` MCP server (https://atm.aaron-henriquez.com) is operational and
+MUST be used in every session that does real work here (code changes, deploys,
+diagnostics that modify state). Quick questions and read-only lookups need no task.
+
+Every work session, without exception:
+1. At start: `get_overview`, then `claim_next_task` (or `create_task` + `claim_task`
+   for specific work; include the GitHub issue URL in the description).
+2. During: `heartbeat` every few minutes and `add_note` for decisions/discoveries.
+3. When finished, blocked, handing off, or stopping early: `task-reporting` flow —
+   `update_status` done/review/blocked with a result summary, or `release_task`
+   with progress and remaining work. NEVER leave a task in_progress when stopping.
+4. The CI pipeline reports its own deploys; do not create duplicate deploy tasks.
+The service is the authority for atomic claims; GitHub Issues remains the planning
+and documentation authority. Link them by URLs/task IDs.
 Do not create or rotate credentials silently; raw agent keys must never be committed.
 Do not commit or push unless requested by the user.
 
