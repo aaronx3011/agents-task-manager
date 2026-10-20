@@ -1,0 +1,36 @@
+[project]
+name = "agents-task-manager"
+version = "0.1.0"
+description = "Self-hosted task coordination for agents across related projects"
+requires-python = ">=3.12"
+dependencies = [
+  "Django>=5.2,<5.3",
+  "djangorestframework>=3.16,<4",
+  "dj-database-url>=2.3,<4",
+  "psycopg[binary]>=3.2,<4",
+  "httpx>=0.28,<1",
+  "mcp>=1.12,<2",
+  "python-dotenv>=1.1,<2",
+  "gunicorn>=23,<24",
+  "whitenoise>=6.9,<7",
+  "channels>=4.3,<5",
+  "channels-redis>=4.3,<5",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.3,<10", "pytest-django>=4.11,<5", "ruff>=0.12,<1"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"coordinator/migrations/*" = ["E501"]

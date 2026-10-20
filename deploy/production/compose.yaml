@@ -1,0 +1,86 @@
+# Production deployment structure.
+#
+# The production job requires the PROD_HOST / PROD_SSH_USER environment secrets
+# and an HTTPS reverse proxy in front of the web service. Do not deploy here
+# until: the environment protection rule requires a human reviewer, TLS terminates
+# at the proxy, and backups for the postgres_data volume exist and are tested.
+#
+# Differences from development:
+# - Secrets must be provided explicitly (no host-side generation).
+# - Secure cookies and CSRF settings are enabled by default.
+# - No fixed host port mapping: the reverse proxy joins the compose network.
+
+name: atm-prod
+
+x-web: &web
+  build:
+    context: ../..
+    dockerfile: Dockerfile
+  environment: &web-environment
+    DJANGO_DEBUG: "false"
+    DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set in the production environment}
+    DATABASE_URL: postgresql://coordinator:${POSTGRES_PASSWORD:?Set in the production environment}@db:5432/coordinator
+    REDIS_URL: redis://redis:6379/0
+    DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?Set to the public hostname}
+    DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:?Set to the public origin}
+    DJANGO_SECURE_SSL_REDIRECT: "true"
+    DJANGO_SECURE_COOKIES: "true"
+    DJANGO_TRUST_PROXY: "true"
+    WEB_CONCURRENCY: "2"
+  restart: unless-stopped
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: coordinator
+      POSTGRES_USER: coordinator
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set in the production environment}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coordinator -d coordinator"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+  web:
+    <<: *web
+    command:
+      - sh
+      - -c
+      - python manage.py migrate --noinput && exec uvicorn config.asgi:application --host 0.0.0.0 --port 8000
+    networks:
+      - default
+      - proxy
+  reaper:
+    <<: *web
+    command: ["sh", "-c", "while true; do python manage.py release_stale_tasks || exit 1; sleep 300; done"]
+    depends_on:
+      web:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  proxy:
+    name: ${PROXY_NETWORK:?Set to the reverse proxy network}
+    external: true

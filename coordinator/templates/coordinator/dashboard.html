@@ -1,0 +1,16 @@
+{% load static %}
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10151c">
+  <title>Workspace · Agent Ops</title>
+  <link rel="stylesheet" href="{% static 'coordinator/app/app.css' %}">
+  <script type="module" src="{% static 'coordinator/app/app.js' %}"></script>
+</head>
+<body>
+  <div id="root" data-username="{{ request.user.username }}" data-demo="{{ demo|yesno:'true,false' }}"></div>
+  <noscript>Enable JavaScript to view the live workspace. Task management is also available in <a href="/admin/">Django Admin</a>.</noscript>
+</body>
+</html>

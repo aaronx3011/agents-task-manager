@@ -1,0 +1,15 @@
+.git
+.venv
+.env
+.env.*
+*.sqlite3*
+__pycache__
+.pytest_cache
+.ruff_cache
+staticfiles
+.agents
+tests
+docs
+frontend/node_modules
+frontend/*.tsbuildinfo
+coordinator/static/coordinator/app

@@ -1,0 +1,71 @@
+name: atm-dashboard-demo
+
+x-demo-environment: &demo-environment
+  DJANGO_SETTINGS_MODULE: config.settings
+  DJANGO_DEBUG: "false"
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-demo-only-local-secret-use-start-script}
+  DATABASE_URL: postgresql://coordinator:${POSTGRES_PASSWORD:-demo-only-local-password}@db:5432/coordinator
+  REDIS_URL: redis://redis:6379/0
+  DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,web
+  DJANGO_CSRF_TRUSTED_ORIGINS: http://localhost:8000,http://127.0.0.1:8000
+  DJANGO_SECURE_SSL_REDIRECT: "false"
+  DJANGO_SECURE_COOKIES: "false"
+  COORDINATOR_DEMO: "true"
+  COORDINATOR_URL: http://web:8000
+  WEB_CONCURRENCY: "2"
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: coordinator
+      POSTGRES_USER: coordinator
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-demo-only-local-password}
+    tmpfs:
+      - /var/lib/postgresql/data:rw,size=256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coordinator -d coordinator"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  web:
+    image: agents-task-manager:local
+    build: .
+    environment: *demo-environment
+    command: ["sh", "-c", "python manage.py migrate --noinput && exec uvicorn config.asgi:application --host 0.0.0.0 --port 8000"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  agents:
+    image: agents-task-manager:local
+    environment:
+      <<: *demo-environment
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-demo-dashboard}
+    command: ["python", "scripts/dashboard_agents.py"]
+    depends_on:
+      web:
+        condition: service_healthy
+  reaper:
+    image: agents-task-manager:local
+    environment: *demo-environment
+    command: ["sh", "-c", "while true; do python manage.py release_stale_tasks || exit 1; sleep 60; done"]
+    depends_on:
+      web:
+        condition: service_healthy

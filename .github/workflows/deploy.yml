@@ -1,0 +1,89 @@
+name: Deploy
+
+# Deploys run on the self-hosted runner (10.8.0.6), which rsyncs the exact
+# commit to the target host over SSH and executes the deploy script in Docker.
+# - development: automatic on every push to main (or manual dispatch).
+# - production: manual dispatch only; the GitHub "production" environment must
+#   have a required reviewer before this job can run.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [development, production]
+        default: development
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.event.inputs.environment || 'development' }}
+  cancel-in-progress: false
+
+jobs:
+  development:
+    if: github.event_name == 'push' || inputs.environment == 'development'
+    runs-on: [self-hosted, dev-runner]
+    environment: development
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.DEV_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          echo "Host 10.8.0.11
+            StrictHostKeyChecking accept-new" > ~/.ssh/config
+      - name: Sync exact commit to the dev host
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.DEV_SSH_USER }}@${{ secrets.DEV_HOST }}" "mkdir -p /opt/agents-task-manager"
+          rsync -az --delete \
+            --exclude .git --exclude .env --exclude '*.sqlite3*' \
+            --exclude node_modules --exclude __pycache__ --exclude .pytest_cache \
+            --exclude .ruff_cache --exclude staticfiles --exclude '*.tsbuildinfo' \
+            ./ "${{ secrets.DEV_SSH_USER }}@${{ secrets.DEV_HOST }}:/opt/agents-task-manager/"
+      - name: Bootstrap host prerequisites (idempotent)
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.DEV_SSH_USER }}@${{ secrets.DEV_HOST }}" \
+            "cd /opt/agents-task-manager && bash scripts/bootstrap_dev_host.sh"
+      - name: Deploy
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.DEV_SSH_USER }}@${{ secrets.DEV_HOST }}" \
+            "cd /opt/agents-task-manager && bash scripts/deploy.sh development ${{ github.sha }}"
+      - name: Verify from the runner over the VPN
+        run: |
+          curl -fsS --max-time 5 "http://${{ secrets.DEV_HOST }}:8000/healthz"
+          echo
+          echo "Development deployment verified: ${{ github.sha }}"
+
+  production:
+    if: github.event_name == 'workflow_dispatch' && inputs.environment == 'production'
+    runs-on: [self-hosted, dev-runner]
+    environment: production
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/prod_deploy_key
+          chmod 600 ~/.ssh/prod_deploy_key
+      - name: Sync exact commit to the production host
+        run: |
+          ssh -i ~/.ssh/prod_deploy_key "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_HOST }}" "mkdir -p /opt/agents-task-manager"
+          rsync -az --delete \
+            --exclude .git --exclude .env --exclude '*.sqlite3*' \
+            --exclude node_modules --exclude __pycache__ --exclude .pytest_cache \
+            --exclude .ruff_cache --exclude staticfiles --exclude '*.tsbuildinfo' \
+            ./ "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_HOST }}:/opt/agents-task-manager/"
+      - name: Deploy (requires HTTPS reverse proxy; see deploy/production/compose.yaml)
+        run: |
+          ssh -i ~/.ssh/prod_deploy_key "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_HOST }}" \
+            "cd /opt/agents-task-manager && bash scripts/deploy.sh production ${{ github.sha }}"
+      - name: Verify
+        run: curl -fsS --max-time 5 "https://${{ secrets.PROD_PUBLIC_HOST }}/healthz"
