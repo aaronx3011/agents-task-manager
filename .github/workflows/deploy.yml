@@ -35,7 +35,7 @@ jobs:
       - name: Prepare SSH key
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.DEV_SSH_KEY }}" > ~/.ssh/deploy_key
+          echo "${{ secrets.DEV_SSH_KEY }}" | base64 -d > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           echo "Host 10.8.0.11
             StrictHostKeyChecking accept-new" > ~/.ssh/config
@@ -71,7 +71,7 @@ jobs:
       - name: Prepare SSH key
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/prod_deploy_key
+          echo "${{ secrets.PROD_SSH_KEY }}" | base64 -d > ~/.ssh/prod_deploy_key
           chmod 600 ~/.ssh/prod_deploy_key
       - name: Sync exact commit to the production host
         run: |
