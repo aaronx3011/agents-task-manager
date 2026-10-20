@@ -1,10 +1,9 @@
 name: Deploy
 
 # Ship the image, then docker up on the target host. That's it.
-# 1. build-push: builds the image once on the self-hosted runner (10.8.0.6)
-#    and pushes it to ghcr.io tagged with the commit SHA and `latest`.
-# 2. development: connects to the dev host (10.8.0.11), syncs only the deploy
-#    files, pulls the image and brings the stack up, migrates, health checks.
+# 1. Build the image once on the runner (10.8.0.6) tagged with the commit SHA.
+# 2. Stream it over SSH (docker save | docker load) to the target host.
+# 3. Sync the deploy files, bring the stack up, migrate, health check.
 # - development runs automatically on every push to main (or manual dispatch).
 # - production runs on manual dispatch only; the GitHub "production" environment
 #   must have a required reviewer before this job can run.
@@ -22,35 +21,21 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: ship-${{ github.event.inputs.environment || 'development' }}
   cancel-in-progress: false
 
 jobs:
-  build-push:
-    runs-on: [self-hosted, dev-runner]
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v4
-      - name: Log in to ghcr.io
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-      - name: Build and ship image
-        run: |
-          IMAGE=ghcr.io/aaronx3011/agents-task-manager
-          docker build --tag "$IMAGE:${{ github.sha }}" --tag "$IMAGE:latest" .
-          docker push "$IMAGE:${{ github.sha }}"
-          docker push "$IMAGE:latest"
-
   development:
     if: github.event_name == 'push' || inputs.environment == 'development'
-    needs: build-push
     runs-on: [self-hosted, dev-runner]
     environment: development
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build --tag agents-task-manager:${{ github.sha }} .
       - name: Prepare SSH key
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -58,15 +43,16 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           echo "Host 10.8.0.11
             StrictHostKeyChecking accept-new" > ~/.ssh/config
-      - name: Sync deploy files to the dev host
+      - name: Ship the image over SSH
+        run: docker save agents-task-manager:${{ github.sha }} | gzip | ssh -i ~/.ssh/deploy_key "${{ secrets.DEV_SSH_USER }}@${{ secrets.DEV_HOST }}" "gunzip | docker load"
+      - name: Sync deploy files
         run: |
-          ssh -i ~/.ssh/deploy_key "${{ secrets.DEV_SSH_USER }}@${{ secrets.DEV_HOST }}" "mkdir -p /opt/agents-task-manager"
           rsync -az --delete -e "ssh -i ~/.ssh/deploy_key" \
             --exclude '*.sqlite3*' --exclude .env --exclude __pycache__ \
             deploy/ scripts/ "${{ secrets.DEV_SSH_USER }}@${{ secrets.DEV_HOST }}:/opt/agents-task-manager/_tmp/" \
           && ssh -i ~/.ssh/deploy_key "${{ secrets.DEV_SSH_USER }}@${{ secrets.DEV_HOST }}" \
             "cd /opt/agents-task-manager && mkdir -p deploy scripts && cp -r _tmp/deploy _tmp/scripts . && rm -rf _tmp"
-      - name: Ship and docker up
+      - name: Docker up, migrate, health check
         run: |
           ssh -i ~/.ssh/deploy_key "${{ secrets.DEV_SSH_USER }}@${{ secrets.DEV_HOST }}" \
             "cd /opt/agents-task-manager && IMAGE_TAG=${{ github.sha }} bash scripts/deploy.sh development ${{ github.sha }}"
@@ -78,26 +64,28 @@ jobs:
 
   production:
     if: github.event_name == 'workflow_dispatch' && inputs.environment == 'production'
-    needs: build-push
     runs-on: [self-hosted, dev-runner]
     environment: production
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build --tag agents-task-manager:${{ github.sha }} .
       - name: Prepare SSH key
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           echo "${{ secrets.PROD_SSH_KEY }}" | base64 -d > ~/.ssh/prod_deploy_key
           chmod 600 ~/.ssh/prod_deploy_key
-      - name: Sync deploy files to the production host
+      - name: Ship the image over SSH
+        run: docker save agents-task-manager:${{ github.sha }} | gzip | ssh -i ~/.ssh/prod_deploy_key "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_HOST }}" "gunzip | docker load"
+      - name: Sync deploy files
         run: |
-          ssh -i ~/.ssh/prod_deploy_key "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_HOST }}" "mkdir -p /opt/agents-task-manager"
           rsync -az --delete -e "ssh -i ~/.ssh/prod_deploy_key" \
             --exclude '*.sqlite3*' --exclude .env --exclude __pycache__ \
             deploy/ scripts/ "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_HOST }}:/opt/agents-task-manager/_tmp/" \
           && ssh -i ~/.ssh/prod_deploy_key "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_HOST }}" \
             "cd /opt/agents-task-manager && mkdir -p deploy scripts && cp -r _tmp/deploy _tmp/scripts . && rm -rf _tmp"
-      - name: Ship and docker up (HTTPS reverse proxy required; see deploy/production/compose.yaml)
+      - name: Docker up, migrate, health check (HTTPS reverse proxy required; see deploy/production/compose.yaml)
         run: |
           ssh -i ~/.ssh/prod_deploy_key "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_HOST }}" \
             "cd /opt/agents-task-manager && IMAGE_TAG=${{ github.sha }} bash scripts/deploy.sh production ${{ github.sha }}"

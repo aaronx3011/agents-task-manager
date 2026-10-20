@@ -28,9 +28,8 @@ if [[ ! -f "$DEPLOY_DIR/.env" ]]; then
 fi
 set -a; source "$DEPLOY_DIR/.env"; set +a
 export IMAGE_TAG="${IMAGE_TAG:-latest}"
-
-echo "==> Pulling image ghcr.io/aaronx3011/agents-task-manager:$IMAGE_TAG"
-compose pull
+# The image is shipped to this host's Docker by the pipeline (docker save/load);
+# compose up uses the local image when present.
 
 echo "==> Starting stack"
 compose up -d --wait --wait-timeout 300
