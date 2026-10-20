@@ -10,7 +10,7 @@ FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
   && apt-get install -y -qq --no-install-recommends \
-    ca-certificates curl git openssh-client rsync libicu70 libkrb5-3 zlib1g \
+    ca-certificates curl git openssh-client rsync jq libicu70 libkrb5-3 zlib1g \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 

@@ -61,6 +61,18 @@ jobs:
           curl -fsS --max-time 5 "http://${{ secrets.DEV_HOST }}:8000/healthz"
           echo
           echo "Development deployment verified: ${{ github.sha }}"
+      - name: Report the deployment to the coordinator
+        run: |
+          AUTH="Authorization: Bearer ${{ secrets.COORDINATOR_API_KEY }}"
+          BASE="${{ secrets.COORDINATOR_URL }}"
+          TASK=$(curl -fsS --max-time 10 -X POST "$BASE/api/tasks" -H "$AUTH" -H "Content-Type: application/json" \
+            -d '{"title":"Deploy '"${{ github.sha }}"' to development","project":"agents-task-manager",
+                 "description":"Automated deployment report from the CI pipeline (run '"${{ github.run_id }}"').","priority":10}')
+          ID=$(echo "$TASK" | jq -r .id)
+          curl -fsS --max-time 10 -X POST "$BASE/api/tasks/$ID/claim" -H "$AUTH" -H "Content-Type: application/json" -d '{}' > /dev/null
+          curl -fsS --max-time 10 -X POST "$BASE/api/tasks/$ID/status" -H "$AUTH" -H "Content-Type: application/json" \
+            -d '{"status":"done","result_summary":"Image built on the runner, shipped over SSH, stack healthy on 10.8.0.11 (run '"${{ github.run_id }}"')."}' > /dev/null
+          echo "Reported deployment as coordinator task #$ID"
 
   production:
     if: github.event_name == 'workflow_dispatch' && inputs.environment == 'production'
@@ -91,3 +103,15 @@ jobs:
             "cd /opt/agents-task-manager && IMAGE_TAG=${{ github.sha }} bash scripts/deploy.sh production ${{ github.sha }}"
       - name: Verify
         run: curl -fsS --max-time 5 "https://${{ secrets.PROD_PUBLIC_HOST }}/healthz"
+      - name: Report the deployment to the coordinator
+        run: |
+          AUTH="Authorization: Bearer ${{ secrets.COORDINATOR_API_KEY }}"
+          BASE="${{ secrets.COORDINATOR_URL }}"
+          TASK=$(curl -fsS --max-time 10 -X POST "$BASE/api/tasks" -H "$AUTH" -H "Content-Type: application/json" \
+            -d '{"title":"Deploy '"${{ github.sha }}"' to production","project":"agents-task-manager",
+                 "description":"Automated deployment report from the CI pipeline (run '"${{ github.run_id }}"').","priority":10}')
+          ID=$(echo "$TASK" | jq -r .id)
+          curl -fsS --max-time 10 -X POST "$BASE/api/tasks/$ID/claim" -H "$AUTH" -H "Content-Type: application/json" -d '{}' > /dev/null
+          curl -fsS --max-time 10 -X POST "$BASE/api/tasks/$ID/status" -H "$AUTH" -H "Content-Type: application/json" \
+            -d '{"status":"done","result_summary":"Production deployment completed (run '"${{ github.run_id }}"')."}' > /dev/null
+          echo "Reported deployment as coordinator task #$ID"

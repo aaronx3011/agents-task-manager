@@ -52,6 +52,19 @@ if created:
     user.set_password(settings.__dict__.get("DEV_ADMIN_PASSWORD") or __import__("os").environ["DEV_ADMIN_PASSWORD"])
 user.save()
 print("admin ready:", user.username, "(created)" if created else "(existing)")'
+  echo "==> Ensuring reporting project exists"
+  compose exec -T web python manage.py shell -c '
+from coordinator.models import Project
+
+project, created = Project.objects.get_or_create(
+    slug="agents-task-manager",
+    defaults={
+        "name": "Agent Task Coordinator",
+        "repo_url": "https://github.com/aaronx3011/agents-task-manager",
+        "docs_path": "https://github.com/aaronx3011/agents-task-manager/issues/1",
+    },
+)
+print("project ready:", project.slug, "(created)" if created else "(existing)")'
 fi
 
 echo "==> Health check"

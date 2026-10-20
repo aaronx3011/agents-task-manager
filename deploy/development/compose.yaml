@@ -10,11 +10,11 @@ x-web: &web
     DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Generate once on the host, see scripts/deploy.sh}
     DATABASE_URL: postgresql://coordinator:${POSTGRES_PASSWORD:?Generated once on the host}@db:5432/coordinator
     REDIS_URL: redis://redis:6379/0
-    DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,10.8.0.11}
-    DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://10.8.0.11:8000,http://localhost:8000}
+    DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,10.8.0.11,atm.aaron-henriquez.com}
+    DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-https://atm.aaron-henriquez.com,http://10.8.0.11:8000,http://localhost:8000}
     DJANGO_SECURE_SSL_REDIRECT: "false"
-    DJANGO_SECURE_COOKIES: "false"
-    DJANGO_TRUST_PROXY: "false"
+    DJANGO_SECURE_COOKIES: "true"
+    DJANGO_TRUST_PROXY: "true"
     WEB_CONCURRENCY: "2"
   restart: unless-stopped
   depends_on:
