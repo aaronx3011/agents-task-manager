@@ -42,7 +42,7 @@ jobs:
       - name: Sync exact commit to the dev host
         run: |
           ssh -i ~/.ssh/deploy_key "${{ secrets.DEV_SSH_USER }}@${{ secrets.DEV_HOST }}" "mkdir -p /opt/agents-task-manager"
-          rsync -az --delete \
+          rsync -az --delete -e "ssh -i ~/.ssh/deploy_key" \
             --exclude .git --exclude .env --exclude '*.sqlite3*' \
             --exclude node_modules --exclude __pycache__ --exclude .pytest_cache \
             --exclude .ruff_cache --exclude staticfiles --exclude '*.tsbuildinfo' \
@@ -76,7 +76,7 @@ jobs:
       - name: Sync exact commit to the production host
         run: |
           ssh -i ~/.ssh/prod_deploy_key "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_HOST }}" "mkdir -p /opt/agents-task-manager"
-          rsync -az --delete \
+          rsync -az --delete -e "ssh -i ~/.ssh/prod_deploy_key" \
             --exclude .git --exclude .env --exclude '*.sqlite3*' \
             --exclude node_modules --exclude __pycache__ --exclude .pytest_cache \
             --exclude .ruff_cache --exclude staticfiles --exclude '*.tsbuildinfo' \
