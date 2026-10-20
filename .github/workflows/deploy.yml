@@ -49,7 +49,7 @@ jobs:
         run: |
           rsync -az --delete -e "ssh -i ~/.ssh/deploy_key" \
             --exclude '*.sqlite3*' --exclude .env --exclude __pycache__ \
-            deploy/ scripts/ "${{ secrets.DEV_SSH_USER }}@${{ secrets.DEV_HOST }}:/opt/agents-task-manager/_tmp/" \
+            deploy scripts "${{ secrets.DEV_SSH_USER }}@${{ secrets.DEV_HOST }}:/opt/agents-task-manager/_tmp/" \
           && ssh -i ~/.ssh/deploy_key "${{ secrets.DEV_SSH_USER }}@${{ secrets.DEV_HOST }}" \
             "cd /opt/agents-task-manager && mkdir -p deploy scripts && cp -r _tmp/deploy _tmp/scripts . && rm -rf _tmp"
       - name: Docker up, migrate, health check
@@ -82,7 +82,7 @@ jobs:
         run: |
           rsync -az --delete -e "ssh -i ~/.ssh/prod_deploy_key" \
             --exclude '*.sqlite3*' --exclude .env --exclude __pycache__ \
-            deploy/ scripts/ "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_HOST }}:/opt/agents-task-manager/_tmp/" \
+            deploy scripts "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_HOST }}:/opt/agents-task-manager/_tmp/" \
           && ssh -i ~/.ssh/prod_deploy_key "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_HOST }}" \
             "cd /opt/agents-task-manager && mkdir -p deploy scripts && cp -r _tmp/deploy _tmp/scripts . && rm -rf _tmp"
       - name: Docker up, migrate, health check (HTTPS reverse proxy required; see deploy/production/compose.yaml)
