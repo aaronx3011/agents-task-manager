@@ -1,0 +1,31 @@
+name: atm-runner
+
+services:
+  runner:
+    build:
+      context: .
+      # Builds need host networking too: bridge egress blackholes some
+      # downloads over the VPN-tunneled interface (MTU).
+      network: host
+      args:
+        # Match the host's /var/run/docker.sock group id.
+        DOCKER_GID: ${DOCKER_GID:-999}
+    image: atm-github-runner:latest
+    restart: unless-stopped
+    # Host networking keeps the VPN (10.8.0.0/…) reachable for SSH deploys
+    # exactly as from the host itself.
+    network_mode: host
+    environment:
+      RUNNER_URL: ${RUNNER_URL:?Repository URL}
+      RUNNER_TOKEN: ${RUNNER_TOKEN:-only-needed-on-first-registration}
+      RUNNER_NAME: ${RUNNER_NAME:-dev-runner-6}
+      RUNNER_LABELS: ${RUNNER_LABELS:-dev-runner}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Persist the registration (.runner/.credentials) across recreations.
+      - runner_config:/opt/actions-runner
+      - runner_work:/work
+
+volumes:
+  runner_config:
+  runner_work:
