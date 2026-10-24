@@ -26,6 +26,10 @@ jobs:
       - run: npm run lint --prefix frontend
       - run: npm run format:check --prefix frontend
       - run: npm run build --prefix frontend
+      - name: Install production-static browser test dependencies
+        run: uv run --with playwright python -m playwright install --with-deps chromium
+      - name: Verify collected frontend module graph in a browser
+        run: uv run --with playwright python scripts/verify_opencode_dashboard.py --assets-only
       - run: node --test bridge/bridge.test.mjs
       - run: uv run ruff check .
       - run: uv run ruff format --check .

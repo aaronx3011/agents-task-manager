@@ -8,6 +8,7 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.exceptions import ValidationError
 
+from .frontend import dashboard_assets
 from .models import Agent, Project, Task, TaskEvent
 from .queries import filter_tasks, task_queryset
 from .serializers import TaskSerializer
@@ -17,7 +18,11 @@ from .serializers import TaskSerializer
 @staff_member_required
 @ensure_csrf_cookie
 def dashboard(request):
-    return render(request, "coordinator/dashboard.html", {"demo": settings.COORDINATOR_DEMO})
+    return render(
+        request,
+        "coordinator/dashboard.html",
+        {"demo": settings.COORDINATOR_DEMO, "assets": dashboard_assets()},
+    )
 
 
 @never_cache

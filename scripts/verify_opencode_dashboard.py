@@ -9,6 +9,7 @@ Run: uv run --with playwright python scripts/verify_opencode_dashboard.py
 import argparse
 import json
 import os
+import re
 import secrets
 import signal
 import socket
@@ -44,13 +45,22 @@ def wait_health(url, child):
     raise RuntimeError("Fixture service did not become healthy")
 
 
-def run(directory, screenshots):
+def check_module_graph(scripts, errors):
+    entry_urls = {url for url in scripts if re.search(r"/app(?:[-.][^/]+)?\.js$", url)}
+    assert len(entry_urls) == 1, entry_urls
+    assert re.search(r"/app-[\w-]+\.js$", next(iter(entry_urls))), entry_urls
+    assert not any(url.endswith("/app.js") for url in scripts), scripts
+    assert not errors, errors
+
+
+def run(directory, screenshots, assets_only=False):
     env = {
         **os.environ,
         "DATABASE_URL": f"sqlite:///{directory / 'dashboard.sqlite3'}",
         "REDIS_URL": "",
         "DJANGO_SETTINGS_MODULE": "config.settings",
-        "DJANGO_DEBUG": "true",
+        "DJANGO_DEBUG": "false",
+        "STATIC_ROOT": str(directory / "staticfiles"),
         "DJANGO_SECRET_KEY": secrets.token_urlsafe(48),
         "DJANGO_ALLOWED_HOSTS": "localhost,127.0.0.1,testserver",
         "DJANGO_SECURE_SSL_REDIRECT": "false",
@@ -76,6 +86,7 @@ def run(directory, screenshots):
     from coordinator.models import Agent, Project
 
     call_command("migrate", verbosity=0)
+    call_command("collectstatic", verbosity=0, interactive=False)
     password = secrets.token_urlsafe(24)
     get_user_model().objects.create_user("dashboard-verifier", password=password, is_staff=True)
     project = Project.objects.create(slug="browser-check", name="Browser checks")
@@ -95,6 +106,7 @@ def run(directory, screenshots):
     stop = threading.Event()
     interaction_results = []
     interaction_errors = []
+    browser_errors = []
     text = "Live fixture message"
     injected = "\n<script>window.workerInjected=true</script>"
 
@@ -226,33 +238,34 @@ def run(directory, screenshots):
                 ]
             )
             wait_health(origin + "/healthz", central)
-            opencode = start(
-                [
-                    "opencode",
-                    "serve",
-                    "--pure",
-                    "--hostname",
-                    "127.0.0.1",
-                    "--port",
-                    str(local_port),
-                ]
-            )
-            wait_health(local + "/global/health", opencode)
-            start(
-                ["node", "bridge/worker.mjs"],
-                {
-                    **env,
-                    "COORDINATOR_URL": origin,
-                    "COORDINATOR_API_KEY": keys["real-opencode"],
-                    "WORKER_ID": "real-opencode",
-                    "OPENCODE_URL": local,
-                    "OPENCODE_DIRECTORY": str(workspace),
-                    "WORKER_STATE_DIRECTORY": str(directory / "receipts"),
-                    "POLL_INTERVAL_MS": "500",
-                },
-            )
-            publisher = threading.Thread(target=publish_interactions, daemon=True)
-            publisher.start()
+            if not assets_only:
+                opencode = start(
+                    [
+                        "opencode",
+                        "serve",
+                        "--pure",
+                        "--hostname",
+                        "127.0.0.1",
+                        "--port",
+                        str(local_port),
+                    ]
+                )
+                wait_health(local + "/global/health", opencode)
+                start(
+                    ["node", "bridge/worker.mjs"],
+                    {
+                        **env,
+                        "COORDINATOR_URL": origin,
+                        "COORDINATOR_API_KEY": keys["real-opencode"],
+                        "WORKER_ID": "real-opencode",
+                        "OPENCODE_URL": local,
+                        "OPENCODE_DIRECTORY": str(workspace),
+                        "WORKER_STATE_DIRECTORY": str(directory / "receipts"),
+                        "POLL_INTERVAL_MS": "500",
+                    },
+                )
+                publisher = threading.Thread(target=publish_interactions, daemon=True)
+                publisher.start()
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch()
                 context = browser.new_context(
@@ -260,7 +273,13 @@ def run(directory, screenshots):
                 )
                 page = context.new_page()
                 page.set_default_timeout(25000)
-                errors, frames = [], []
+                errors, frames, scripts = browser_errors, [], []
+                page.on(
+                    "request",
+                    lambda request: (
+                        scripts.append(request.url) if request.resource_type == "script" else None
+                    ),
+                )
                 page.on("pageerror", lambda error: errors.append(str(error)))
                 page.on(
                     "websocket",
@@ -277,6 +296,26 @@ def run(directory, screenshots):
                 expect(
                     page.get_by_text("Existing task UI remains available", exact=True)
                 ).to_be_visible()
+                if assets_only:
+                    page.goto(origin + "/dashboard/?section=opencodes")
+                    expect(page.get_by_role("heading", name="Connected OpenCodes.")).to_be_visible()
+                    expect(page.locator(".oc-worker")).to_have_count(3)
+                    page.reload()
+                    expect(page.locator(".oc-worker")).to_have_count(3)
+                    page.get_by_role("button", name="All tasks", exact=False).click()
+                    page.get_by_role(
+                        "button", name="Open task: Existing task UI remains available", exact=True
+                    ).click()
+                    expect(page.get_by_role("dialog")).to_be_visible()
+                    page.keyboard.press("Escape")
+                    check_module_graph(scripts, errors)
+                    context.close()
+                    browser.close()
+                    print(
+                        "PASS production-collected lazy dashboard/task modules and deep reload; "
+                        "one entry URL and zero browser errors"
+                    )
+                    return
                 page.get_by_role("button", name="OpenCodes", exact=True).click()
                 page.locator(".oc-worker").filter(has_text="real-opencode").click()
                 expect(
@@ -351,7 +390,15 @@ def run(directory, screenshots):
                         "button", name="Open task: Existing task UI remains available", exact=True
                     )
                 ).to_be_visible()
-                assert not errors, errors
+                page.get_by_role(
+                    "button", name="Open task: Existing task UI remains available", exact=True
+                ).click()
+                expect(page.get_by_role("dialog")).to_be_visible()
+                page.keyboard.press("Escape")
+                page.get_by_role("button", name="OpenCodes", exact=True).click()
+                page.reload()
+                expect(page.get_by_role("heading", name="Connected OpenCodes.")).to_be_visible()
+                check_module_graph(scripts, errors)
                 context.close()
                 browser.close()
             question = next(
@@ -365,9 +412,12 @@ def run(directory, screenshots):
             print(
                 "PASS real OpenCode create/prompt/history/interrupt, worker health/isolation, "
                 "controlled questions/approval, draft preservation, tool/reasoning, "
-                "live updates, CSRF/XSS, mobile, task views; zero browser errors"
+                "live updates, CSRF/XSS, mobile, task views, production static graph/deep reload; "
+                "one entry URL and zero browser errors"
             )
         except Exception:
+            if browser_errors:
+                print("Browser errors: " + json.dumps(browser_errors), file=sys.stderr)
             log.flush()
             log.seek(0)
             print(log.read()[-6000:], file=sys.stderr)
@@ -394,6 +444,11 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, interrupted)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--screenshots", type=Path)
+    parser.add_argument(
+        "--assets-only",
+        action="store_true",
+        help="Production static/lazy-load check without installed OpenCode (CI)",
+    )
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="atm-opencode-ui-") as temporary:
-        run(Path(temporary).resolve(), args.screenshots)
+        run(Path(temporary).resolve(), args.screenshots, args.assets_only)

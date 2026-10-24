@@ -1,4 +1,5 @@
 {% load static %}
+{% get_static_prefix as STATIC_PREFIX %}
 <!doctype html>
 <html lang="en" data-theme="dark">
 <head>
@@ -6,11 +7,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#10151c">
   <title>Workspace · Agent Ops</title>
-  <link rel="stylesheet" href="{% static 'coordinator/app/app.css' %}">
-  <script type="module" src="{% static 'coordinator/app/app.js' %}"></script>
+  {# Vite hashes the entire module graph; static would rehash only the entry. #}
+  {% for stylesheet in assets.styles %}
+  <link rel="stylesheet" href="{{ STATIC_PREFIX }}{{ stylesheet }}">
+  {% endfor %}
+  {% if assets.script %}
+  <script type="module" src="{{ STATIC_PREFIX }}{{ assets.script }}"></script>
+  {% endif %}
 </head>
 <body>
   <div id="root" data-username="{{ request.user.username }}" data-demo="{{ demo|yesno:'true,false' }}"></div>
+  {% if not assets %}<p role="alert">Dashboard assets are not built. Run the frontend build before starting the dashboard.</p>{% endif %}
   <noscript>Enable JavaScript to view the live workspace. Task management is also available in <a href="/admin/">Django Admin</a>.</noscript>
 </body>
 </html>
