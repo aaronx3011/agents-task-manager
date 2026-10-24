@@ -66,9 +66,6 @@ def run(directory, screenshots, assets_only=False):
         "DJANGO_SECURE_SSL_REDIRECT": "false",
         "DJANGO_SECURE_COOKIES": "false",
         "COORDINATOR_DEMO": "true",
-        "XDG_DATA_HOME": str(directory / "data"),
-        "XDG_CONFIG_HOME": str(directory / "config"),
-        "XDG_CACHE_HOME": str(directory / "cache"),
     }
     for name in ("OPENCODE_SERVER_PASSWORD", "OPENCODE_SERVER_USERNAME"):
         env.pop(name, None)
@@ -248,7 +245,15 @@ def run(directory, screenshots, assets_only=False):
                         "127.0.0.1",
                         "--port",
                         str(local_port),
-                    ]
+                    ],
+                    # Isolate OpenCode only. Changing the verifier's own XDG
+                    # cache hides Playwright's installed browsers on Linux.
+                    {
+                        **env,
+                        "XDG_DATA_HOME": str(directory / "data"),
+                        "XDG_CONFIG_HOME": str(directory / "config"),
+                        "XDG_CACHE_HOME": str(directory / "cache"),
+                    },
                 )
                 wait_health(local + "/global/health", opencode)
                 start(
