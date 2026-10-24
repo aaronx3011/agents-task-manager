@@ -11,6 +11,26 @@ import { workerSettings } from "./settings.mjs"
 import { CommandReceipts } from "./receipts.mjs"
 import { startWorker } from "./worker.mjs"
 
+const fixtures = new WeakMap()
+
+function resources(t) {
+  if (fixtures.has(t)) return fixtures.get(t)
+  const owned = { handles: [], servers: [], directories: [] }
+  fixtures.set(t, owned)
+  t.after(async () => {
+    // Stop receipt writers before deleting state. Separate FIFO after-hooks
+    // raced a sync acknowledgement against rm and leaked the worker on failure.
+    owned.handles.forEach((handle) => handle.stop())
+    await Promise.allSettled(owned.handles.map((handle) => handle.done))
+    for (const server of owned.servers) {
+      server.closeAllConnections()
+      await new Promise((resolve) => server.close(resolve))
+    }
+    await Promise.all(owned.directories.map((directory) => rm(directory, { recursive: true, force: true })))
+  })
+  return owned
+}
+
 async function serve(t, handle) {
   const server = createServer(async (request, response) => {
     let body = ""
@@ -18,10 +38,7 @@ async function serve(t, handle) {
     await handle(request, response, body)
   })
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
-  t.after(() => {
-    server.closeAllConnections()
-    server.close()
-  })
+  resources(t).servers.push(server)
   return `http://127.0.0.1:${server.address().port}`
 }
 
@@ -33,7 +50,7 @@ function json(response, value) {
 async function until(probe) {
   const deadline = Date.now() + 5000
   while (Date.now() < deadline) {
-    const value = probe()
+    const value = await probe()
     if (value) return value
     await setTimeout(10)
   }
@@ -42,7 +59,7 @@ async function until(probe) {
 
 async function state(t) {
   const directory = await mkdtemp(join(tmpdir(), "atm-bridge-test-"))
-  t.after(() => rm(directory, { recursive: true, force: true }))
+  resources(t).directories.push(directory)
   return directory
 }
 
@@ -80,7 +97,7 @@ function command(id, action, payload = {}, extra = {}) {
 
 async function worker(t, local, coordinatorURL, stateDirectory) {
   const handle = startWorker({ worker: "fixture", key: "coordinator-secret", url: local.url, coordinatorURL, stateDirectory, interval: 20, password: "local-secret" })
-  t.after(async () => { handle.stop(); await handle.done })
+  resources(t).handles.push(handle)
   return handle
 }
 
@@ -144,8 +161,7 @@ test("lost sync response retries identical body, retains outcomes and republishe
   assert.ok(uploads.some((upload) => upload.events.some((event) => event.payload && !event.frame)))
   const receipts = new CommandReceipts(directory)
   await until(() => resultsReceived)
-  // Allow acknowledge's atomic write to finish before inspecting durable state.
-  await setTimeout(30)
+  await until(async () => (await receipts.pending()).length === 0)
   assert.deepEqual(await receipts.pending(), [])
 })
 
