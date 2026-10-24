@@ -24,7 +24,14 @@ x-web: &web
     DJANGO_SECURE_SSL_REDIRECT: "true"
     DJANGO_SECURE_COOKIES: "true"
     DJANGO_TRUST_PROXY: "true"
-    WEB_CONCURRENCY: "2"
+    WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+    WORKER_OFFLINE_SECONDS: ${WORKER_OFFLINE_SECONDS:-10}
+    WORKER_SESSION_KEEP: ${WORKER_SESSION_KEEP:-500}
+    WORKER_MESSAGE_KEEP: ${WORKER_MESSAGE_KEEP:-120}
+    WORKER_EVENT_KEEP: ${WORKER_EVENT_KEEP:-5000}
+    WORKER_EVENT_MAX_BYTES: ${WORKER_EVENT_MAX_BYTES:-65536}
+    WORKER_SYNC_MAX_BYTES: ${WORKER_SYNC_MAX_BYTES:-8388608}
+    WORKER_COMMAND_QUEUE_CAP: ${WORKER_COMMAND_QUEUE_CAP:-100}
   restart: unless-stopped
   depends_on:
     db:
@@ -63,13 +70,18 @@ services:
     command:
       - sh
       - -c
-      - python manage.py migrate --noinput && exec uvicorn config.asgi:application --host 0.0.0.0 --port 8000
+      - python manage.py migrate --noinput && exec uvicorn config.asgi:application --host 0.0.0.0 --port 8000 --workers $${WEB_CONCURRENCY}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
     networks:
       - default
       - proxy
   reaper:
     <<: *web
-    command: ["sh", "-c", "while true; do python manage.py release_stale_tasks || exit 1; sleep 300; done"]
+    command: ["sh", "-c", "while true; do python manage.py release_stale_tasks --minutes ${TASK_CLAIM_TIMEOUT_MINUTES:-15} || exit 1; sleep ${TASK_REAPER_INTERVAL_SECONDS:-300}; done"]
     depends_on:
       web:
         condition: service_healthy

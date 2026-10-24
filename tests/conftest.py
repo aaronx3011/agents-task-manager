@@ -13,6 +13,11 @@ def fast_test_passwords(settings):
     }
 
 
+@pytest.fixture(autouse=True)
+def reset_notification_backoff(monkeypatch):
+    monkeypatch.setattr("coordinator.realtime._broker_retry_after", 0)
+
+
 @pytest.fixture
 def project(db):
     return Project.objects.create(slug="coordinator", name="Coordinator")

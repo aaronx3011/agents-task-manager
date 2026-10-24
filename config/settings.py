@@ -70,6 +70,32 @@ CHANNEL_LAYERS = {
     )
 }
 COORDINATOR_DEMO = env_bool("COORDINATOR_DEMO")
+
+
+def env_int(name, default):
+    try:
+        return int(os.environ.get(name, str(default)))
+    except ValueError as exc:
+        raise ImproperlyConfigured(f"{name} must be an integer") from exc
+
+
+# OpenCode worker integration (#8 contract). Freshness of the last authenticated
+# sync decides bridge connectivity, not Agent.last_seen or task heartbeats.
+WORKER_OFFLINE_SECONDS = env_int("WORKER_OFFLINE_SECONDS", 10)
+# Maximum commands a worker may keep in the queue for future dispatch.
+WORKER_COMMAND_QUEUE_CAP = env_int("WORKER_COMMAND_QUEUE_CAP", 100)
+
+# Bound for POST /api/worker/sync bodies; oversized envelopes are rejected (413).
+WORKER_SYNC_MAX_BYTES = env_int("WORKER_SYNC_MAX_BYTES", 8 * 1024 * 1024)
+# Allow Django's request-size guard to accommodate valid worker sync envelopes.
+DATA_UPLOAD_MAX_MEMORY_SIZE = WORKER_SYNC_MAX_BYTES
+# Sync protocol major version supported by this server; bridge minor versions are additive.
+WORKER_SYNC_PROTOCOL_VERSION = 1
+# Bounded central observation retention (#9): explicit limits, not a full archive.
+WORKER_SESSION_KEEP = env_int("WORKER_SESSION_KEEP", 500)
+WORKER_MESSAGE_KEEP = env_int("WORKER_MESSAGE_KEEP", 120)
+WORKER_EVENT_KEEP = env_int("WORKER_EVENT_KEEP", 5000)
+WORKER_EVENT_MAX_BYTES = env_int("WORKER_EVENT_MAX_BYTES", 64 * 1024)
 DATABASES = {
     "default": dj_database_url.parse(
         os.environ.get("DATABASE_URL") or f"sqlite:///{BASE_DIR / 'db.sqlite3'}",

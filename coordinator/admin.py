@@ -4,7 +4,51 @@ from django.db import transaction
 from django.http import HttpResponse
 
 from . import services
-from .models import Agent, Project, Task, TaskEvent
+from .models import Agent, Project, Task, TaskEvent, Worker, WorkerCommand
+
+
+@admin.register(Worker)
+class WorkerAdmin(admin.ModelAdmin):
+    list_display = ("name", "agent", "is_enabled", "online", "connected", "last_sync_at")
+    list_filter = ("is_enabled", "connected")
+    search_fields = ("name", "hostname", "directory")
+    readonly_fields = (
+        "hostname",
+        "opencode_url",
+        "protocol_version",
+        "opencode_version",
+        "directory",
+        "create_directory",
+        "connected",
+        "stream_connected",
+        "last_error",
+        "last_error_at",
+        "default_model",
+        "model_catalog",
+        "session_limit",
+        "message_limit",
+        "dropped_events",
+        "last_sync_at",
+        "created_at",
+        "updated_at",
+    )
+    actions = ["disable_selected", "enable_selected"]
+
+    @admin.display(boolean=True)
+    def online(self, obj):
+        return obj.is_online()
+
+    @admin.action(description="Disable selected workers (blocks ingestion/delivery)")
+    def disable_selected(self, request, queryset):
+        for worker in queryset:
+            services.set_worker_enabled(worker, enabled=False, reason="disabled by admin")
+        self.message_user(request, f"Disabled {queryset.count()} worker(s).")
+
+    @admin.action(description="Enable selected workers")
+    def enable_selected(self, request, queryset):
+        for worker in queryset:
+            services.set_worker_enabled(worker, enabled=True, reason="enabled by admin")
+        self.message_user(request, f"Enabled {queryset.count()} worker(s).")
 
 
 @admin.register(Project)
@@ -139,3 +183,49 @@ class TaskEventAdmin(admin.ModelAdmin):
 
 admin.site.site_header = "Agent Task Coordinator"
 admin.site.site_title = "Task Coordinator"
+
+
+@admin.register(WorkerCommand)
+class WorkerCommandAdmin(admin.ModelAdmin):
+    """Observation-first admin; staff resolve ambiguous deliveries via the API."""
+
+    list_display = (
+        "id",
+        "worker",
+        "action",
+        "status",
+        "delivery_uncertain",
+        "created_by_label",
+        "created_at",
+    )
+    list_filter = ("status", "action", "delivery_uncertain")
+    search_fields = ("worker__name", "remote_session_id", "client_request_id", "actor_label")
+    readonly_fields = (
+        "worker",
+        "created_by",
+        "actor_label",
+        "action",
+        "payload",
+        "remote_session_id",
+        "session",
+        "request_id",
+        "client_request_id",
+        "status",
+        "delivery_uncertain",
+        "dispatched_at",
+        "completed_at",
+        "result",
+        "error",
+        "uncertain_text",
+        "created_at",
+    )
+    actions = ["purge_terminal"]
+
+    @admin.display(description="Actor")
+    def created_by_label(self, obj):
+        return obj.actor_label or (obj.created_by.name if obj.created_by else "")
+
+    @admin.action(description="Delete resolved commands (terminal only)")
+    def purge_terminal(self, request, queryset):
+        removed, _ = queryset.exclude(status="queued").exclude(status="dispatched").delete()
+        self.message_user(request, f"Deleted {removed} resolved command(s).")

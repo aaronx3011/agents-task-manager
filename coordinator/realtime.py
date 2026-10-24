@@ -1,4 +1,7 @@
+import asyncio
+import logging
 from importlib import import_module
+from time import monotonic
 from types import SimpleNamespace
 
 from asgiref.sync import async_to_sync
@@ -8,21 +11,53 @@ from channels.layers import get_channel_layer
 from django.conf import settings
 from django.contrib.auth import get_user
 
+logger = logging.getLogger(__name__)
+
 GROUP = "dashboard.staff"
+_broker_retry_after = 0
 
 
-def publish_change(event_id=None, task_id=None, event_type=None):
+def publish_change(event_id=None, task_id=None, event_type=None, extra=None):
+    global _broker_retry_after
+    if monotonic() < _broker_retry_after:
+        return
     layer = get_channel_layer()
-    if layer is not None:
-        async_to_sync(layer.group_send)(
-            GROUP,
-            {
-                "type": "dashboard.changed",
-                "event_id": event_id,
-                "task_id": task_id,
-                "event_type": event_type,
-            },
-        )
+    if layer is None:
+        return
+    message = {
+        "type": "dashboard.changed",
+        "event_id": event_id,
+        "task_id": task_id,
+        "event_type": event_type,
+    }
+    if extra:
+        message.update(extra)
+
+    async def send():
+        await asyncio.wait_for(layer.group_send(GROUP, message), timeout=1)
+
+    try:
+        async_to_sync(send)()
+    except Exception:  # broker failure mutates nothing already committed
+        # A paused broker must not stall every post-commit callback in a sync.
+        _broker_retry_after = monotonic() + 5
+        logger.warning("Dashboard notification failed; committed state unchanged", exc_info=True)
+
+
+def dispatch_notification(
+    event_type, subject, worker=None, session=None, command=None, event_id=None
+):
+    """Post-commit worker-domain invalidation (#11/#15)."""
+    publish_change(
+        event_id=event_id,
+        event_type=event_type,
+        extra={
+            "subject": subject,
+            "worker_id": worker.pk if worker else None,
+            "session_id": getattr(session, "pk", None),
+            "command_id": getattr(command, "pk", None),
+        },
+    )
 
 
 class DashboardConsumer(AsyncJsonWebsocketConsumer):
@@ -73,5 +108,9 @@ class DashboardConsumer(AsyncJsonWebsocketConsumer):
                 "event_id": event.get("event_id"),
                 "task_id": event.get("task_id"),
                 "event_type": event.get("event_type"),
+                "subject": event.get("subject"),
+                "worker_id": event.get("worker_id"),
+                "session_id": event.get("session_id"),
+                "command_id": event.get("command_id"),
             }
         )
