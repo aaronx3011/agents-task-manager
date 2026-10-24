@@ -1824,7 +1824,16 @@ kbd {
     width: 265px;
   }
 }
+.mobile-workspace-nav {
+  display: none;
+}
 @media (max-width: 850px) {
+  .mobile-workspace-nav {
+    display: flex;
+    align-self: flex-start;
+    flex-shrink: 0;
+    margin: 8px 0;
+  }
   .sidebar {
     display: none;
   }

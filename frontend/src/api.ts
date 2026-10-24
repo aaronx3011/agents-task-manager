@@ -32,6 +32,34 @@ export async function get<T>(path: string): Promise<T> {
   }
   return response.json() as Promise<T>;
 }
+export async function post<T>(path: string, body: unknown): Promise<T> {
+  const token = document.cookie
+    .split("; ")
+    .find((cookie) => cookie.startsWith("csrftoken="))
+    ?.slice("csrftoken=".length);
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-CSRFToken": token ? decodeURIComponent(token) : "",
+    },
+    body: JSON.stringify(body),
+  });
+  if (response.redirected || response.status === 401)
+    throw new ApiError(401, "Your session has expired. Sign in to reconnect.");
+  const data = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+  if (!response.ok)
+    throw new ApiError(
+      response.status,
+      typeof data.detail === "string" ? data.detail : JSON.stringify(data),
+    );
+  return data as T;
+}
 export function query(
   filters: Filters,
   extra: Record<string, string | number> = {},

@@ -95,6 +95,9 @@ export interface Filters {
   ready: string;
 }
 export interface LocationState {
+  section: "tasks" | "opencodes";
+  worker: string;
+  session: string;
   filters: Filters;
   view: "kanban" | "list";
   ordering: string;

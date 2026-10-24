@@ -1,0 +1,368 @@
+.oc-workspace {
+  min-height: 0;
+  overflow: auto;
+  flex: 1;
+  padding: 26px 30px;
+}
+.oc-heading,
+.oc-worker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.oc-heading h1 {
+  font-size: 28px;
+  margin: 8px 0;
+  letter-spacing: -0.8px;
+}
+.oc-heading p,
+.oc-worker-header p {
+  color: var(--muted);
+  margin: 6px 0;
+}
+.oc-layout {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.oc-workers {
+  background: var(--sidebar);
+  border-right: 1px solid var(--line);
+  padding: 15px;
+  min-width: 0;
+}
+.oc-workers h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin: 0 0 16px;
+}
+.oc-worker,
+.oc-session {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  width: 100%;
+  padding: 12px;
+  margin-bottom: 8px;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  overflow-wrap: anywhere;
+}
+.oc-worker:hover,
+.oc-session:hover {
+  background: var(--hover);
+}
+.oc-worker.selected,
+.oc-session.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.oc-worker small,
+.oc-session small,
+.oc-session span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.oc-online {
+  color: var(--accent);
+}
+.oc-warning {
+  color: var(--amber);
+}
+.oc-worker-panel {
+  min-width: 0;
+  padding: 20px;
+}
+.oc-worker-header h2 {
+  margin: 0 0 8px;
+}
+.oc-alert {
+  padding: 12px;
+  border: 1px solid var(--amber);
+  color: var(--amber);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.oc-feedback {
+  min-height: 22px;
+  margin-bottom: 12px;
+  color: var(--muted);
+}
+.oc-feedback [role="alert"] {
+  color: var(--amber);
+}
+.oc-pending-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 15px;
+  align-items: center;
+}
+.oc-session-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.oc-sessions {
+  padding: 12px;
+  border-right: 1px solid var(--line);
+  min-width: 0;
+  max-height: 1050px;
+  overflow-y: auto;
+}
+.oc-sessions h3 {
+  margin: 4px 0 16px;
+  font-size: 13px;
+}
+.oc-conversation {
+  min-width: 0;
+  padding: 18px;
+}
+.oc-conversation > header {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+}
+.oc-conversation h2 {
+  font-size: 19px;
+  margin-top: 0;
+  overflow-wrap: anywhere;
+}
+.oc-conversation header p {
+  color: var(--muted);
+}
+.oc-directory,
+.oc-conversation code {
+  overflow-wrap: anywhere;
+}
+.oc-text-button {
+  background: transparent;
+  color: var(--blue);
+  border: 0;
+  padding: 4px 8px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.oc-messages {
+  max-height: 650px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  padding: 0 4px;
+}
+.oc-message {
+  padding: 15px;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  margin: 12px 0;
+}
+.oc-role-user {
+  background: var(--accent-soft);
+}
+.oc-message > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: capitalize;
+}
+.oc-markdown {
+  line-height: 1.65;
+}
+.oc-markdown a {
+  color: var(--blue);
+  text-decoration: underline;
+}
+.oc-markdown table {
+  display: block;
+  overflow: auto;
+}
+.oc-window {
+  font-size: 11px;
+  color: var(--muted);
+}
+.oc-workspace pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  padding: 10px;
+  background: var(--bg);
+  border-radius: 5px;
+  max-height: 340px;
+  overflow: auto;
+}
+.oc-workspace details {
+  padding: 10px 0;
+}
+.oc-workspace summary {
+  cursor: pointer;
+  color: var(--secondary);
+}
+.oc-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: var(--secondary);
+  font-size: 12px;
+}
+.oc-form input:not([type="checkbox"]):not([type="radio"]),
+.oc-form select,
+.oc-form textarea {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 9px 10px;
+  width: 100%;
+  min-width: 0;
+  color: var(--text);
+  font: inherit;
+}
+.oc-form textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+.oc-create {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 15px;
+}
+.oc-compose {
+  border-top: 1px solid var(--line);
+  padding-top: 15px;
+  margin-top: 16px;
+}
+.oc-compose-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: end;
+  margin-top: 12px;
+}
+.oc-form .oc-inline {
+  flex-direction: row;
+  align-items: center;
+  padding: 8px 0;
+}
+.oc-compose .muted {
+  font-size: 11px;
+  line-height: 1.6;
+}
+.oc-interaction {
+  border: 1px solid var(--amber);
+  padding: 14px;
+  border-radius: 8px;
+  margin: 12px 0;
+}
+.oc-interaction h3 {
+  color: var(--amber);
+  margin-top: 0;
+}
+.oc-interaction fieldset {
+  min-width: 0;
+  border: 1px solid var(--line);
+  margin: 12px 0;
+  padding: 12px;
+  border-radius: 5px;
+}
+.oc-form .oc-choice {
+  flex-direction: row;
+  align-items: start;
+  padding: 7px 0;
+}
+.oc-choice span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.oc-choice small {
+  color: var(--muted);
+}
+.oc-commands {
+  margin-top: 20px;
+}
+.oc-command {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 11px;
+}
+.oc-command p {
+  flex-basis: 100%;
+  margin: 2px 0;
+  overflow-wrap: anywhere;
+}
+.oc-pager {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0;
+  font-size: 10px;
+  flex-wrap: wrap;
+}
+@media (max-width: 1250px) {
+  .oc-layout {
+    grid-template-columns: 175px minmax(0, 1fr);
+  }
+  .oc-session-layout {
+    grid-template-columns: 170px minmax(0, 1fr);
+  }
+  .oc-worker-panel {
+    padding: 12px;
+  }
+}
+@media (max-width: 950px) {
+  .oc-session-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .oc-sessions {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    max-height: 250px;
+  }
+}
+@media (max-width: 650px) {
+  .oc-workspace {
+    padding: 18px 12px;
+  }
+  .oc-heading {
+    align-items: start;
+  }
+  .oc-heading h1 {
+    font-size: 23px;
+  }
+  .oc-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .oc-workers {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    max-height: 240px;
+    overflow-y: auto;
+  }
+  .oc-create {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .oc-conversation {
+    padding: 12px;
+  }
+  .oc-worker-header {
+    align-items: start;
+  }
+}

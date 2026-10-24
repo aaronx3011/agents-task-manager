@@ -5,6 +5,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.views.decorators.cache import never_cache
+from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.exceptions import ValidationError
 
 from .models import Agent, Project, Task, TaskEvent
@@ -14,6 +15,7 @@ from .serializers import TaskSerializer
 
 @never_cache
 @staff_member_required
+@ensure_csrf_cookie
 def dashboard(request):
     return render(request, "coordinator/dashboard.html", {"demo": settings.COORDINATOR_DEMO})
 

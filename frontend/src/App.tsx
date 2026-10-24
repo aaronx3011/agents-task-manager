@@ -25,6 +25,7 @@ import {
   PanelRightOpen,
   Radio,
   Search,
+  Monitor,
   SlidersHorizontal,
   Sun,
   Users,
@@ -52,6 +53,7 @@ import {
 const TaskModal = lazy(() =>
   import("./TaskModal").then((module) => ({ default: module.TaskModal })),
 );
+const OpenCodes = lazy(() => import("./OpenCodes"));
 
 function preference(key: string, fallback: string) {
   try {
@@ -229,7 +231,7 @@ export default function App() {
   );
   const filter = useCallback(
     (changes: Record<string, string | number | null>) =>
-      navigate({ ...changes, page: null }),
+      navigate({ section: null, ...changes, page: null }),
     [navigate],
   );
   const search = useCallback((q: string) => filter({ q }), [filter]);
@@ -306,13 +308,28 @@ export default function App() {
             <ChevronDown size={13} />
           </div>
           <div className="nav-caption">WORKSPACE</div>
-          <button className="nav-link active" onClick={reset}>
+          <button
+            className={`nav-link ${location.section === "tasks" ? "active" : ""}`}
+            onClick={reset}
+          >
             <LayoutGrid size={17} />
             All tasks<span className="nav-count">{data?.total ?? "—"}</span>
           </button>
           <button
+            className={`nav-link ${location.section === "opencodes" ? "active" : ""}`}
+            onClick={() => navigate({ section: "opencodes", task: null }, true)}
+          >
+            <Monitor size={17} />
+            OpenCodes
+          </button>
+          <button
             className={`nav-link ${agentsOpen ? "subtle-active" : ""}`}
-            onClick={() => setAgentsOpen(!agentsOpen)}
+            onClick={() => {
+              if (location.section === "opencodes") {
+                navigate({ section: null });
+                setAgentsOpen(true);
+              } else setAgentsOpen(!agentsOpen);
+            }}
           >
             <Users size={17} />
             Agents
@@ -320,7 +337,12 @@ export default function App() {
           </button>
           <button
             className={`nav-link ${activityOpen ? "subtle-active" : ""}`}
-            onClick={() => setActivityOpen(!activityOpen)}
+            onClick={() => {
+              if (location.section === "opencodes") {
+                navigate({ section: null });
+                setActivityOpen(true);
+              } else setActivityOpen(!activityOpen);
+            }}
           >
             <Activity size={17} />
             Activity{connection === "live" && <span className="tiny-dot" />}
@@ -378,7 +400,11 @@ export default function App() {
               <Layers3 size={15} />
               <span>Workspace</span>
               <ChevronRight size={13} />
-              <strong>{project?.name || "All projects"}</strong>
+              <strong>
+                {location.section === "opencodes"
+                  ? "Connected OpenCodes"
+                  : project?.name || "All projects"}
+              </strong>
             </div>
             <div className="topbar-actions">
               <span
@@ -397,302 +423,346 @@ export default function App() {
               </button>
             </div>
           </header>
-          <section className="workspace-heading">
-            <div>
-              <div className="eyebrow">YOUR AGENTS, IN SYNC</div>
-              <h1 id="workspace-title" tabIndex={-1}>
-                {project?.name || "Workspace overview"}
-                <span className="heading-dot">.</span>
-              </h1>
-              <p>A clear picture of the work. As it happens.</p>
-            </div>
-            <div className="heading-right">
-              {root.dataset.demo === "true" && (
-                <span className="demo-label">
-                  <Radio size={13} />
-                  LIVE MCP DEMO
-                </span>
-              )}
-              <span className="read-only">
-                <LockIcon />
-                Observation mode
-              </span>
-            </div>
-          </section>
-          <div className="workspace-toolbar">
-            <div className="view-tabs" role="group" aria-label="Task view">
-              <button
-                aria-pressed={location.view === "kanban"}
-                disabled={filters.status === "cancelled"}
-                onClick={() => change({ view: "kanban" })}
-              >
-                <LayoutGrid size={15} />
-                Kanban
-              </button>
-              <button
-                aria-pressed={location.view === "list"}
-                onClick={() => change({ view: "list" })}
-              >
-                <List size={16} />
-                List
-              </button>
-            </div>
-            <div className="toolbar-spacer" />
-            <SearchBox value={filters.q} change={search} />
+          <div
+            className="mobile-workspace-nav view-tabs"
+            role="group"
+            aria-label="Workspace section"
+          >
             <button
-              className={`icon-button density-button ${density === "compact" ? "selected" : ""}`}
-              aria-label={`Use ${density === "compact" ? "comfortable" : "compact"} density`}
+              aria-label="All tasks"
+              aria-pressed={location.section === "tasks"}
+              onClick={reset}
+            >
+              Tasks
+            </button>
+            <button
+              aria-pressed={location.section === "opencodes"}
               onClick={() =>
-                setDensity(density === "compact" ? "comfortable" : "compact")
+                navigate({ section: "opencodes", task: null }, true)
               }
             >
-              <ArrowDownWideNarrow size={17} />
-            </button>
-            <button
-              className={`icon-button activity-toggle ${activityOpen ? "selected" : ""}`}
-              aria-label={
-                activityOpen ? "Hide activity panel" : "Show activity panel"
-              }
-              onClick={() => setActivityOpen(!activityOpen)}
-            >
-              {activityOpen ? (
-                <PanelRightClose size={17} />
-              ) : (
-                <PanelRightOpen size={17} />
-              )}
+              OpenCodes
             </button>
           </div>
-          <div className="filters-bar">
-            <span className="filter-label">
-              <SlidersHorizontal size={13} />
-              Filters
-            </span>
-            <select
-              aria-label="Project filter"
-              value={filters.project}
-              onChange={(event) => filter({ project: event.target.value })}
-            >
-              <option value="">All projects</option>
-              {data?.projects.map((item) => (
-                <option key={item.slug} value={item.slug}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Agent filter"
-              value={filters.claimed_by}
-              onChange={(event) => filter({ claimed_by: event.target.value })}
-            >
-              <option value="">All agents</option>
-              <option value="__unclaimed__">Unassigned</option>
-              {data?.agents.map((agent) => (
-                <option key={agent.name} value={agent.name}>
-                  {agent.name}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Status filter"
-              value={filters.status}
-              onChange={(event) =>
-                filter({
-                  status: event.target.value,
-                  ...(event.target.value === "cancelled"
-                    ? { view: "list" }
-                    : {}),
-                })
-              }
-            >
-              <option value="">All statuses</option>
-              {STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {LABELS[status]}
-                </option>
-              ))}
-            </select>
-            <button
-              className={`filter-chip ${filters.ready ? "enabled" : ""}`}
-              aria-pressed={Boolean(filters.ready)}
-              onClick={() => filter({ ready: filters.ready ? null : "true" })}
-            >
-              <Check size={12} />
-              Ready only
-            </button>
-            {activeFilters > 0 && (
-              <button className="clear-filters" onClick={reset}>
-                <X size={12} />
-                Clear {activeFilters}
-              </button>
-            )}
-            <span className="result-count">
-              {data?.total ?? "—"} matching tasks
-            </span>
-          </div>
-          {agentsOpen && (
-            <div className="team-strip">
-              <span className="team-label">
-                <Users size={13} />
-                The team
-              </span>
-              <div className="team-agents">
-                {data?.agents.map((agent) => (
-                  <AgentChip
-                    key={agent.name}
-                    agent={agent}
-                    filter={() =>
-                      filter({
-                        claimed_by:
-                          filters.claimed_by === agent.name ? null : agent.name,
-                      })
-                    }
-                    open={openTask}
-                  />
-                ))}
-              </div>
-              <button
-                className="icon-button"
-                aria-label="Hide agent strip"
-                onClick={() => setAgentsOpen(false)}
-              >
-                <X size={14} />
-              </button>
-            </div>
-          )}
-          <div className="content-summary">
-            <span>
-              {location.view === "kanban" ? "Task board" : "All tasks"}
-              <span className="count-bubble">{data?.total ?? "—"}</span>
-            </span>
-            <div>
-              <span className="summary-ready">
-                <span className="tiny-dot" />
-                {data?.ready_count || 0} ready
-              </span>
-              <span className="summary-note">
-                {location.view === "kanban"
-                  ? "Sorted by priority"
-                  : "Live task list"}
-              </span>
-              {location.view === "kanban" &&
-                Boolean(data?.counts.cancelled) && (
+          {location.section === "opencodes" ? (
+            <Suspense fallback={<Loading label="Opening OpenCodes…" />}>
+              <OpenCodes
+                worker={location.worker}
+                session={location.session}
+                navigate={navigate}
+                openTask={openTask}
+              />
+            </Suspense>
+          ) : (
+            <>
+              <section className="workspace-heading">
+                <div>
+                  <div className="eyebrow">YOUR AGENTS, IN SYNC</div>
+                  <h1 id="workspace-title" tabIndex={-1}>
+                    {project?.name || "Workspace overview"}
+                    <span className="heading-dot">.</span>
+                  </h1>
+                  <p>A clear picture of the work. As it happens.</p>
+                </div>
+                <div className="heading-right">
+                  {root.dataset.demo === "true" && (
+                    <span className="demo-label">
+                      <Radio size={13} />
+                      LIVE MCP DEMO
+                    </span>
+                  )}
+                  <span className="read-only">
+                    <LockIcon />
+                    Observation mode
+                  </span>
+                </div>
+              </section>
+              <div className="workspace-toolbar">
+                <div className="view-tabs" role="group" aria-label="Task view">
                   <button
-                    className="summary-note"
-                    onClick={() =>
-                      filter({ view: "list", status: "cancelled" })
-                    }
+                    aria-pressed={location.view === "kanban"}
+                    disabled={filters.status === "cancelled"}
+                    onClick={() => change({ view: "kanban" })}
                   >
-                    {data?.counts.cancelled} cancelled · view list
+                    <LayoutGrid size={15} />
+                    Kanban
                   </button>
-                )}
-            </div>
-          </div>
-          {expired && (
-            <div className="session-notice">
-              Your session has ended.{" "}
-              <a
-                href={`/admin/login/?next=${encodeURIComponent(window.location.pathname + window.location.search)}`}
-              >
-                Sign in again
-              </a>
-            </div>
-          )}
-          <div className="workspace-content">
-            <div className="primary-content">
-              {workspace.isLoading ? (
-                <Loading />
-              ) : workspace.error ? (
-                <ErrorState
-                  error={workspace.error}
-                  retry={() => void workspace.refetch()}
-                />
-              ) : data?.total === 0 ? (
-                <Empty
-                  title={
-                    activeFilters
-                      ? "No tasks match your filters"
-                      : "Your workspace is ready"
-                  }
-                  description={
-                    activeFilters
-                      ? "Try a different search or clear your filters."
-                      : "Tasks will appear here when your agents create work."
+                  <button
+                    aria-pressed={location.view === "list"}
+                    onClick={() => change({ view: "list" })}
+                  >
+                    <List size={16} />
+                    List
+                  </button>
+                </div>
+                <div className="toolbar-spacer" />
+                <SearchBox value={filters.q} change={search} />
+                <button
+                  className={`icon-button density-button ${density === "compact" ? "selected" : ""}`}
+                  aria-label={`Use ${density === "compact" ? "comfortable" : "compact"} density`}
+                  onClick={() =>
+                    setDensity(
+                      density === "compact" ? "comfortable" : "compact",
+                    )
                   }
                 >
-                  {activeFilters > 0 && (
-                    <button className="button secondary" onClick={reset}>
-                      Clear filters
-                    </button>
+                  <ArrowDownWideNarrow size={17} />
+                </button>
+                <button
+                  className={`icon-button activity-toggle ${activityOpen ? "selected" : ""}`}
+                  aria-label={
+                    activityOpen ? "Hide activity panel" : "Show activity panel"
+                  }
+                  onClick={() => setActivityOpen(!activityOpen)}
+                >
+                  {activityOpen ? (
+                    <PanelRightClose size={17} />
+                  ) : (
+                    <PanelRightOpen size={17} />
                   )}
-                </Empty>
-              ) : location.view === "kanban" ? (
-                <Board
-                  filters={filters}
-                  open={openTask}
-                  highlighted={highlighted}
-                />
-              ) : (
-                <TaskList
-                  filters={filters}
-                  ordering={location.ordering}
-                  page={location.page}
-                  change={change}
-                  open={openTask}
-                />
-              )}
-            </div>
-            {activityOpen && (
-              <aside className="activity-panel" aria-label="Live activity">
-                <header>
-                  <Activity size={15} />
-                  <h2>Activity</h2>
-                  <span className="live-dot" />
-                </header>
-                <p className="panel-description">
-                  The latest updates from your agents.
-                </p>
-                <div className="activity-events">
-                  {data?.events.map((event) => (
-                    <button
-                      className="activity-item"
-                      key={event.id}
-                      onClick={() => openTask(event.task_id)}
-                    >
-                      <span
-                        className={`activity-symbol event-${event.event_type}`}
-                      >
-                        <Activity size={13} />
-                      </span>
-                      <div>
-                        <strong>
-                          {event.agent || "System / human"}
-                          <span>{event.event_type.replaceAll("_", " ")}</span>
-                        </strong>
-                        <p>{event.title}</p>
-                        {event.message && <small>{event.message}</small>}
-                        <Age value={event.created_at} />
-                      </div>
-                    </button>
+                </button>
+              </div>
+              <div className="filters-bar">
+                <span className="filter-label">
+                  <SlidersHorizontal size={13} />
+                  Filters
+                </span>
+                <select
+                  aria-label="Project filter"
+                  value={filters.project}
+                  onChange={(event) => filter({ project: event.target.value })}
+                >
+                  <option value="">All projects</option>
+                  {data?.projects.map((item) => (
+                    <option key={item.slug} value={item.slug}>
+                      {item.name}
+                    </option>
                   ))}
-                  {data && !data.events.length && (
-                    <Empty title="No activity in this view" />
+                </select>
+                <select
+                  aria-label="Agent filter"
+                  value={filters.claimed_by}
+                  onChange={(event) =>
+                    filter({ claimed_by: event.target.value })
+                  }
+                >
+                  <option value="">All agents</option>
+                  <option value="__unclaimed__">Unassigned</option>
+                  {data?.agents.map((agent) => (
+                    <option key={agent.name} value={agent.name}>
+                      {agent.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Status filter"
+                  value={filters.status}
+                  onChange={(event) =>
+                    filter({
+                      status: event.target.value,
+                      ...(event.target.value === "cancelled"
+                        ? { view: "list" }
+                        : {}),
+                    })
+                  }
+                >
+                  <option value="">All statuses</option>
+                  {STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {LABELS[status]}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className={`filter-chip ${filters.ready ? "enabled" : ""}`}
+                  aria-pressed={Boolean(filters.ready)}
+                  onClick={() =>
+                    filter({ ready: filters.ready ? null : "true" })
+                  }
+                >
+                  <Check size={12} />
+                  Ready only
+                </button>
+                {activeFilters > 0 && (
+                  <button className="clear-filters" onClick={reset}>
+                    <X size={12} />
+                    Clear {activeFilters}
+                  </button>
+                )}
+                <span className="result-count">
+                  {data?.total ?? "—"} matching tasks
+                </span>
+              </div>
+              {agentsOpen && (
+                <div className="team-strip">
+                  <span className="team-label">
+                    <Users size={13} />
+                    The team
+                  </span>
+                  <div className="team-agents">
+                    {data?.agents.map((agent) => (
+                      <AgentChip
+                        key={agent.name}
+                        agent={agent}
+                        filter={() =>
+                          filter({
+                            claimed_by:
+                              filters.claimed_by === agent.name
+                                ? null
+                                : agent.name,
+                          })
+                        }
+                        open={openTask}
+                      />
+                    ))}
+                  </div>
+                  <button
+                    className="icon-button"
+                    aria-label="Hide agent strip"
+                    onClick={() => setAgentsOpen(false)}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+              <div className="content-summary">
+                <span>
+                  {location.view === "kanban" ? "Task board" : "All tasks"}
+                  <span className="count-bubble">{data?.total ?? "—"}</span>
+                </span>
+                <div>
+                  <span className="summary-ready">
+                    <span className="tiny-dot" />
+                    {data?.ready_count || 0} ready
+                  </span>
+                  <span className="summary-note">
+                    {location.view === "kanban"
+                      ? "Sorted by priority"
+                      : "Live task list"}
+                  </span>
+                  {location.view === "kanban" &&
+                    Boolean(data?.counts.cancelled) && (
+                      <button
+                        className="summary-note"
+                        onClick={() =>
+                          filter({ view: "list", status: "cancelled" })
+                        }
+                      >
+                        {data?.counts.cancelled} cancelled · view list
+                      </button>
+                    )}
+                </div>
+              </div>
+              {expired && (
+                <div className="session-notice">
+                  Your session has ended.{" "}
+                  <a
+                    href={`/admin/login/?next=${encodeURIComponent(window.location.pathname + window.location.search)}`}
+                  >
+                    Sign in again
+                  </a>
+                </div>
+              )}
+              <div className="workspace-content">
+                <div className="primary-content">
+                  {workspace.isLoading ? (
+                    <Loading />
+                  ) : workspace.error ? (
+                    <ErrorState
+                      error={workspace.error}
+                      retry={() => void workspace.refetch()}
+                    />
+                  ) : data?.total === 0 ? (
+                    <Empty
+                      title={
+                        activeFilters
+                          ? "No tasks match your filters"
+                          : "Your workspace is ready"
+                      }
+                      description={
+                        activeFilters
+                          ? "Try a different search or clear your filters."
+                          : "Tasks will appear here when your agents create work."
+                      }
+                    >
+                      {activeFilters > 0 && (
+                        <button className="button secondary" onClick={reset}>
+                          Clear filters
+                        </button>
+                      )}
+                    </Empty>
+                  ) : location.view === "kanban" ? (
+                    <Board
+                      filters={filters}
+                      open={openTask}
+                      highlighted={highlighted}
+                    />
+                  ) : (
+                    <TaskList
+                      filters={filters}
+                      ordering={location.ordering}
+                      page={location.page}
+                      change={change}
+                      open={openTask}
+                    />
                   )}
                 </div>
-              </aside>
-            )}
-          </div>
-          <footer className="workspace-footer">
-            <span>
-              <span className="tiny-dot" />
-              {workspace.isFetching
-                ? "Syncing committed state…"
-                : "All changes synced"}
-            </span>
-            <span>
-              <CircleHelp size={12} />
-              Click a task to explore its details
-            </span>
-          </footer>
+                {activityOpen && (
+                  <aside className="activity-panel" aria-label="Live activity">
+                    <header>
+                      <Activity size={15} />
+                      <h2>Activity</h2>
+                      <span className="live-dot" />
+                    </header>
+                    <p className="panel-description">
+                      The latest updates from your agents.
+                    </p>
+                    <div className="activity-events">
+                      {data?.events.map((event) => (
+                        <button
+                          className="activity-item"
+                          key={event.id}
+                          onClick={() => openTask(event.task_id)}
+                        >
+                          <span
+                            className={`activity-symbol event-${event.event_type}`}
+                          >
+                            <Activity size={13} />
+                          </span>
+                          <div>
+                            <strong>
+                              {event.agent || "System / human"}
+                              <span>
+                                {event.event_type.replaceAll("_", " ")}
+                              </span>
+                            </strong>
+                            <p>{event.title}</p>
+                            {event.message && <small>{event.message}</small>}
+                            <Age value={event.created_at} />
+                          </div>
+                        </button>
+                      ))}
+                      {data && !data.events.length && (
+                        <Empty title="No activity in this view" />
+                      )}
+                    </div>
+                  </aside>
+                )}
+              </div>
+              <footer className="workspace-footer">
+                <span>
+                  <span className="tiny-dot" />
+                  {workspace.isFetching
+                    ? "Syncing committed state…"
+                    : "All changes synced"}
+                </span>
+                <span>
+                  <CircleHelp size={12} />
+                  Click a task to explore its details
+                </span>
+              </footer>
+            </>
+          )}
         </main>
         {location.task && (
           <ModalBoundary close={closeTask}>

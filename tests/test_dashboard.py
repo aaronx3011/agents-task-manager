@@ -58,7 +58,9 @@ def test_dashboard_and_snapshot_require_staff_and_do_not_expose_keys(
     assert client.get("/dashboard/").status_code == 302
     task = create(api_client, title="<script>untrusted task title</script>")
     post(api_client, f"tasks/{task['id']}/claim")
-    assert staff_client.get("/dashboard/").status_code == 200
+    dashboard = staff_client.get("/dashboard/")
+    assert dashboard.status_code == 200
+    assert "csrftoken" in dashboard.cookies
     response = staff_client.get("/dashboard/state/")
     assert response.status_code == 200
     data = response.json()

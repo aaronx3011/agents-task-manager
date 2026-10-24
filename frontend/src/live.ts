@@ -16,6 +16,7 @@ export function useLiveUpdates() {
     const ids = new Set<number>();
     const highlights = new Map<number, ReturnType<typeof setTimeout>>();
     function refresh() {
+      void client.invalidateQueries({ queryKey: ["opencodes"] });
       void client.invalidateQueries({ queryKey: ["workspace"] });
       void client.invalidateQueries({ queryKey: ["tasks"] });
       // Detail embeds prerequisites: their events can change a different open task.
