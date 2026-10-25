@@ -1,7 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
-import { Monitor, Plus, RefreshCw, Send, Square } from "lucide-react";
+import {
+  ArrowDown,
+  Monitor,
+  Pin,
+  Plus,
+  RefreshCw,
+  Send,
+  Square,
+} from "lucide-react";
 import { ApiError, get, post } from "./api";
 import { Age, Empty, ErrorState, Loading } from "./ui";
 import type { Page } from "./types";
@@ -9,6 +17,7 @@ import type {
   CommandInput,
   Interaction,
   MessageWindow,
+  Message,
   ModelChoice,
   RemoteCommand,
   Session,
@@ -16,6 +25,8 @@ import type {
 } from "./opencode-types";
 import "./opencodes.css";
 import { mergeLiveMessages, useFocusedSession } from "./session-live";
+import { sessionIdentity } from "./session-library";
+import type { SessionLibrary, SessionReference } from "./session-library";
 
 type Navigate = (
   changes: Record<string, string | number | null>,
@@ -181,11 +192,15 @@ export default function OpenCodes({
   session,
   navigate,
   openTask,
+  mode,
+  library,
 }: {
   worker: string;
   session: string;
   navigate: Navigate;
   openTask: (id: number) => void;
+  mode: "workers" | "sessions";
+  library: SessionLibrary;
 }) {
   const [offset, setOffset] = useState(0);
   const [drafts, setDrafts] = useState<Drafts>({});
@@ -197,18 +212,58 @@ export default function OpenCodes({
   });
   const name = worker || workers.data?.items[0]?.name || "";
   const selectWorker = (value: string) =>
-    navigate({ section: "opencodes", worker: value, session: null }, true);
+    navigate(
+      {
+        section: mode === "sessions" ? "sessions" : "opencodes",
+        worker: value,
+        session: null,
+      },
+      true,
+    );
   const selectSession = (value: string) =>
-    navigate({ section: "opencodes", worker: name, session: value }, true);
+    navigate(
+      {
+        section: mode === "sessions" ? "sessions" : "opencodes",
+        worker: name,
+        session: value,
+      },
+      true,
+    );
   return (
-    <section className="oc-workspace" aria-label="Connected OpenCodes">
+    <section
+      className="oc-workspace"
+      aria-label={
+        mode === "sessions" ? "Sessions workspace" : "Connected OpenCodes"
+      }
+    >
       <div className="oc-heading">
         <div>
           <div className="eyebrow">CENTRAL WORKER CONSOLE</div>
           <h1>
-            Connected OpenCodes<span className="heading-dot">.</span>
+            {mode === "sessions" ? "Sessions" : "Connected OpenCodes"}
+            <span className="heading-dot">.</span>
           </h1>
-          <p>Live sessions from your machines. Coordinated here.</p>
+          <p>
+            {mode === "sessions"
+              ? "Pinned, recently opened and new conversations. Loaded only when selected."
+              : "Live sessions from your machines. Coordinated here."}
+          </p>
+          {mode === "sessions" && (
+            <label className="oc-worker-choice">
+              Worker for new sessions{" "}
+              <select
+                aria-label="Worker for new sessions"
+                value={name}
+                onChange={(event) => selectWorker(event.target.value)}
+              >
+                {workers.data?.items.map((item) => (
+                  <option key={item.name} value={item.name}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
         <button
           className="button secondary"
@@ -243,34 +298,53 @@ export default function OpenCodes({
         </Empty>
       ) : (
         <div className="oc-layout">
-          <aside className="oc-workers" aria-label="OpenCode workers">
-            <h2>
-              <Monitor size={15} />
-              Workers <span>{workers.data?.count}</span>
-            </h2>
-            {workers.data?.items.map((item) => (
-              <button
-                key={item.name}
-                className={`oc-worker ${name === item.name ? "selected" : ""}`}
-                aria-pressed={name === item.name}
-                onClick={() => selectWorker(item.name)}
-              >
-                <strong>{item.name}</strong>
-                <span className={usable(item) ? "oc-online" : "oc-warning"}>
-                  {health(item)}
-                </span>
-                <small>{item.hostname || "Waiting for first sync"}</small>
-                <small>
-                  Seen <Age value={item.last_sync_at} />
-                </small>
-              </button>
-            ))}
-            <Pager
-              offset={offset}
-              count={workers.data?.count || 0}
-              change={setOffset}
+          {mode === "sessions" ? (
+            <SessionShelf
+              library={library}
+              worker={name}
+              session={session}
+              select={(item) => {
+                library.remember(item);
+                navigate(
+                  {
+                    section: "sessions",
+                    worker: item.worker,
+                    session: item.sessionID,
+                  },
+                  true,
+                );
+              }}
             />
-          </aside>
+          ) : (
+            <aside className="oc-workers" aria-label="OpenCode workers">
+              <h2>
+                <Monitor size={15} />
+                Workers <span>{workers.data?.count}</span>
+              </h2>
+              {workers.data?.items.map((item) => (
+                <button
+                  key={item.name}
+                  className={`oc-worker ${name === item.name ? "selected" : ""}`}
+                  aria-pressed={name === item.name}
+                  onClick={() => selectWorker(item.name)}
+                >
+                  <strong>{item.name}</strong>
+                  <span className={usable(item) ? "oc-online" : "oc-warning"}>
+                    {health(item)}
+                  </span>
+                  <small>{item.hostname || "Waiting for first sync"}</small>
+                  <small>
+                    Seen <Age value={item.last_sync_at} />
+                  </small>
+                </button>
+              ))}
+              <Pager
+                offset={offset}
+                count={workers.data?.count || 0}
+                change={setOffset}
+              />
+            </aside>
+          )}
           {name && (
             <WorkerPanel
               key={name}
@@ -282,11 +356,109 @@ export default function OpenCodes({
               setDraft={(key, draft) =>
                 setDrafts((previous) => ({ ...previous, [key]: draft }))
               }
+              library={library}
+              shelf={mode === "sessions"}
             />
           )}
         </div>
       )}
     </section>
+  );
+}
+
+function SessionShelf({
+  library,
+  worker,
+  session,
+  select,
+}: {
+  library: SessionLibrary;
+  worker: string;
+  session: string;
+  select: (item: SessionReference) => void;
+}) {
+  const [offset, setOffset] = useState(0);
+  const recent = useQuery({
+    queryKey: ["opencodes", "recent-sessions", offset],
+    queryFn: ({ signal }) =>
+      get<Page<Session>>(
+        `/api/sessions?ordering=recent&limit=20&offset=${offset}`,
+        signal,
+      ),
+    refetchInterval: 5000,
+  });
+  const saved = new Set(library.entries.map(sessionIdentity));
+  const groups = [
+    { title: "Pinned", items: library.entries.filter((item) => item.pinned) },
+    {
+      title: "Recently focused",
+      items: library.entries.filter((item) => !item.pinned),
+    },
+    {
+      title: "New and recent",
+      items: (recent.data?.items || []).filter(
+        (item) => !saved.has(sessionIdentity(item)),
+      ),
+    },
+  ];
+  return (
+    <aside
+      className="oc-workers oc-session-shelf"
+      aria-label="Saved and new sessions"
+    >
+      {groups.map((group) => (
+        <section key={group.title} aria-label={group.title}>
+          <h3>{group.title}</h3>
+          {group.items.map((item) => {
+            const current =
+              recent.data?.items.find(
+                (candidate) =>
+                  sessionIdentity(candidate) === sessionIdentity(item),
+              ) || item;
+            const pinned = library.entries.some(
+              (entry) =>
+                entry.pinned &&
+                sessionIdentity(entry) === sessionIdentity(item),
+            );
+            return (
+              <div className="oc-shelf-item" key={sessionIdentity(item)}>
+                <button
+                  className={`oc-session ${worker === item.worker && session === item.sessionID ? "selected" : ""}`}
+                  onClick={() => select(current)}
+                >
+                  <strong>{current.title || item.sessionID}</strong>
+                  <small>{item.worker}</small>
+                </button>
+                <button
+                  className={`icon-button ${pinned ? "selected" : ""}`}
+                  aria-label={`${pinned ? "Unpin" : "Pin"} ${current.title || item.sessionID}`}
+                  aria-pressed={pinned}
+                  onClick={() => library.togglePin(current)}
+                >
+                  <Pin size={13} />
+                </button>
+              </div>
+            );
+          })}
+          {!group.items.length && (
+            <p className="muted">
+              {group.title === "Pinned"
+                ? "Pin a conversation to keep it here."
+                : "No sessions yet."}
+            </p>
+          )}
+        </section>
+      ))}
+      {recent.error && (
+        <ErrorState error={recent.error} retry={() => void recent.refetch()} />
+      )}
+      <Pager
+        offset={offset}
+        count={recent.data?.count || 0}
+        change={setOffset}
+        size={20}
+      />
+    </aside>
   );
 }
 
@@ -297,6 +469,8 @@ function WorkerPanel({
   openTask,
   drafts,
   setDraft,
+  library,
+  shelf,
 }: {
   name: string;
   selectedSession: string;
@@ -304,6 +478,8 @@ function WorkerPanel({
   openTask: (id: number) => void;
   drafts: Drafts;
   setDraft: (key: string, draft: Draft) => void;
+  library: SessionLibrary;
+  shelf: boolean;
 }) {
   const [offset, setOffset] = useState(0);
   const [creating, setCreating] = useState(false);
@@ -312,6 +488,7 @@ function WorkerPanel({
   const [directory, setDirectory] = useState("");
   const [model, setModel] = useState("");
   const queue = useCommandQueue();
+  const remember = library.remember;
   const worker = useQuery({
     queryKey: ["opencodes", name, "detail"],
     queryFn: () => get<Worker>(workerPath(name)),
@@ -324,32 +501,32 @@ function WorkerPanel({
         `${workerPath(name)}/sessions?limit=50&offset=${offset}`,
       ),
     refetchInterval: 5000,
+    enabled: !shelf,
   });
-  const commands = useQuery({
-    queryKey: ["opencodes", name, "commands"],
-    queryFn: () =>
-      get<Page<RemoteCommand>>(
-        `/api/commands?worker=${encoded(name)}&limit=30`,
-      ),
-    refetchInterval: 10000,
+  const created = useQuery({
+    queryKey: ["opencodes", name, "creation", createdID],
+    queryFn: ({ signal }) =>
+      get<RemoteCommand>(`/api/commands/${createdID}`, signal),
+    enabled: Boolean(createdID),
+    refetchInterval: 1000,
   });
-  const created = commands.data?.items.find(
-    (command) => command.id === createdID,
-  );
   useEffect(() => {
-    const id = record(created?.result).id;
-    if (created?.status === "done" && typeof id === "string") {
+    const id = record(created.data?.result).id;
+    if (created.data?.status === "done" && typeof id === "string") {
+      remember({ worker: name, sessionID: id, title });
       selectSession(id);
       setCreatedID("");
     }
-  }, [created, selectSession]);
+    if (created.data?.status === "error" || created.data?.deliveryUncertain)
+      setCreatedID("");
+  }, [created.data, selectSession, remember, name, title]);
   if (worker.isLoading) return <Loading />;
   if (worker.error)
     return (
       <ErrorState error={worker.error} retry={() => void worker.refetch()} />
     );
   const data = worker.data!;
-  const current = selectedSession || sessions.data?.items[0]?.sessionID || "";
+  const current = selectedSession;
   const disabled = !usable(data) || queue.isPending;
   return (
     <div className="oc-worker-panel">
@@ -457,46 +634,48 @@ function WorkerPanel({
           ))}
         </div>
       )}
-      <div className="oc-session-layout">
-        <aside className="oc-sessions" aria-label="OpenCode sessions">
-          <h3>Sessions</h3>
-          {sessions.isLoading ? (
-            <Loading />
-          ) : sessions.error ? (
-            <ErrorState
-              error={sessions.error}
-              retry={() => void sessions.refetch()}
+      <div className={`oc-session-layout ${shelf ? "oc-single-session" : ""}`}>
+        {!shelf && (
+          <aside className="oc-sessions" aria-label="OpenCode sessions">
+            <h3>Sessions</h3>
+            {sessions.isLoading ? (
+              <Loading />
+            ) : sessions.error ? (
+              <ErrorState
+                error={sessions.error}
+                retry={() => void sessions.refetch()}
+              />
+            ) : !sessions.data?.count ? (
+              <Empty title="No sessions observed yet" />
+            ) : (
+              sessions.data.items.map((item) => (
+                <button
+                  className={`oc-session ${current === item.sessionID ? "selected" : ""}`}
+                  key={item.sessionID}
+                  aria-pressed={current === item.sessionID}
+                  onClick={() => selectSession(item.sessionID)}
+                >
+                  <strong>{item.title || item.sessionID}</strong>
+                  <span>
+                    {item.executionStatus || "Unknown"}
+                    {item.counts.pending > 0
+                      ? ` · ${item.counts.pending} needs input`
+                      : ""}
+                  </span>
+                  <small title={item.directory}>
+                    {item.directory || "Default workspace"}
+                  </small>
+                  {item.parentID && <small>Subagent of {item.parentID}</small>}
+                </button>
+              ))
+            )}
+            <Pager
+              offset={offset}
+              count={sessions.data?.count || 0}
+              change={setOffset}
             />
-          ) : !sessions.data?.count ? (
-            <Empty title="No sessions observed yet" />
-          ) : (
-            sessions.data.items.map((item) => (
-              <button
-                className={`oc-session ${current === item.sessionID ? "selected" : ""}`}
-                key={item.sessionID}
-                aria-pressed={current === item.sessionID}
-                onClick={() => selectSession(item.sessionID)}
-              >
-                <strong>{item.title || item.sessionID}</strong>
-                <span>
-                  {item.executionStatus || "Unknown"}
-                  {item.counts.pending > 0
-                    ? ` · ${item.counts.pending} needs input`
-                    : ""}
-                </span>
-                <small title={item.directory}>
-                  {item.directory || "Default workspace"}
-                </small>
-                {item.parentID && <small>Subagent of {item.parentID}</small>}
-              </button>
-            ))
-          )}
-          <Pager
-            offset={offset}
-            count={sessions.data?.count || 0}
-            change={setOffset}
-          />
-        </aside>
+          </aside>
+        )}
         {current ? (
           <SessionPanel
             key={current}
@@ -507,76 +686,12 @@ function WorkerPanel({
             openTask={openTask}
             drafts={drafts}
             setDraft={setDraft}
+            library={library}
           />
         ) : (
           <Empty title="Choose or create a session" />
         )}
       </div>
-      <details className="oc-commands" open>
-        <summary>
-          Recent worker commands · {commands.data?.count ?? "—"}
-        </summary>
-        {commands.error ? (
-          <ErrorState
-            error={commands.error}
-            retry={() => void commands.refetch()}
-          />
-        ) : (
-          commands.data?.items.map((command) => (
-            <CommandCard
-              key={command.id}
-              command={command}
-              selectSession={selectSession}
-            />
-          ))
-        )}
-        {(commands.data?.count || 0) > 30 && (
-          <p className="muted">
-            Showing the 30 latest commands. Full history is retained by the
-            coordinator API.
-          </p>
-        )}
-      </details>
-    </div>
-  );
-}
-
-function CommandCard({
-  command,
-  selectSession,
-}: {
-  command: RemoteCommand;
-  selectSession: (session: string) => void;
-}) {
-  const label = command.deliveryUncertain
-    ? "Delivery uncertain"
-    : command.status === "done" && command.action === "prompt"
-      ? "Accepted · execution separate"
-      : command.status;
-  return (
-    <div
-      className={`oc-command ${command.deliveryUncertain || command.status === "error" ? "oc-warning" : ""}`}
-    >
-      <strong>
-        #{command.id} · {command.action}
-      </strong>
-      <span>{label}</span>
-      <Age value={command.createdAt} />
-      {command.sessionID && (
-        <button
-          className="oc-text-button"
-          onClick={() => selectSession(command.sessionID!)}
-        >
-          Open session
-        </button>
-      )}
-      {command.error && <p>{command.error}</p>}
-      {command.deliveryUncertain && (
-        <p>
-          {command.uncertain ||
-            "Inspect session history and reconcile this command through the staff API. It will not be replayed automatically."}
-        </p>
-      )}
     </div>
   );
 }
@@ -589,6 +704,7 @@ function SessionPanel({
   openTask,
   drafts,
   setDraft,
+  library,
 }: {
   worker: Worker;
   sessionID: string;
@@ -597,32 +713,129 @@ function SessionPanel({
   openTask: (id: number) => void;
   drafts: Drafts;
   setDraft: (key: string, draft: Draft) => void;
+  library: SessionLibrary;
 }) {
   const [text, setText] = useState("");
   const [model, setModel] = useState("");
   const [noReply, setNoReply] = useState(false);
-  const [cursors, setCursors] = useState<number[]>([]);
-  const after = cursors.at(-1);
+  const [history, setHistory] = useState<{
+    messages: Message[];
+    cursor: string | null;
+    gap: boolean;
+  } | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [olderError, setOlderError] = useState<Error | null>(null);
+  const [following, setFollowing] = useState(true);
+  const viewport = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const follow = useRef(true);
+  const lastTop = useRef(0);
+  const anchor = useRef<{ height: number; top: number } | null>(null);
+  const olderRequest = useRef<AbortController | null>(null);
   const live = useFocusedSession(worker.name, sessionID);
   const path = sessionPath(worker.name, sessionID);
   const detail = useQuery({
     queryKey: ["opencodes", worker.name, sessionID, "detail"],
-    queryFn: () => get<Session>(path),
+    queryFn: ({ signal }) => get<Session>(`${path}?compact=true`, signal),
     refetchInterval: 5000,
   });
   const messages = useQuery({
-    queryKey: ["opencodes", worker.name, sessionID, "messages", after],
-    queryFn: () =>
-      get<MessageWindow>(
-        `${path}/messages?limit=500${after === undefined ? "" : `&after=${after}`}`,
-      ),
+    queryKey: ["opencodes", worker.name, sessionID, "messages", "latest"],
+    queryFn: ({ signal }) =>
+      get<MessageWindow>(`${path}/messages?latest=true&limit=10`, signal),
     refetchInterval: live ? 15000 : 5000,
+    gcTime: library.entries.some(
+      (item) =>
+        item.pinned &&
+        item.worker === worker.name &&
+        item.sessionID === sessionID,
+    )
+      ? 1800000
+      : 0,
   });
   const disabled = !usable(worker) || queue.isPending;
   const displayedMessages = mergeLiveMessages(
-    messages.data?.messages || [],
-    after === undefined ? live : null,
+    [...(history?.messages || []), ...(messages.data?.messages || [])],
+    live,
   );
+  const cursor = history ? history.cursor : messages.data?.olderCursor;
+  const title = detail.data?.title || sessionID;
+  const observed = Boolean(detail.data);
+  const remember = library.remember;
+  const pinned = library.entries.some(
+    (item) =>
+      item.pinned &&
+      item.worker === worker.name &&
+      item.sessionID === sessionID,
+  );
+  useEffect(() => {
+    if (observed) remember({ worker: worker.name, sessionID, title });
+  }, [remember, worker.name, sessionID, title, observed]);
+  useEffect(() => () => olderRequest.current?.abort(), []);
+  async function loadOlder() {
+    if (!cursor || olderRequest.current) return;
+    follow.current = false;
+    setFollowing(false);
+    const controller = new AbortController();
+    olderRequest.current = controller;
+    setLoadingOlder(true);
+    setOlderError(null);
+    try {
+      const page = await get<MessageWindow>(
+        `${path}/messages?latest=true&limit=10&before=${encoded(cursor)}`,
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+      if (viewport.current)
+        anchor.current = {
+          height: viewport.current.scrollHeight,
+          top: viewport.current.scrollTop,
+        };
+      setHistory((previous) => ({
+        messages: mergeLiveMessages(
+          [
+            ...page.messages,
+            ...(previous?.messages || []),
+            ...(messages.data?.messages || []),
+          ],
+          null,
+        ),
+        cursor: page.olderCursor || null,
+        gap: Boolean(previous?.gap || page.gap),
+      }));
+    } catch (error) {
+      if (!controller.signal.aborted)
+        setOlderError(
+          error instanceof Error
+            ? error
+            : new Error("History could not be loaded"),
+        );
+    } finally {
+      if (!controller.signal.aborted) setLoadingOlder(false);
+      olderRequest.current = null;
+    }
+  }
+  useLayoutEffect(() => {
+    const node = viewport.current;
+    if (!node) return;
+    if (anchor.current) {
+      node.scrollTop =
+        anchor.current.top + node.scrollHeight - anchor.current.height;
+      anchor.current = null;
+    } else if (follow.current) node.scrollTop = node.scrollHeight;
+    lastTop.current = node.scrollTop;
+  }, [displayedMessages, detail.data]);
+  useEffect(() => {
+    if (!content.current || !viewport.current) return;
+    const observer = new ResizeObserver(() => {
+      if (follow.current && viewport.current) {
+        viewport.current.scrollTop = viewport.current.scrollHeight;
+        lastTop.current = viewport.current.scrollTop;
+      }
+    });
+    observer.observe(content.current);
+    return () => observer.disconnect();
+  }, [detail.data?.sessionID]);
   if (detail.isLoading) return <Loading />;
   if (detail.error)
     return (
@@ -633,6 +846,16 @@ function SessionPanel({
     <section className="oc-conversation" aria-label="OpenCode conversation">
       <header>
         <h2>{data.title || sessionID}</h2>
+        <button
+          className={`button secondary ${pinned ? "selected" : ""}`}
+          aria-pressed={pinned}
+          onClick={() =>
+            library.togglePin({ worker: worker.name, sessionID, title })
+          }
+        >
+          <Pin size={13} />
+          {pinned ? "Unpin session" : "Pin session"}
+        </button>
         <p>
           {live?.executionStatus || data.executionStatus || "Unknown state"} ·{" "}
           {data.agentName || "Default agent"}
@@ -715,67 +938,97 @@ function SessionPanel({
           />
         );
       })}
-      <div className="oc-messages" aria-live="off">
-        {messages.isLoading ? (
-          <Loading />
-        ) : messages.error ? (
-          <ErrorState
-            error={messages.error}
-            retry={() => void messages.refetch()}
-          />
-        ) : (
-          <>
-            <p className="oc-window">
-              Retained observation window · {displayedMessages.length} messages
-              ·{" "}
-              {data.window.complete
-                ? "Complete supplied window"
-                : "History may be partial"}
-              {messages.data?.gap ? " · Cursor gap: older data was pruned" : ""}
-            </p>
-            {displayedMessages.map((message) => (
-              <article
-                className={`oc-message oc-role-${message.role}`}
-                key={message.remoteID}
-              >
-                <header>
-                  <strong>{message.role || "message"}</strong>
-                  <Age value={message.publishedAt} />
-                </header>
-                {Boolean(message.content.error) && (
-                  <pre role="alert">{pretty(message.content.error)}</pre>
-                )}
-                {message.parts.map((part, index) => (
-                  <MessagePart key={index} value={part} />
-                ))}
-              </article>
-            ))}
-            {!displayedMessages.length && (
-              <Empty title="No messages observed yet" />
-            )}
-            {(cursors.length > 0 || messages.data?.hasMore) && (
-              <div className="oc-pager">
+      <div
+        className="oc-messages"
+        aria-live="off"
+        aria-label="Conversation messages"
+        ref={viewport}
+        onScroll={(event) => {
+          const node = event.currentTarget;
+          const nearBottom =
+            node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+          follow.current = nearBottom;
+          setFollowing(nearBottom);
+          if (node.scrollTop < 80 && node.scrollTop < lastTop.current)
+            void loadOlder();
+          lastTop.current = node.scrollTop;
+        }}
+      >
+        <div ref={content}>
+          {messages.isLoading ? (
+            <Loading />
+          ) : messages.error ? (
+            <ErrorState
+              error={messages.error}
+              retry={() => void messages.refetch()}
+            />
+          ) : (
+            <>
+              {cursor && (
                 <button
-                  className="button secondary"
-                  disabled={!cursors.length}
-                  onClick={() => setCursors((values) => values.slice(0, -1))}
+                  className="oc-text-button oc-load-older"
+                  disabled={loadingOlder}
+                  onClick={() => void loadOlder()}
                 >
-                  Previous messages
+                  {loadingOlder
+                    ? "Loading older messages…"
+                    : "Load older messages"}
                 </button>
-                <button
-                  className="button secondary"
-                  disabled={!messages.data?.hasMore}
-                  onClick={() =>
-                    setCursors((values) => [...values, messages.data!.cursor])
-                  }
+              )}
+              {olderError && (
+                <ErrorState error={olderError} retry={() => void loadOlder()} />
+              )}
+              <p className="oc-window">
+                Retained observation window · {displayedMessages.length}{" "}
+                messages ·{" "}
+                {data.window.complete
+                  ? "Complete supplied window"
+                  : "History may be partial"}
+                {messages.data?.gap || history?.gap
+                  ? " · Cursor gap: older data was pruned"
+                  : ""}
+              </p>
+              {displayedMessages.map((message) => (
+                <article
+                  className={`oc-message oc-role-${message.role}`}
+                  key={message.remoteID}
                 >
-                  Next messages
-                </button>
-              </div>
-            )}
-          </>
-        )}
+                  <header>
+                    <strong>{message.role || "message"}</strong>
+                    <Age value={message.publishedAt} />
+                  </header>
+                  {Boolean(message.content.error) && (
+                    <pre role="alert">{pretty(message.content.error)}</pre>
+                  )}
+                  {message.parts.map((part, index) => (
+                    <MessagePart key={index} value={part} />
+                  ))}
+                </article>
+              ))}
+              {!displayedMessages.length && (
+                <Empty title="No messages observed yet" />
+              )}
+              {!cursor && displayedMessages.length > 0 && (
+                <p className="oc-window">Oldest retained messages reached.</p>
+              )}
+            </>
+          )}
+        </div>
       </div>
+      {!following && (
+        <button
+          className="button secondary oc-jump-latest"
+          onClick={() => {
+            follow.current = true;
+            setFollowing(true);
+            if (viewport.current)
+              viewport.current.scrollTop = viewport.current.scrollHeight;
+          }}
+        >
+          <ArrowDown size={13} />
+          Latest messages
+        </button>
+      )}
       <form
         className="oc-compose oc-form"
         onSubmit={(event) => {

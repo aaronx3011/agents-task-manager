@@ -289,3 +289,30 @@ def test_live_cache_outage_does_not_break_durable_http_sync(live_worker, api_cli
     )
     assert response.status_code == 200
     assert WorkerMessage.objects.get().parts[0]["text"] == "latest"
+
+
+def test_focused_browser_receives_only_ten_latest_messages(live_worker, live_staff):
+    _, key = live_worker
+
+    async def verify():
+        producer = await open_worker(key)
+        await receive(producer)
+        browser = browser_connection(live_staff)
+        await browser.send_input({"type": "websocket.connect"})
+        await browser.receive_output()
+        await receive(browser)
+        await send(browser, {"type": "subscribe", "worker": "worker-a", "sessionID": "ses_shared"})
+        await receive(browser)
+        records = [
+            {"info": {"id": f"msg_{i}", "role": "assistant", "time": {"created": i}}, "parts": []}
+            for i in range(25)
+        ]
+        await send(producer, {"type": "snapshot", "sessionID": "ses_shared", "messages": records})
+        snapshot = await receive(browser)
+        assert len(snapshot["messages"]) == 10 and snapshot["hasEarlier"]
+        assert snapshot["messages"][0]["remoteID"] == "msg_15"
+        assert snapshot["messages"][-1]["remoteID"] == "msg_24"
+        await close(producer)
+        await close(browser)
+
+    anyio.run(verify)

@@ -145,6 +145,16 @@ class DashboardConsumer(AsyncJsonWebsocketConsumer):
             snapshot["worker"],
             snapshot["sessionID"],
         ):
+            if snapshot["type"] == "session.live":
+                messages = sorted(
+                    snapshot["messages"],
+                    key=lambda message: (message.get("remoteTime") or 0, message["remoteID"]),
+                )
+                snapshot = {
+                    **snapshot,
+                    "messages": messages[-10:],
+                    "hasEarlier": len(messages) > 10,
+                }
             await self.send_json(snapshot)
 
     async def dashboard_changed(self, event):

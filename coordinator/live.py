@@ -182,6 +182,7 @@ class WorkerLiveConsumer(AsyncJsonWebsocketConsumer):
                 {
                     "remoteID": message["remote_id"],
                     "role": message["role"],
+                    "remoteTime": message["remote_time"],
                     "content": message["content"],
                     "parts": message["parts"],
                 }

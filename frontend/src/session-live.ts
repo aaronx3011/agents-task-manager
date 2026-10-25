@@ -85,9 +85,8 @@ export function mergeLiveMessages(
   saved: Message[],
   snapshot: LiveSnapshot | null,
 ): Message[] {
-  if (!snapshot) return saved;
   const messages = new Map(saved.map((message) => [message.remoteID, message]));
-  for (const message of snapshot.messages) {
+  for (const message of snapshot?.messages || []) {
     const previous = messages.get(message.remoteID);
     // An older sampled partial must not replace a durably completed message.
     const savedTime = previous?.content.time as

@@ -8,11 +8,12 @@ export class ApiError extends Error {
     super(message);
   }
 }
-export async function get<T>(path: string): Promise<T> {
+export async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, {
     credentials: "same-origin",
     cache: "no-store",
     headers: { Accept: "application/json" },
+    signal,
   });
   if (
     response.redirected ||

@@ -112,6 +112,25 @@ Each batch bulk-inserts/updates the latest message states; unchanged content is
 not rewritten. Commands remain durably admitted through HTTP and dispatched by
 the existing acknowledged sync; the socket wakes that sync immediately.
 
+### Chat history and saved sessions
+
+- Conversation panels load the latest 10 stored messages first
+  (`GET .../messages?latest=true`) and fetch strictly older pages with the
+  exclusive `before` cursor (`timeline_time:pk`) as the reader scrolls up, keeping
+  the viewport anchored while pages prepend. The panel follows the newest message
+  from the bottom and offers a jump back when reading history.
+- Compact session details (`GET .../sessions/<id>?compact=true`) keep only the
+  reply commands referenced by pending interactions; unrelated chat command
+  history stays out of large reads.
+- The unified session list supports `GET /api/sessions?ordering=recent` (remote
+  update order, newest first). The Sessions section combines it with a
+  per-staff-user browser library (`frontend/src/session-library.ts`) that pins up
+  to 100 and remembers 50 recently focused sessions locally; pinning is
+  navigation/bookkeeping only and never bulk-loads full histories.
+- Worker commands and their results moved to the Activity section
+  (`frontend/src/ActivityPage.tsx`, `GET /api/commands`), keeping chat panels
+  focused on conversations.
+
 ## Source map
 
 | Area | Files |
@@ -123,6 +142,7 @@ the existing acknowledged sync; the socket wakes that sync immediately.
 | Dashboard and invalidation | `coordinator/dashboard.py`, `coordinator/realtime.py`, `config/asgi.py` |
 | Frontend tooling | `frontend/package.json` |
 | Agent registration | `frontend/src/Configuration.tsx`, `coordinator/views.py`, `coordinator/services.py` |
+| Sessions shelf and Activity | `frontend/src/session-library.ts`, `frontend/src/ActivityPage.tsx` |
 | Bridge configuration and calls | `bridge/settings.mjs`, `bridge/opencode.mjs` |
 | Command recovery | `bridge/receipts.mjs` |
 | Provisioning and maintenance | `coordinator/management/commands/` |

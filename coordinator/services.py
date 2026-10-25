@@ -8,6 +8,8 @@ from urllib.parse import urlsplit, urlunsplit
 from django.apps import apps
 from django.conf import settings
 from django.db import IntegrityError, OperationalError, connection, transaction
+from django.db.models import BigIntegerField, Q
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from . import sync
@@ -1955,7 +1957,7 @@ def session_card(session, detail=False):
     return card
 
 
-def session_detail(session):
+def session_detail(session, compact=False):
     """Full session read model: health, commands/results, interactions, task links."""
     card = session_card(session, detail=True)
     card["pendingInteractions"] = [
@@ -1964,12 +1966,16 @@ def session_detail(session):
             :MAX_PENDING_READ
         ]
     ]
-    card["commands"] = [
-        worker_command_card(command, detail=True)
-        for command in session.worker.commands.filter(remote_session_id=session.remote_id).order_by(
-            "-id"
-        )[:MAX_SESSION_COMMANDS]
-    ]
+    commands = session.worker.commands.filter(remote_session_id=session.remote_id).order_by("-id")
+    if compact:
+        reply_ids = [request.get("replyCommandId") for request in card["pendingInteractions"]]
+        commands = commands.filter(pk__in=[value for value in reply_ids if value])
+    card["commands"] = []
+    for command in commands[:MAX_SESSION_COMMANDS]:
+        command_card = worker_command_card(command, detail=not compact)
+        if compact:
+            command_card["payload"] = {}
+        card["commands"].append(command_card)
     attempts = session_attempt_links(session)
     card["attempts"] = attempts
     card["taskLinks"] = [attempt["task"] for attempt in attempts]
@@ -1986,6 +1992,48 @@ def message_card(message):
         "publishedAt": _iso(message.published_at),
         "content": message.content,
         "parts": message.parts,
+    }
+
+
+def recent_messages_read(session, before=None, limit=10):
+    """Latest-first pages on the wire boundary, chronological messages for display.
+
+    PK alone is not a timeline: a reconciliation may insert older messages after
+    newer ones. The exclusive cursor retains both remote creation time and PK.
+    """
+    try:
+        limit = min(max(int(limit), 1), 10)
+        cursor = tuple(int(value) for value in before.split(":")) if before else None
+        if cursor and (len(cursor) != 2 or cursor[1] < 1):
+            raise ValueError
+        if cursor and not (-(2**63) <= cursor[0] < 2**63 and cursor[1] < 2**63):
+            raise ValueError
+    except (ValueError, TypeError, AttributeError):
+        raise TaskError("Invalid history limit or before cursor", 400) from None
+    rows = session.messages.annotate(
+        timeline_time=Coalesce("remote_time", 0, output_field=BigIntegerField())
+    )
+    gap = bool(cursor and not rows.filter(pk=cursor[1]).exists())
+    if cursor:
+        rows = rows.filter(
+            Q(timeline_time__lt=cursor[0]) | Q(timeline_time=cursor[0], pk__lt=cursor[1])
+        )
+    page = list(rows.order_by("-timeline_time", "-pk")[:limit])
+    oldest = page[-1] if page else None
+    has_more = (
+        bool(oldest)
+        and rows.filter(
+            Q(timeline_time__lt=oldest.timeline_time)
+            | Q(timeline_time=oldest.timeline_time, pk__lt=oldest.pk)
+        ).exists()
+    )
+    return {
+        "messages": [message_card(message) for message in reversed(page)],
+        "cursor": page[0].pk if page else 0,
+        "olderCursor": f"{oldest.timeline_time}:{oldest.pk}" if has_more else None,
+        "gap": gap,
+        "hasMore": has_more,
+        "retentionLimit": settings.WORKER_MESSAGE_KEEP,
     }
 
 

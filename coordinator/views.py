@@ -101,7 +101,7 @@ class WorkerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
             status=request.query_params.get("status") or "",
             project_id=request.query_params.get("project") or None,
         )
-        page = self.paginate_queryset(list(sessions))
+        page = self.paginate_queryset(sessions)
         return self.get_paginated_response([services.session_card(s) for s in page])
 
     @action(detail=True, methods=["get"], url_path=r"sessions/(?P<sid>[^/]{1,128})")
@@ -109,7 +109,9 @@ class WorkerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
         session = self._session_worker().sessions.filter(remote_id=sid).first()
         if session is None:
             raise services.TaskError("Unknown session for this worker", 404)
-        return Response(services.session_detail(session))
+        return Response(
+            services.session_detail(session, compact=request.query_params.get("compact") == "true")
+        )
 
     @action(
         detail=True,
@@ -122,6 +124,15 @@ class WorkerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
         if session is None:
             raise services.TaskError("Unknown session for this worker", 404)
         after = request.query_params.get("after")
+        before = request.query_params.get("before")
+        if before is not None or request.query_params.get("latest") == "true":
+            if after is not None:
+                raise services.TaskError("Use after or latest/before, not both", 400)
+            return Response(
+                services.recent_messages_read(
+                    session, before=before, limit=request.query_params.get("limit", 10)
+                )
+            )
         return Response(
             services.messages_read(
                 session,
@@ -455,14 +466,19 @@ def sessions_read(request):
     sessions = WorkerSession.objects.select_related("parent", "worker")
     if agent:
         sessions = sessions.filter(worker__agent=agent)
+    ordering = (
+        ("-remote_updated_ms", "-pk")
+        if request.query_params.get("ordering") == "recent"
+        else ("worker_id", "-last_seen_at", "-pk")
+    )
     sessions = services.filter_worker_sessions(
-        sessions.order_by("worker_id", "-last_seen_at", "-pk"),
+        sessions.order_by(*ordering),
         directory=request.query_params.get("directory") or "",
         status=request.query_params.get("status") or "",
         project_id=request.query_params.get("project") or None,
     )
     paginator = TaskPagination()
-    page = paginator.paginate_queryset(list(sessions), request, view=sessions_read)
+    page = paginator.paginate_queryset(sessions, request, view=sessions_read)
     return paginator.get_paginated_response([services.session_card(s) for s in page])
 
 

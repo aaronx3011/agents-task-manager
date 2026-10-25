@@ -72,6 +72,7 @@ export interface MessageWindow {
   gap: boolean;
   hasMore: boolean;
   retentionLimit: number;
+  olderCursor?: string | null;
 }
 export interface Question {
   header: string;

@@ -27,6 +27,7 @@ import {
   Search,
   Settings,
   Monitor,
+  MessageSquare,
   SlidersHorizontal,
   Sun,
   Users,
@@ -36,6 +37,7 @@ import { ApiError, get, query } from "./api";
 import { Board } from "./Board";
 import { useLiveUpdates } from "./live";
 import { useLocationState } from "./location";
+import { useSessionLibrary } from "./session-library";
 import { TaskList } from "./TaskList";
 import { ModalBoundary } from "./ModalBoundary";
 import { LABELS, STATUSES } from "./types";
@@ -56,6 +58,7 @@ const TaskModal = lazy(() =>
 );
 const OpenCodes = lazy(() => import("./OpenCodes"));
 const Configuration = lazy(() => import("./Configuration"));
+const ActivityPage = lazy(() => import("./ActivityPage"));
 
 function preference(key: string, fallback: string) {
   try {
@@ -182,6 +185,7 @@ function AgentChip({
   );
 }
 export default function App() {
+  const sessionLibrary = useSessionLibrary();
   const { location, navigate } = useLocationState();
   const { connection, highlighted } = useLiveUpdates();
   const [theme, setTheme] = useState(() =>
@@ -325,6 +329,12 @@ export default function App() {
             OpenCodes
           </button>
           <button
+            className={`nav-link ${location.section === "sessions" ? "active" : ""}`}
+            onClick={() => navigate({ section: "sessions", task: null }, true)}
+          >
+            <MessageSquare size={17} /> Sessions
+          </button>
+          <button
             className={`nav-link ${agentsOpen ? "subtle-active" : ""}`}
             onClick={() => {
               if (location.section !== "tasks") {
@@ -338,13 +348,8 @@ export default function App() {
             <span className="nav-count">{data?.agents.length ?? "—"}</span>
           </button>
           <button
-            className={`nav-link ${activityOpen ? "subtle-active" : ""}`}
-            onClick={() => {
-              if (location.section !== "tasks") {
-                navigate({ section: null });
-                setActivityOpen(true);
-              } else setActivityOpen(!activityOpen);
-            }}
+            className={`nav-link ${location.section === "activity" ? "active" : ""}`}
+            onClick={() => navigate({ section: "activity", task: null }, true)}
           >
             <Activity size={17} />
             Activity{connection === "live" && <span className="tiny-dot" />}
@@ -414,9 +419,13 @@ export default function App() {
               <strong>
                 {location.section === "opencodes"
                   ? "Connected OpenCodes"
-                  : location.section === "configuration"
-                    ? "Configuration"
-                    : project?.name || "All projects"}
+                  : location.section === "sessions"
+                    ? "Sessions"
+                    : location.section === "activity"
+                      ? "Activity"
+                      : location.section === "configuration"
+                        ? "Configuration"
+                        : project?.name || "All projects"}
               </strong>
             </div>
             <div className="topbar-actions">
@@ -457,6 +466,22 @@ export default function App() {
               OpenCodes
             </button>
             <button
+              aria-pressed={location.section === "sessions"}
+              onClick={() =>
+                navigate({ section: "sessions", task: null }, true)
+              }
+            >
+              Sessions
+            </button>
+            <button
+              aria-pressed={location.section === "activity"}
+              onClick={() =>
+                navigate({ section: "activity", task: null }, true)
+              }
+            >
+              Activity
+            </button>
+            <button
               aria-pressed={location.section === "configuration"}
               onClick={() =>
                 navigate({ section: "configuration", task: null }, true)
@@ -465,9 +490,10 @@ export default function App() {
               Configuration
             </button>
           </div>
-          {location.section === "opencodes" ? (
+          {location.section === "opencodes" ||
+          location.section === "sessions" ? (
             <Suspense
-              key="opencodes"
+              key={location.section}
               fallback={<Loading label="Opening OpenCodes…" />}
             >
               <OpenCodes
@@ -475,6 +501,24 @@ export default function App() {
                 session={location.session}
                 navigate={navigate}
                 openTask={openTask}
+                mode={location.section === "sessions" ? "sessions" : "workers"}
+                library={sessionLibrary}
+              />
+            </Suspense>
+          ) : location.section === "activity" ? (
+            <Suspense
+              key="activity"
+              fallback={<Loading label="Opening activity…" />}
+            >
+              <ActivityPage
+                events={data?.events || []}
+                openTask={openTask}
+                openSession={(worker, session) =>
+                  navigate(
+                    { section: "sessions", worker, session, task: null },
+                    true,
+                  )
+                }
               />
             </Suspense>
           ) : location.section === "configuration" ? (
