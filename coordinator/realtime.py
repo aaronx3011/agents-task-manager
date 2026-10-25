@@ -10,6 +10,9 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from channels.layers import get_channel_layer
 from django.conf import settings
 from django.contrib.auth import get_user
+from django.core.cache import cache
+
+from .live import resolve_subscription, session_group, snapshot_key, worker_group
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,11 @@ def publish_change(event_id=None, task_id=None, event_type=None, extra=None):
 
     async def send():
         await asyncio.wait_for(layer.group_send(GROUP, message), timeout=1)
+        if extra and event_type == "command.queued":
+            await asyncio.wait_for(
+                layer.group_send(worker_group(extra["worker_id"]), {"type": "worker.wake"}),
+                timeout=1,
+            )
 
     try:
         async_to_sync(send)()
@@ -80,6 +88,7 @@ class DashboardConsumer(AsyncJsonWebsocketConsumer):
         )
 
     async def connect(self):
+        self.subscription = None
         if not await self.authorized():
             await self.close(code=4403)
             return
@@ -89,6 +98,8 @@ class DashboardConsumer(AsyncJsonWebsocketConsumer):
 
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(GROUP, self.channel_name)
+        if self.subscription:
+            await self.channel_layer.group_discard(self.subscription[0], self.channel_name)
 
     async def receive_json(self, content, **kwargs):
         if not await self.authorized():
@@ -96,11 +107,59 @@ class DashboardConsumer(AsyncJsonWebsocketConsumer):
         elif isinstance(content, dict) and content.get("type") == "ping":
             # Renew Redis group membership before its expiry on long-lived browser tabs.
             await self.channel_layer.group_add(GROUP, self.channel_name)
+            if self.subscription:
+                await self.channel_layer.group_add(self.subscription[0], self.channel_name)
             await self.send_json({"type": "pong"})
+        elif isinstance(content, dict) and content.get("type") == "subscribe":
+            if self.subscription:
+                await self.channel_layer.group_discard(self.subscription[0], self.channel_name)
+                self.subscription = None
+            worker, session_id = content.get("worker"), content.get("sessionID")
+            if worker is None and session_id is None:
+                return
+            worker_id = await resolve_subscription(worker, session_id)
+            if worker_id is None:
+                await self.send_json({"type": "subscription.error"})
+                return
+            group = session_group(worker_id, session_id)
+            self.subscription = (group, worker, session_id)
+            # Join before reading cache; monotonic sequence checks on the client
+            # absorb a simultaneous group delivery without regressing the view.
+            await self.channel_layer.group_add(group, self.channel_name)
+            await self.send_json({"type": "subscribed", "worker": worker, "sessionID": session_id})
+            try:
+                snapshot = await database_sync_to_async(cache.get)(
+                    snapshot_key(worker_id, session_id)
+                )
+            except Exception:
+                snapshot = None
+            if snapshot:
+                await self.session_live({"snapshot": snapshot})
+
+    async def session_live(self, event):
+        if not await self.authorized():
+            await self.close(code=4403)
+            return
+        snapshot = event["snapshot"]
+        if self.subscription and self.subscription[1:] == (
+            snapshot["worker"],
+            snapshot["sessionID"],
+        ):
+            await self.send_json(snapshot)
 
     async def dashboard_changed(self, event):
         if not await self.authorized():
             await self.close(code=4403)
+            return
+        event_type = event.get("event_type") or ""
+        urgent = event_type.startswith(("interaction.", "permission.", "question.", "command."))
+        if (
+            event.get("subject") in {"workers", "sessions", "messages"}
+            and not urgent
+            and event_type not in {"session.error", "worker.synced"}
+        ):
+            # Keep overview traffic lightweight: one worker heartbeat per batch,
+            # plus global attention/command notices. Detailed data is subscribed.
             return
         await self.send_json(
             {

@@ -1,0 +1,213 @@
+# Agent Task Manager
+
+Self-hosted coordination for agents and a human workspace for tasks, workers,
+OpenCode sessions, and pending interactions.
+
+This is a local onboarding and source-navigation guide, reviewed on 2026-10-25.
+The authoritative architecture/API contract is [GitHub issue #1](https://github.com/aaronx3011/agents-task-manager/issues/1);
+setup and operations are maintained in [issue #3](https://github.com/aaronx3011/agents-task-manager/issues/3).
+Documentation work is tracked in [issue #22](https://github.com/aaronx3011/agents-task-manager/issues/22).
+
+## Projects and ownership
+
+| Component | Owns | Entry point |
+| --- | --- | --- |
+| Django coordinator | Task claims, dependencies, audit, worker registry, commands, bounded session read models | `coordinator/` |
+| React workspace | Human task/session views and interaction controls | `frontend/` |
+| MCP adapter | Agent-facing tools over authenticated coordinator HTTP | `mcp_server.py` |
+| Worker bridge | Outbound sync, local OpenCode calls, durable command receipts | `bridge/worker.mjs` |
+| OpenCode | Model execution, tools, filesystem, permission decisions, canonical session history | [Client project guide](../open/opencode_repo/COORDINATOR_FLOW.md) |
+
+Django does not execute model calls or filesystem tools. Worker connectivity,
+OpenCode reachability, session execution state, and task ownership are separate.
+
+## End-to-end flow
+
+```text
+Agent -> stdio MCP adapter -> Django REST -> task services/database
+Human browser -> Django staff session -> workspace/read APIs/command queue
+Human browser <- WebSocket invalidation <- committed coordinator changes
+
+Worker bridge -> POST /api/worker/sync -> Django
+Worker bridge <- acknowledged batch + queued commands <- Django
+Worker bridge -> local HTTP requests -> OpenCode execution
+Worker bridge <- HTTP/SSE, session snapshots, pending requests <- OpenCode
+
+Worker bridge -> /ws/worker/ -> shared live cache -> focused browser subscription
+Worker bridge -> periodic HTTP message batch -> database
+```
+
+The bridge initiates the connection to Django. Browsers use Django rather than
+connecting directly to worker machines. Provider and OpenCode credentials stay
+local; the bridge authenticates to Django with its bound agent's key.
+
+### Task lifecycle
+
+1. Read the overview and ready tasks; create a scoped task linked to its GitHub
+   issue when the requested work has no existing task.
+2. Claim a task atomically. Ready means `pending`, unclaimed, with every
+   prerequisite `done`. Smaller priority values come first.
+3. Work while sending heartbeats every 2–5 minutes and recording discoveries.
+   Claims expire after 15 minutes without a heartbeat when reaping runs.
+4. Use `blocked` with a reason, `review` or `done` with a result summary, or
+   release the task back to pending with handoff details.
+
+The claiming agent controls owned task mutations; staff may override. Task
+heartbeats are independent of worker sync. Session idleness and accepted prompts
+do not mark tasks done. Execution attempts link tasks to create/prompt commands
+and observed sessions without changing those ownership rules.
+
+### Questions and permission approvals
+
+1. OpenCode produces a pending question batch or a permission request.
+2. The bridge publishes pending requests with worker/session/request identity.
+   A complete snapshot can resolve missing requests; incomplete snapshots cannot.
+3. Django exposes pending interactions to the human workspace.
+4. A response creates a command through `POST /api/commands`:
+   `question.reply`, `question.reject`, or `permission.reply`.
+5. The bridge receives the command, re-fetches local pending requests, checks
+   session ownership, and submits the response to OpenCode.
+6. Results and subsequent session observations return through worker sync.
+
+Question replies contain ordered answer arrays, honoring each question's
+single/multiple/custom rules. Permission replies use `once`, `always`, or
+`reject`. A question labeled “Approve” is still a question; filesystem approval
+requires an actual permission request from OpenCode's permission policy. A file
+copy may execute without prompting when the effective policy already permits it.
+
+### Delivery and recovery
+
+- Commands follow `queued -> dispatched -> done | error`. For an asynchronous
+  prompt, `done` means accepted by OpenCode, not a completed assistant answer.
+- The bridge persists intent before execution and outcome before reporting.
+  Interrupted intents become uncertain; commands must not be blindly replayed.
+- Sync retries retain the same serialized envelope/batch ID until a matching
+  acknowledgement. Epoch changes trigger snapshot republishing.
+- Session/message/event windows are bounded. OpenCode remains the history owner;
+  cursor gaps and incomplete windows must remain visible to consumers.
+- The packaged adapter targets installed OpenCode **1.18.32**. The sibling
+  OpenCode checkout declares **2.1.1**; its newer client/API is a separate
+  compatibility surface, not a drop-in bridge target.
+
+### Focused-session streaming and batched storage
+
+The dashboard polls session summaries every 5 seconds and uses its existing
+staff WebSocket for one selected `(worker, session)` subscription per tab.
+Live message windows overlay saved history by remote message identity; switching
+sessions replaces the subscription. Reconnecting refetches history and subscribes
+again, while hidden tabs unsubscribe. Questions, permissions, command changes,
+and execution failures continue to invalidate workspace views immediately.
+
+The bridge negotiates a separate outbound `/ws/worker/` connection. It coalesces
+message events into live snapshots at 100 ms sampling intervals without writing
+message rows. Redis holds a 15-second live overlay shared across ASGI workers;
+single-process development uses bounded local memory. Snapshot sequence/epoch
+identity suppresses duplicate same-stream frames; this is latest-state delivery,
+not a durable event replay protocol. Cache expiry or socket gaps recover from
+the database and subsequent OpenCode reconciliation.
+
+HTTP sync persists changed windows every 5 seconds by default, with early
+flushes for terminal/interaction events, byte thresholds, and command results.
+Each batch bulk-inserts/updates the latest message states; unchanged content is
+not rewritten. Commands remain durably admitted through HTTP and dispatched by
+the existing acknowledged sync; the socket wakes that sync immediately.
+
+## Source map
+
+| Area | Files |
+| --- | --- |
+| Models and domain mutations | `coordinator/models.py`, `coordinator/services.py` |
+| Read models and synchronization | `coordinator/queries.py`, `coordinator/sync.py`, `coordinator/live.py` |
+| HTTP boundaries | `coordinator/urls.py`, `coordinator/views.py`, `coordinator/serializers.py` |
+| Agent authentication | `coordinator/auth.py` |
+| Dashboard and invalidation | `coordinator/dashboard.py`, `coordinator/realtime.py`, `config/asgi.py` |
+| Frontend tooling | `frontend/package.json` |
+| Agent registration | `frontend/src/Configuration.tsx`, `coordinator/views.py`, `coordinator/services.py` |
+| Bridge configuration and calls | `bridge/settings.mjs`, `bridge/opencode.mjs` |
+| Command recovery | `bridge/receipts.mjs` |
+| Provisioning and maintenance | `coordinator/management/commands/` |
+| Checks and integration harnesses | `tests/`, `bridge/bridge.test.mjs`, `bridge/smoke.mjs`, `scripts/` |
+
+## Local development
+
+Requires Python 3.12+, `uv`, and Node/npm for the frontend. The packaged bridge
+tests require Node 20.19+. Run these commands from this project folder.
+
+```sh
+uv sync --locked
+cp .env.example .env
+# Configure .env for your local database, host, and optional Redis.
+uv run python manage.py migrate
+npm ci --prefix frontend
+npm run build --prefix frontend
+uv run python manage.py createsuperuser
+uv run uvicorn config.asgi:application --reload
+```
+
+Visit `/dashboard/` for the workspace, `/admin/` for administration, `/api/` for
+the authenticated browsable API, and `/healthz` for public liveness. SQLite is
+for solo development. PostgreSQL is the concurrent-agent database; Redis is
+needed for notifications across multiple ASGI workers.
+
+### Register another agent
+
+Sign in as staff and open **Configuration → Agents**, or visit
+`/dashboard/?section=configuration` directly (also available in mobile navigation).
+
+1. Enter a unique agent name and choose **Register agent**.
+2. Copy the agent name and newly generated API key. The key is shown only in
+   this registration panel; dismissing it, navigating away, or reloading removes it.
+3. In **MCP connection**, enter the coordinator checkout path on that agent's
+   machine. Copy the private environment variables and OpenCode MCP configuration.
+4. Load the environment variables privately on the agent's machine. The JSON
+   references `{env:COORDINATOR_API_KEY}` rather than embedding the raw key.
+5. Restart the client and verify `get_overview`. The key resolves the registered
+   agent name on the server; a separate agent-name environment variable is not needed.
+
+The registered-agent list shows names, active status, and last-seen time. It
+does not return existing keys, prefixes, or hashes. Duplicate names are rejected
+without replacing the existing key or reactivating an inactive agent. Explicit
+key rotation/deactivation remains available through existing administration.
+Agent registration does not provision a worker bridge.
+
+The configuration API is staff-session-only: `GET /api/agents?limit=&offset=`
+returns `{count, items}`, and `POST /api/agents` with `{name}` returns the agent
+metadata and a one-time `api_key` (201). Names are trimmed and limited to 100
+characters; duplicates return 409. Responses use `Cache-Control: no-store`;
+session writes require CSRF. Agent Bearer credentials cannot provision identities.
+No new MCP tool or automatic client-configuration edit is added by this panel.
+
+Agent-key creation and worker provisioning are explicit operator actions; see
+[operations](https://github.com/aaronx3011/agents-task-manager/issues/3).
+Configure the MCP process with `COORDINATOR_URL` (origin without `/api`) and
+`COORDINATOR_API_KEY`. For a provisioned worker, use the variables and launch
+instructions in [bridge/README.md](bridge/README.md). Default observation windows
+are 50 sessions/30 messages at a 5-second persistence interval; counts alone do not
+guarantee an upload fits the deployed HTTP body limit.
+
+## Verification commands
+
+```sh
+uv run ruff check .
+uv run ruff format --check .
+uv run python manage.py check
+uv run python manage.py makemigrations --check --dry-run
+uv run pytest
+npm run lint --prefix frontend
+npm run format:check --prefix frontend
+npm run build --prefix frontend
+node --test bridge/bridge.test.mjs
+node --test frontend/tests/session-live.test.mjs
+```
+
+Use PostgreSQL to verify row-lock behavior. The bridge README describes live
+smoke testing; those commands create sessions/commands and can invoke a model
+when explicitly configured. This guide itself is not a live deployment report.
+
+## Existing flow-improvement backlog
+
+At this review, coordinator task **#83** / [GitHub #21](https://github.com/aaronx3011/agents-task-manager/issues/21)
+tracks byte-bounded sync and HTTP 413 recovery. Task **#64** /
+[GitHub #11](https://github.com/aaronx3011/agents-task-manager/issues/11) tracks
+current buffered-event telemetry. Consult the live coordinator for their latest
+status before starting implementation.

@@ -69,6 +69,23 @@ CHANNEL_LAYERS = {
         else {"BACKEND": "channels.layers.InMemoryChannelLayer"}
     )
 }
+# Live observations are ephemeral overlays, never the durable command authority.
+# Redis shares them across ASGI workers; local memory is for one-process development.
+CACHES = {
+    "default": (
+        {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+            "KEY_PREFIX": "coordinator-live",
+        }
+        if REDIS_URL
+        else {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "coordinator-live",
+            "OPTIONS": {"MAX_ENTRIES": 600},
+        }
+    )
+}
 COORDINATOR_DEMO = env_bool("COORDINATOR_DEMO")
 
 
@@ -96,6 +113,8 @@ WORKER_SESSION_KEEP = env_int("WORKER_SESSION_KEEP", 500)
 WORKER_MESSAGE_KEEP = env_int("WORKER_MESSAGE_KEEP", 120)
 WORKER_EVENT_KEEP = env_int("WORKER_EVENT_KEEP", 5000)
 WORKER_EVENT_MAX_BYTES = env_int("WORKER_EVENT_MAX_BYTES", 64 * 1024)
+WORKER_LIVE_MAX_BYTES = env_int("WORKER_LIVE_MAX_BYTES", 256 * 1024)
+WORKER_LIVE_TTL = env_int("WORKER_LIVE_TTL", 15)
 DATABASES = {
     "default": dj_database_url.parse(
         os.environ.get("DATABASE_URL") or f"sqlite:///{BASE_DIR / 'db.sqlite3'}",

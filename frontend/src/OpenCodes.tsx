@@ -15,6 +15,7 @@ import type {
   Worker,
 } from "./opencode-types";
 import "./opencodes.css";
+import { mergeLiveMessages, useFocusedSession } from "./session-live";
 
 type Navigate = (
   changes: Record<string, string | number | null>,
@@ -322,7 +323,7 @@ function WorkerPanel({
       get<Page<Session>>(
         `${workerPath(name)}/sessions?limit=50&offset=${offset}`,
       ),
-    refetchInterval: 15000,
+    refetchInterval: 5000,
   });
   const commands = useQuery({
     queryKey: ["opencodes", name, "commands"],
@@ -602,11 +603,12 @@ function SessionPanel({
   const [noReply, setNoReply] = useState(false);
   const [cursors, setCursors] = useState<number[]>([]);
   const after = cursors.at(-1);
+  const live = useFocusedSession(worker.name, sessionID);
   const path = sessionPath(worker.name, sessionID);
   const detail = useQuery({
     queryKey: ["opencodes", worker.name, sessionID, "detail"],
     queryFn: () => get<Session>(path),
-    refetchInterval: 15000,
+    refetchInterval: 5000,
   });
   const messages = useQuery({
     queryKey: ["opencodes", worker.name, sessionID, "messages", after],
@@ -614,9 +616,13 @@ function SessionPanel({
       get<MessageWindow>(
         `${path}/messages?limit=500${after === undefined ? "" : `&after=${after}`}`,
       ),
-    refetchInterval: 15000,
+    refetchInterval: live ? 15000 : 5000,
   });
   const disabled = !usable(worker) || queue.isPending;
+  const displayedMessages = mergeLiveMessages(
+    messages.data?.messages || [],
+    after === undefined ? live : null,
+  );
   if (detail.isLoading) return <Loading />;
   if (detail.error)
     return (
@@ -628,7 +634,7 @@ function SessionPanel({
       <header>
         <h2>{data.title || sessionID}</h2>
         <p>
-          {data.executionStatus || "Unknown state"} ·{" "}
+          {live?.executionStatus || data.executionStatus || "Unknown state"} ·{" "}
           {data.agentName || "Default agent"}
           {data.model
             ? ` · ${data.model.providerID}/${data.model.modelID}`
@@ -636,6 +642,11 @@ function SessionPanel({
         </p>
         <code>{sessionID}</code>
         <p className="oc-directory">{data.directory}</p>
+        <p className="muted">
+          {live
+            ? "Live conversation · batched storage"
+            : "Saved history · waiting for live updates"}
+        </p>
         {data.parentID && (
           <button
             className="oc-text-button"
@@ -715,17 +726,17 @@ function SessionPanel({
         ) : (
           <>
             <p className="oc-window">
-              Retained observation window ·{" "}
-              {messages.data?.messages.length || 0} messages ·{" "}
+              Retained observation window · {displayedMessages.length} messages
+              ·{" "}
               {data.window.complete
                 ? "Complete supplied window"
                 : "History may be partial"}
               {messages.data?.gap ? " · Cursor gap: older data was pruned" : ""}
             </p>
-            {messages.data?.messages.map((message) => (
+            {displayedMessages.map((message) => (
               <article
                 className={`oc-message oc-role-${message.role}`}
-                key={message.id}
+                key={message.remoteID}
               >
                 <header>
                   <strong>{message.role || "message"}</strong>
@@ -739,7 +750,7 @@ function SessionPanel({
                 ))}
               </article>
             ))}
-            {!messages.data?.messages.length && (
+            {!displayedMessages.length && (
               <Empty title="No messages observed yet" />
             )}
             {(cursors.length > 0 || messages.data?.hasMore) && (

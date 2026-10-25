@@ -12,19 +12,23 @@ def build_application():
     from channels.security.websocket import AllowedHostsOriginValidator
     from django.urls import path
 
+    from coordinator.live import WorkerLiveConsumer
     from coordinator.realtime import DashboardConsumer
 
     return ProtocolTypeRouter(
         {
             "http": http_application,
-            "websocket": AllowedHostsOriginValidator(
-                AuthMiddlewareStack(
-                    URLRouter(
-                        [
-                            path("ws/dashboard/", DashboardConsumer.as_asgi()),
-                        ]
-                    )
-                )
+            "websocket": URLRouter(
+                [
+                    # Machine clients have no browser Origin or session cookies.
+                    path("ws/worker/", WorkerLiveConsumer.as_asgi()),
+                    path(
+                        "ws/dashboard/",
+                        AllowedHostsOriginValidator(
+                            AuthMiddlewareStack(DashboardConsumer.as_asgi())
+                        ),
+                    ),
+                ]
             ),
         }
     )

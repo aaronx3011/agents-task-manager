@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto"
 import { OpenCodeConnection, consumeSSE } from "./opencode.mjs"
 import { CommandReceipts } from "./receipts.mjs"
 import { workerSettings, workerOptions } from "./settings.mjs"
+import { LiveSnapshots, syncScheduler } from "./live.mjs"
 
 const EVENT_BUFFER = 1000
 
@@ -19,9 +20,14 @@ export function startWorker(input) {
   const receipts = new CommandReceipts(options.stateDirectory)
   const workerID = options.worker
   const sessions = new Map()
+  const scheduler = syncScheduler(controller.signal)
+  const live = new LiveSnapshots({ coordinatorURL: options.coordinator, worker: workerID,
+    key: options.key, signal: controller.signal, connection, sessions,
+    messageLimit: options.messageLimit, wake: scheduler.wake })
   const messages = new Map()
   const queue = []
   const results = []
+  const seenDirectories = new Set()
   let streamConnected = false
   let dropped = 0
   let snapshotEpoch
@@ -33,6 +39,8 @@ export function startWorker(input) {
   let localError
   let pending = { permissions: [], questions: [] }
   const enqueue = (event) => {
+    // Intermediate text/tool parts are replaceable live state, not durable events.
+    if (["message.part.delta", "message.part.updated", "message.updated"].includes(event.type)) return
     queue.push(event)
     if (queue.length > EVENT_BUFFER) {
       queue.shift()
@@ -56,6 +64,16 @@ export function startWorker(input) {
           if (!event.type || event.type === "server.heartbeat") return
           // Local directory filtering is applied to snapshots too.
           if (options.directory && frame.directory && frame.directory !== options.directory) return
+          // Pending interactions are workspace-scoped, so remember workspaces
+          // that raised one even when their session falls outside the window.
+          if (frame.directory && typeof event.type === "string" &&
+            (event.type.startsWith("permission.") || event.type.startsWith("question."))) {
+            seenDirectories.add(frame.directory)
+            if (seenDirectories.size > 50) seenDirectories.delete(seenDirectories.values().next().value)
+          }
+          const sessionID = event.properties?.sessionID ?? event.properties?.part?.sessionID ??
+            event.properties?.info?.sessionID ?? (event.type.startsWith("session.") ? event.properties?.info?.id : undefined)
+          live.observe(event, sessionID)
           enqueue({
             type: event.type,
             sessionID:
@@ -105,13 +123,28 @@ export function startWorker(input) {
         `${options.directory ? "/session" : "/experimental/session"}?limit=${options.sessionLimit}`,
       )
       const statuses = await connection.request("/session/status")
-      const permissions = await connection.request("/permission")
-      const questions = await connection.request("/question")
-      if (!Array.isArray(permissions) || !Array.isArray(questions)) {
-        throw new Error("Unexpected pending interaction response")
-      }
       if (!Array.isArray(list)) throw new Error("Unsupported session list response; expected OpenCode v1 API")
        const filtered = (options.directory ? list.filter((s) => s.directory === options.directory) : list).slice(0, options.sessionLimit)
+      // Pending interactions are directory-scoped on the local API: a query
+      // without a workspace never returns requests raised inside it. Merge the
+      // scopes of every observed workspace (recent sessions plus event hints).
+      const pendingPermissions = []
+      const pendingQuestions = []
+      for (const directory of new Set([...filtered.map((s) => s.directory), ...seenDirectories])) {
+        if (!directory) continue
+        const [scopedPermissions, scopedQuestions] = await Promise.all([
+          connection.request("/permission", { directory }),
+          connection.request("/question", { directory }),
+        ])
+        if (!Array.isArray(scopedPermissions) || !Array.isArray(scopedQuestions)) {
+          throw new Error("Unexpected pending interaction response")
+        }
+        pendingPermissions.push(...scopedPermissions)
+        pendingQuestions.push(...scopedQuestions)
+      }
+      const uniqueRequests = (requests) => [...new Map(requests.map((request) => [request.id, request])).values()]
+      const permissions = uniqueRequests(pendingPermissions)
+      const questions = uniqueRequests(pendingQuestions)
       // Requests can belong to an older session outside the recent-history window;
       // preserve them by observing their rows too (server retention keeps them).
       for (const id of new Set([...permissions, ...questions].map((r) => r.sessionID))) {
@@ -149,6 +182,7 @@ export function startWorker(input) {
             const prior = messages.get(session.id)
             messages.set(session.id, serialized)
             updates.push({ sessionID: session.id, messages: history })
+            live.mark(session.id)
             enqueue({
               type: prior ? "session.snapshot.changed" : "session.discovered",
               sessionID: session.id,
@@ -220,6 +254,7 @@ export function startWorker(input) {
          throw new Error("Unsupported sync response or mismatched acknowledgement/worker")
        }
        await receipts.acknowledge(inFlight.completed)
+       if (payload.live?.protocol_version === 1) live.enable()
       // The server assigns durable snapshot epochs; republish full snapshots
       // after its epoch changes (server restart or `resync_workers`).
        if (payload.resync_required || (snapshotEpoch && snapshotEpoch !== payload.snapshot_epoch)) messages.clear()
@@ -235,6 +270,7 @@ export function startWorker(input) {
           }),
         )
       }
+      if (commands.length) scheduler.wake()
     } catch (cause) {
        if (!controller.signal.aborted) console.error(`[${workerID}] Sync: ${cause.message}`)
     }
@@ -246,7 +282,7 @@ export function startWorker(input) {
     console.log(`[${workerID}] ${options.worker} @ ${options.url} -> ${options.syncURL}`)
     while (!controller.signal.aborted) {
       await tick()
-      await setTimeout(options.interval, undefined, { signal: controller.signal }).catch(() => {})
+      await scheduler.wait(options.interval)
     }
     await streaming
   })()

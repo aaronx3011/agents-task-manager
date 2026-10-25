@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { getFocus, publishSnapshot, watchFocus } from "./session-live";
+import type { LiveSnapshot } from "./session-live";
 
 export type Connection = "connecting" | "live" | "reconnecting" | "expired";
 export function useLiveUpdates() {
@@ -15,7 +17,21 @@ export function useLiveUpdates() {
     let broad = false;
     const ids = new Set<number>();
     const highlights = new Map<number, ReturnType<typeof setTimeout>>();
+    function subscribe() {
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(
+          JSON.stringify({
+            type: "subscribe",
+            worker: null,
+            sessionID: null,
+            ...getFocus(),
+          }),
+        );
+      }
+    }
+    const unwatch = watchFocus(subscribe);
     function refresh() {
+      void client.invalidateQueries({ queryKey: ["configuration", "agents"] });
       void client.invalidateQueries({ queryKey: ["opencodes"] });
       void client.invalidateQueries({ queryKey: ["workspace"] });
       void client.invalidateQueries({ queryKey: ["tasks"] });
@@ -42,13 +58,36 @@ export function useLiveUpdates() {
           type: string;
           task_id?: number;
           event_type?: string;
+          subject?: string;
         };
         if (message.type === "connected") {
           retry = 1000;
           setConnection("live");
           broad = true;
           refresh();
+          subscribe();
+        } else if (message.type === "session.live") {
+          publishSnapshot(JSON.parse(event.data) as LiveSnapshot);
+        } else if (message.type === "session.gap") {
+          publishSnapshot(null);
+          const focus = getFocus();
+          if (focus)
+            void client.invalidateQueries({
+              queryKey: ["opencodes", focus.worker, focus.sessionID],
+            });
         } else if (message.type === "changed") {
+          // Ordinary worker snapshots do not refetch every conversation. The
+          // overview polls; commands/interactions/failures still invalidate now.
+          const urgent =
+            /^(interaction\.|permission\.|question\.|command\.)/.test(
+              message.event_type || "",
+            ) || message.event_type === "session.error";
+          if (
+            message.subject &&
+            !urgent &&
+            ["workers", "sessions", "messages"].includes(message.subject)
+          )
+            return;
           if (
             message.task_id &&
             ["claimed", "released", "status_changed"].includes(
@@ -77,6 +116,7 @@ export function useLiveUpdates() {
       };
       socket.onclose = (event) => {
         if (disposed) return;
+        publishSnapshot(null);
         if (event.code === 4403) {
           setConnection("expired");
           return;
@@ -100,6 +140,7 @@ export function useLiveUpdates() {
     }, 60000);
     return () => {
       disposed = true;
+      unwatch();
       clearTimeout(retryTimer);
       clearTimeout(updateTimer);
       clearInterval(heartbeat);

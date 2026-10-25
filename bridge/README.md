@@ -16,6 +16,8 @@ verification evidence lives in [#16](https://github.com/aaronx3011/agents-task-m
   delivery becomes a one-shot *uncertain* error, never a blind replay.
 - `worker.mjs` — the outbound-only sync loop (snapshots/updates/events/
   results/pending + command execution from the sync response).
+- `live.mjs` — negotiated outbound WebSocket observations, 100 ms coalescing,
+  bounded live snapshots, and immediate HTTP-sync wakeups.
 - `smoke.mjs` — reproducible two-worker live harness (see below).
 
 ## Configuration (worker-scoped credentials, all local)
@@ -30,12 +32,40 @@ verification evidence lives in [#16](https://github.com/aaronx3011/agents-task-m
 | `OPENCODE_CREATE_DIRECTORY` | Default directory for `create` commands |
 | `WORKER_MODEL` | Default model as `providerID/modelID` |
 | `WORKER_STATE_DIRECTORY` | Receipts state dir (defaults under `.runtime/workers/<scope>/`) |
-| `SESSION_LIMIT` / `MESSAGE_LIMIT` / `POLL_INTERVAL_MS` | Bounded windows (50 / 30 / 2000) |
+| `SESSION_LIMIT` / `MESSAGE_LIMIT` / `POLL_INTERVAL_MS` | Bounded windows and persistence interval (50 / 30 / 5000) |
 | `OPENCODE_SERVER_USERNAME` / `OPENCODE_SERVER_PASSWORD` | Local OpenCode basic auth if enabled |
 
 The bridge never returns OpenCode or provider credentials to the server:
 `meta.opencode_url` is the redacted endpoint, and only the coordinator's
 worker-scoped agent key leaves the box.
+
+## Live updates and batch persistence (#23)
+
+The acknowledged HTTP sync advertises live protocol v1 before the bridge opens
+`/ws/worker/` on the same coordinator origin. Node 22+ enables the native
+WebSocket client; older runtimes retain HTTP-only operation. Authentication is
+the first socket frame, never a URL parameter. Use HTTPS/WSS for remote workers.
+
+OpenCode SSE events mark dirty sessions. At most once per 100 ms sampling pass,
+the bridge reads the latest message window and sends replaceable full-state
+overlays. Intermediate `message.updated`, `message.part.updated`, and
+`message.part.delta` events are not individually stored in Django's event ring.
+The database receives changed message windows through the normal HTTP batch,
+every 5 seconds by default. Final/idle/error events, questions/permissions,
+256 KiB of accumulated message events, command wakeups, and command results
+request an earlier sync. There is still only one upload in flight, and a failed
+batch retains its identical body and acknowledgement semantics.
+
+Live frames are capped at 256 KiB and socket buffering at 512 KiB. An oversized
+window signals a live gap rather than silently truncating messages; polling
+remains the recovery path. The HTTP upload-size recovery backlog (#21) is
+separate. Live delivery is ephemeral and does not acknowledge command execution
+or durable message storage. Keep receipt files across restarts.
+
+Only the browser's selected session subscribes to detailed live frames. Other
+sessions remain available through database-backed overview polling. This first
+version coalesces active-session observations worker-side without viewer-count
+tracking; browser selection does not control OpenCode execution or collection.
 
 Checks: `node --test bridge/bridge.test.mjs` (Node 20.19+).
 Live smoke: `node bridge/smoke.mjs` with `WORKER_A_ID`, `WORKER_A_KEY`,

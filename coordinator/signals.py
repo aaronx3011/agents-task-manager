@@ -106,4 +106,11 @@ def worker_command_committed(sender, instance, created, **kwargs):
 @receiver(post_save, sender=Worker)
 @receiver(post_delete, sender=Worker)
 def directory_changed(sender, **kwargs):
+    if sender is Worker:
+        worker = kwargs["instance"]
+        transaction.on_commit(
+            lambda: dispatch_notification("worker.changed", subject="workers", worker=worker),
+            robust=True,
+        )
+        return
     transaction.on_commit(publish_change, robust=True)

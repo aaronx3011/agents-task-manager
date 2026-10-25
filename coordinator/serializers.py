@@ -3,6 +3,10 @@ from rest_framework import serializers
 from .models import Project, Task, TaskEvent
 
 
+class AgentRegistrationSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=100, trim_whitespace=True)
+
+
 class TaskEventSerializer(serializers.ModelSerializer):
     agent = serializers.StringRelatedField()
 

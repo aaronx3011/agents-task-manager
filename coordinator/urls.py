@@ -2,6 +2,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    AgentRegistrationViewSet,
     CommandViewSet,
     TaskViewSet,
     WorkerViewSet,
@@ -12,6 +13,7 @@ from .views import (
 )
 
 router = DefaultRouter(trailing_slash=False)
+router.register("agents", AgentRegistrationViewSet, basename="agent-registration")
 router.register("tasks", TaskViewSet, basename="task")
 router.register("workers", WorkerViewSet, basename="worker")
 router.register("commands", CommandViewSet, basename="command")

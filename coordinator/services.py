@@ -7,12 +7,13 @@ from urllib.parse import urlsplit, urlunsplit
 
 from django.apps import apps
 from django.conf import settings
-from django.db import OperationalError, connection, transaction
+from django.db import IntegrityError, OperationalError, connection, transaction
 from django.utils import timezone
 
 from . import sync
 from .errors import TaskError
 from .models import (
+    Agent,
     PendingInteraction,
     ServerState,
     Task,
@@ -45,6 +46,37 @@ def retry_sqlite(function):
                 time.sleep(0.02 * (2**attempt))
 
     return wrapped
+
+
+@retry_sqlite
+def register_agent(name):
+    """Explicit human registration. Return a raw credential only to this caller."""
+    if not isinstance(name, str) or not name.strip() or len(name.strip()) > 100:
+        raise TaskError("Agent name must contain 1–100 characters", 400)
+    name = name.strip()
+    if Agent.objects.filter(name=name).exists():
+        raise TaskError("An agent with this name already exists", 409)
+    agent = Agent(name=name)
+    raw_key = agent.set_new_api_key()
+    try:
+        with transaction.atomic():
+            agent.save(force_insert=True)
+    except IntegrityError:
+        # The unique constraint is authoritative when two staff requests race.
+        if Agent.objects.filter(name=name).exists():
+            raise TaskError("An agent with this name already exists", 409) from None
+        raise
+    return agent, raw_key
+
+
+def agent_registration_card(agent):
+    return {
+        "id": agent.pk,
+        "name": agent.name,
+        "is_active": agent.is_active,
+        "last_seen": agent.last_seen,
+        "created_at": agent.created_at,
+    }
 
 
 def locked(queryset, skip_locked=False):
@@ -637,13 +669,22 @@ def store_messages(worker, remote_session_id, message_records):
     if session is None:
         raise TaskError("Unknown session for this worker", 404)
     now = timezone.now()
-    window_ids = []
-    for record in message_records:
-        fields = normalize_message_record(record)
-        window_ids.append(fields["remote_id"])
-        row = WorkerMessage.objects.filter(session=session, remote_id=fields["remote_id"]).first()
+    # A flush writes the latest state of each message once, not one SQL update
+    # per streamed part. Duplicate IDs within a batch retain the final snapshot.
+    normalized = {
+        fields["remote_id"]: fields
+        for fields in (normalize_message_record(record) for record in message_records)
+    }
+    window_ids = list(normalized)
+    existing = {
+        row.remote_id: row
+        for row in WorkerMessage.objects.filter(session=session, remote_id__in=window_ids)
+    }
+    created, updated = [], []
+    for remote_id, fields in normalized.items():
+        row = existing.get(remote_id)
         if row is None:
-            WorkerMessage.objects.create(session=session, **fields, in_last_window=True)
+            created.append(WorkerMessage(session=session, **fields, in_last_window=True))
         else:
             changed = (
                 row.content != fields["content"]
@@ -655,10 +696,17 @@ def store_messages(worker, remote_session_id, message_records):
             row.parts = fields["parts"]
             row.role = fields["role"]
             row.remote_time = fields["remote_time"]
-            row.in_last_window = True
             if changed:
                 row.updated_at = now
-            row.save()
+            if changed or not row.in_last_window:
+                row.in_last_window = True
+                updated.append(row)
+    WorkerMessage.objects.bulk_create(created, batch_size=100)
+    WorkerMessage.objects.bulk_update(
+        updated,
+        ["content", "parts", "role", "remote_time", "in_last_window", "updated_at"],
+        batch_size=100,
+    )
     if window_ids:
         WorkerMessage.objects.filter(session=session).exclude(remote_id__in=window_ids).update(
             in_last_window=False
@@ -680,6 +728,13 @@ def store_messages(worker, remote_session_id, message_records):
             "updated_at",
         ]
     )
+    if created or updated:
+        transaction.on_commit(
+            lambda: dispatch_notification(
+                "session.messages.flushed", subject="messages", worker=worker, session=session
+            ),
+            robust=True,
+        )
     return session
 
 
@@ -958,6 +1013,7 @@ def apply_worker_sync(worker, intent):
         "resync_required": False,
         "commands": dispatch_queued_commands(locked_worker),
         "pending_applied": pending_count,
+        "live": {"protocol_version": 1, "path": "/ws/worker/"},
         "limits": {
             "sessions": worker.session_limit,
             "messages": worker.message_limit,

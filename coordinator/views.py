@@ -10,6 +10,7 @@ from . import services
 from . import sync as sync_module
 from .auth import get_agent, staff_name
 from .models import (
+    Agent,
     Project,
     Task,
     TaskExecutionAttempt,
@@ -20,6 +21,7 @@ from .models import (
 from .pagination import TaskPagination
 from .queries import filter_tasks, order_tasks, task_queryset
 from .serializers import (
+    AgentRegistrationSerializer,
     ClaimNextSerializer,
     NoteSerializer,
     ReleaseSerializer,
@@ -28,6 +30,36 @@ from .serializers import (
     TaskEventSerializer,
     TaskSerializer,
 )
+
+
+class AgentRegistrationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    """Staff configuration surface; agent keys never grant provisioning rights."""
+
+    permission_classes = [IsAdminUser]
+    http_method_names = ["get", "post", "head", "options"]
+    serializer_class = AgentRegistrationSerializer
+    queryset = Agent.objects.order_by("name", "pk")
+
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        response["Cache-Control"] = "no-store, private"
+        response["Pragma"] = "no-cache"
+        return response
+
+    def list(self, request, *args, **kwargs):
+        page = self.paginate_queryset(self.get_queryset())
+        return self.get_paginated_response(
+            [services.agent_registration_card(agent) for agent in page]
+        )
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        agent, key = services.register_agent(serializer.validated_data["name"])
+        return Response(
+            {**services.agent_registration_card(agent), "api_key": key},
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class WorkerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):

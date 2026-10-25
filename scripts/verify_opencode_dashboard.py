@@ -53,6 +53,62 @@ def check_module_graph(scripts, errors):
     assert not errors, errors
 
 
+def verify_agent_registration(page, context, origin):
+    from playwright.sync_api import expect
+
+    context.grant_permissions(["clipboard-read", "clipboard-write"])
+    page.get_by_role("button", name="Configuration", exact=True).click()
+    expect(page.get_by_role("region", name="Agent configuration")).to_be_visible()
+    page.get_by_label("Agent name", exact=True).fill("browser-registered-agent")
+    page.get_by_role("button", name="Register agent", exact=True).click()
+    secret_input = page.get_by_label("New agent API key", exact=True)
+    expect(secret_input).to_be_visible()
+    key = secret_input.input_value()
+    assert len(key) >= 32
+    page.get_by_role("button", name="Copy API key", exact=True).click()
+    assert page.evaluate("navigator.clipboard.readText()") == key
+    page.get_by_label("Coordinator checkout path").fill("/tmp/agent workspace")
+    configuration = page.get_by_label("OpenCode MCP configuration").inner_text()
+    entry = json.loads(configuration)["mcp"]["task-coordinator"]
+    assert entry["command"] == [
+        "/tmp/agent workspace/.venv/bin/python",
+        "/tmp/agent workspace/mcp_server.py",
+    ]
+    assert entry["environment"]["COORDINATOR_API_KEY"] == "{env:COORDINATOR_API_KEY}"
+    assert key not in configuration
+    page.get_by_role("button", name="Copy MCP configuration", exact=True).click()
+    assert page.evaluate("navigator.clipboard.readText()") == configuration
+    listed = page.request.get(origin + "/api/agents")
+    assert key not in listed.text() and "api_key_hash" not in listed.text()
+    stored = page.evaluate(
+        "JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)])"
+    )
+    assert key not in stored
+    page.get_by_role("button", name="Done · dismiss credentials", exact=True).click()
+    expect(secret_input).to_have_count(0)
+    expect(
+        page.locator(".config-agent-list").get_by_text("browser-registered-agent")
+    ).to_be_visible()
+    page.get_by_label("Agent name", exact=True).fill("browser-registered-agent")
+    page.get_by_role("button", name="Register agent", exact=True).click()
+    expect(page.get_by_role("alert")).to_contain_text("already exists")
+    expect(secret_input).to_have_count(0)
+    page.get_by_label("Agent name", exact=True).fill("navigation-registered-agent")
+    page.get_by_role("button", name="Register agent", exact=True).click()
+    expect(secret_input).to_be_visible()
+    page.get_by_role("button", name="OpenCodes", exact=True).click()
+    page.get_by_role("button", name="Configuration", exact=True).click()
+    expect(secret_input).to_have_count(0)
+    page.reload()
+    expect(page.get_by_role("region", name="Agent configuration")).to_be_visible()
+    expect(secret_input).to_have_count(0)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    page.get_by_role("button", name="All tasks", exact=True).click()
+    expect(page.get_by_role("button", name="Kanban", exact=True)).to_be_visible()
+    page.set_viewport_size({"width": 1512, "height": 1050})
+
+
 def run(directory, screenshots, assets_only=False):
     env = {
         **os.environ,
@@ -301,6 +357,7 @@ def run(directory, screenshots, assets_only=False):
                 expect(
                     page.get_by_text("Existing task UI remains available", exact=True)
                 ).to_be_visible()
+                verify_agent_registration(page, context, origin)
                 if assets_only:
                     page.goto(origin + "/dashboard/?section=opencodes")
                     expect(page.get_by_role("heading", name="Connected OpenCodes.")).to_be_visible()
@@ -317,7 +374,9 @@ def run(directory, screenshots, assets_only=False):
                     context.close()
                     browser.close()
                     print(
-                        "PASS production-collected lazy dashboard/task modules and deep reload; "
+                        "PASS agent registration/one-time keys/MCP config/clipboard, "
+                        "navigation/mobile, "
+                        "production-collected lazy dashboard/task modules and deep reload; "
                         "one entry URL and zero browser errors"
                     )
                     return
@@ -342,6 +401,10 @@ def run(directory, screenshots, assets_only=False):
                         "Browser to Django to real OpenCode", exact=True
                     )
                 ).to_be_visible()
+                expect(
+                    page.get_by_text("Live conversation · batched storage", exact=True)
+                ).to_be_visible()
+                assert any(frame.get("type") == "session.live" for frame in frames)
                 page.get_by_role("button", name="Interrupt", exact=True).click()
                 expect(
                     page.locator(".oc-commands").get_by_text("interrupt", exact=False).first
@@ -366,11 +429,12 @@ def run(directory, screenshots, assets_only=False):
                 expect(page.get_by_text("Reasoning fixture", exact=True)).to_be_visible()
                 assert not page.evaluate("window.workerInjected === true")
                 text = "Changed by connected worker"
+                # This fixture publishes HTTP batches, not live frames.
                 expect(
                     page.locator(".oc-message").get_by_text(
                         "Changed by connected worker", exact=True
                     )
-                ).to_be_visible()
+                ).to_be_visible(timeout=12000)
                 assert any(frame.get("type") == "changed" for frame in frames)
                 denied = page.evaluate(
                     """async () => (await fetch('/api/commands', {
@@ -415,7 +479,8 @@ def run(directory, screenshots, assets_only=False):
                 for command in interaction_results
             )
             print(
-                "PASS real OpenCode create/prompt/history/interrupt, worker health/isolation, "
+                "PASS agent registration/one-time keys/MCP config/clipboard/navigation/mobile, "
+                "real OpenCode create/prompt/history/interrupt, worker health/isolation, "
                 "controlled questions/approval, draft preservation, tool/reasoning, "
                 "live updates, CSRF/XSS, mobile, task views, production static graph/deep reload; "
                 "one entry URL and zero browser errors"

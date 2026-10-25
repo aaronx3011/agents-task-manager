@@ -1,0 +1,130 @@
+.configuration {
+  padding: 28px 32px;
+  overflow: auto;
+  min-width: 0;
+}
+.configuration .workspace-heading {
+  padding: 0 0 24px;
+}
+.config-heading,
+.config-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.config-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.config-card {
+  min-width: 0;
+  padding: 22px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.config-card h3 {
+  margin: 0 0 12px;
+}
+.config-card p {
+  color: var(--secondary);
+  line-height: 1.6;
+}
+.config-card form,
+.config-card label {
+  display: grid;
+  gap: 10px;
+}
+.config-card form {
+  gap: 16px;
+}
+.config-card label {
+  margin: 16px 0;
+}
+.config-card input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+}
+.config-card input[readonly] {
+  font-family: monospace;
+}
+.config-card pre {
+  overflow-x: auto;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.config-credentials,
+.config-connection {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.config-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.config-copy span {
+  color: var(--muted);
+}
+.config-list-header,
+.config-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.config-agent-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.config-agent-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.config-agent-list strong {
+  overflow-wrap: anywhere;
+}
+.config-agent-list li > :last-child {
+  grid-column: 1 / -1;
+}
+.config-active {
+  color: var(--accent);
+}
+.config-card .config-error {
+  color: var(--amber);
+}
+.config-pagination {
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+@media (max-width: 1000px) {
+  .config-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  .configuration {
+    padding: 20px 16px;
+  }
+  .config-card {
+    padding: 16px;
+  }
+}

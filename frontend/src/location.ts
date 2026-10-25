@@ -5,7 +5,12 @@ function read(): LocationState {
   const params = new URLSearchParams(window.location.search);
   const page = Number(params.get("page"));
   return {
-    section: params.get("section") === "opencodes" ? "opencodes" : "tasks",
+    section:
+      params.get("section") === "configuration"
+        ? "configuration"
+        : params.get("section") === "opencodes"
+          ? "opencodes"
+          : "tasks",
     worker: params.get("worker") || "",
     session: params.get("session") || "",
     filters: {

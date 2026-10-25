@@ -25,6 +25,7 @@ import {
   PanelRightOpen,
   Radio,
   Search,
+  Settings,
   Monitor,
   SlidersHorizontal,
   Sun,
@@ -54,6 +55,7 @@ const TaskModal = lazy(() =>
   import("./TaskModal").then((module) => ({ default: module.TaskModal })),
 );
 const OpenCodes = lazy(() => import("./OpenCodes"));
+const Configuration = lazy(() => import("./Configuration"));
 
 function preference(key: string, fallback: string) {
   try {
@@ -325,7 +327,7 @@ export default function App() {
           <button
             className={`nav-link ${agentsOpen ? "subtle-active" : ""}`}
             onClick={() => {
-              if (location.section === "opencodes") {
+              if (location.section !== "tasks") {
                 navigate({ section: null });
                 setAgentsOpen(true);
               } else setAgentsOpen(!agentsOpen);
@@ -338,7 +340,7 @@ export default function App() {
           <button
             className={`nav-link ${activityOpen ? "subtle-active" : ""}`}
             onClick={() => {
-              if (location.section === "opencodes") {
+              if (location.section !== "tasks") {
                 navigate({ section: null });
                 setActivityOpen(true);
               } else setActivityOpen(!activityOpen);
@@ -368,6 +370,15 @@ export default function App() {
             ))}
           </div>
           <div className="sidebar-bottom">
+            <button
+              className={`nav-link ${location.section === "configuration" ? "active" : ""}`}
+              onClick={() =>
+                navigate({ section: "configuration", task: null }, true)
+              }
+            >
+              <Settings size={16} />
+              Configuration
+            </button>
             <a
               className="nav-link"
               href="https://github.com/aaronx3011/agents-task-manager/issues/3"
@@ -403,7 +414,9 @@ export default function App() {
               <strong>
                 {location.section === "opencodes"
                   ? "Connected OpenCodes"
-                  : project?.name || "All projects"}
+                  : location.section === "configuration"
+                    ? "Configuration"
+                    : project?.name || "All projects"}
               </strong>
             </div>
             <div className="topbar-actions">
@@ -443,15 +456,33 @@ export default function App() {
             >
               OpenCodes
             </button>
+            <button
+              aria-pressed={location.section === "configuration"}
+              onClick={() =>
+                navigate({ section: "configuration", task: null }, true)
+              }
+            >
+              Configuration
+            </button>
           </div>
           {location.section === "opencodes" ? (
-            <Suspense fallback={<Loading label="Opening OpenCodes…" />}>
+            <Suspense
+              key="opencodes"
+              fallback={<Loading label="Opening OpenCodes…" />}
+            >
               <OpenCodes
                 worker={location.worker}
                 session={location.session}
                 navigate={navigate}
                 openTask={openTask}
               />
+            </Suspense>
+          ) : location.section === "configuration" ? (
+            <Suspense
+              key="configuration"
+              fallback={<Loading label="Opening configuration…" />}
+            >
+              <Configuration />
             </Suspense>
           ) : (
             <>

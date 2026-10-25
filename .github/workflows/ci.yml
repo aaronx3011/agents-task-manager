@@ -30,7 +30,7 @@ jobs:
         run: uv run --with playwright python -m playwright install --with-deps chromium
       - name: Verify collected frontend module graph in a browser
         run: uv run --with playwright python scripts/verify_opencode_dashboard.py --assets-only
-      - run: node --test --test-timeout=30000 bridge/bridge.test.mjs
+      - run: node --test --test-timeout=30000 bridge/bridge.test.mjs frontend/tests/session-live.test.mjs
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run python manage.py check
@@ -61,6 +61,9 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --locked
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
       - run: uv run python manage.py migrate --noinput
       - run: uv run python manage.py collectstatic --noinput
       - run: uv run pytest

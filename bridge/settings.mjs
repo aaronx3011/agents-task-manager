@@ -26,7 +26,7 @@ export function workerSettings(options) {
   }
   const model = parseModel(options.model)
   const limits = Object.fromEntries(
-    [["interval", 2000], ["sessionLimit", 50], ["messageLimit", 30]].map(([key, fallback]) => {
+    [["interval", 5000], ["sessionLimit", 50], ["messageLimit", 30]].map(([key, fallback]) => {
       const value = Number(options[key] ?? fallback)
       if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${key} must be a positive integer`)
       if ((key === "sessionLimit" && value > 100) || (key === "messageLimit" && value > 300)) {

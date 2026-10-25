@@ -67,6 +67,7 @@ async function localServer(t, { version = "1.18.32" } = {}) {
   const calls = []
   const url = await serve(t, (request, response, body) => {
     const path = new URL(request.url, "http://fixture").pathname
+    const directory = new URL(request.url, "http://fixture").searchParams.get("directory")
     calls.push({ path, method: request.method, body: body && JSON.parse(body), url: request.url, auth: request.headers.authorization })
     if (path === "/global/event") {
       response.writeHead(200, { "Content-Type": "text/event-stream" })
@@ -80,8 +81,10 @@ async function localServer(t, { version = "1.18.32" } = {}) {
       return json(response, [{ id: "ses_fixture", directory: "/fixture", title: "Fixture", time: { updated: 1 } }])
     }
     if (path.endsWith("/message")) return json(response, [])
-    if (path === "/permission") return json(response, [{ id: "per_1", sessionID: "ses_fixture" }])
-    if (path === "/question") return json(response, [{ id: "que_1", sessionID: "ses_fixture" }, { id: "que_2", sessionID: "ses_fixture" }])
+    // Pending interactions are workspace-scoped: the installed API returns an
+    // empty list without the directory query, exactly like production.
+    if (path === "/permission") return json(response, directory ? [{ id: "per_1", sessionID: "ses_fixture" }] : [])
+    if (path === "/question") return json(response, directory ? [{ id: "que_1", sessionID: "ses_fixture" }, { id: "que_2", sessionID: "ses_fixture" }] : [])
     return json(response, path === "/session" ? { id: "ses_created" } : {})
   })
   return { url, calls }
@@ -209,6 +212,9 @@ test("pending interactions travel through sync, dispatch and local replies", asy
   await worker(t, local, hub, await state(t))
   await until(() => results.length === 3)
   assert.ok(results.every((result) => result.status === "done"))
+  const pendingLists = local.calls.filter((call) => call.method === "GET" && ["/permission", "/question"].includes(call.path))
+  assert.ok(pendingLists.length > 0)
+  assert.ok(pendingLists.every((call) => new URL(call.url, local.url).searchParams.get("directory") === "/fixture"))
   assert.deepEqual(local.calls.filter((call) => call.method === "POST").map((call) => call.path), [
     "/permission/per_1/reply", "/question/que_1/reply", "/question/que_2/reject",
   ])
