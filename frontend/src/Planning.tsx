@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDown,
@@ -71,11 +71,13 @@ export default function Planning({
   project,
   navigate,
   openTask,
+  newProject,
 }: {
   projects: Project[];
   project: string;
   navigate: Navigate;
   openTask: (id: number) => void;
+  newProject: boolean;
 }) {
   const slug = project || projects[0]?.slug || "";
   return (
@@ -91,7 +93,9 @@ export default function Planning({
           <select
             aria-label="Planning project"
             value={slug}
-            onChange={(e) => navigate({ project: e.target.value })}
+            onChange={(e) =>
+              navigate({ project: e.target.value, planning_tab: null })
+            }
           >
             {projects.map((p) => (
               <option key={p.slug} value={p.slug}>
@@ -100,6 +104,9 @@ export default function Planning({
             ))}
           </select>
         </label>
+        <button onClick={() => navigate({ new_project: "true" })}>
+          <Plus size={16} /> New project
+        </button>
       </header>
       {slug ? (
         <ProjectPlanning
@@ -109,9 +116,190 @@ export default function Planning({
           openTask={openTask}
         />
       ) : (
-        <p>Create a project in administration to start planning.</p>
+        <p>Create your first project with New project to start planning.</p>
+      )}
+      {newProject && (
+        <NewProjectForm
+          close={() => navigate({ new_project: null })}
+          created={(slug) =>
+            navigate(
+              {
+                section: "planning",
+                project: slug,
+                new_project: null,
+                planning_tab: "settings",
+                q: null,
+                claimed_by: null,
+                status: null,
+                ready: null,
+                task: null,
+                page: null,
+              },
+              true,
+            )
+          }
+        />
       )}
     </section>
+  );
+}
+
+function NewProjectForm({
+  close,
+  created,
+}: {
+  close: () => void;
+  created: (slug: string) => void;
+}) {
+  const client = useQueryClient();
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [slugEdited, setSlugEdited] = useState(false);
+  const [kind, setKind] = useState("code");
+  const [repo, setRepo] = useState("");
+  const [docs, setDocs] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    dialog.current?.showModal();
+    return () => previous?.focus();
+  }, []);
+  return (
+    <dialog
+      ref={dialog}
+      className="planning-dialog planning-project-dialog"
+      aria-labelledby="new-project-title"
+      onCancel={(e) => {
+        e.preventDefault();
+        if (!busy) close();
+      }}
+    >
+      <header>
+        <h2 id="new-project-title">New project</h2>
+        <button disabled={busy} aria-label="Close new project" onClick={close}>
+          <X size={18} />
+        </button>
+      </header>
+      <p>
+        Create a project, then configure its worker, directory, model and
+        prompts.
+      </p>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (busy) return;
+          setBusy(true);
+          setError("");
+          void post<Project>("/api/projects", {
+            name,
+            slug,
+            kind,
+            repo_url: repo,
+            docs_path: docs,
+          })
+            .then(async (project) => {
+              await client.invalidateQueries({ queryKey: ["workspace"] });
+              created(project.slug);
+            })
+            .catch((e) =>
+              setError(
+                e instanceof Error ? e.message : "Project creation failed",
+              ),
+            )
+            .finally(() => setBusy(false));
+        }}
+      >
+        <fieldset disabled={busy}>
+          <label>
+            Project name
+            <input
+              autoFocus
+              required
+              maxLength={200}
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (!slugEdited)
+                  setSlug(
+                    e.target.value
+                      .normalize("NFKD")
+                      .replace(/[\u0300-\u036f]/g, "")
+                      .toLowerCase()
+                      .replace(/[^a-z0-9]+/g, "-")
+                      .replace(/^-+|-+$/g, "")
+                      .slice(0, 50),
+                  );
+              }}
+            />
+          </label>
+          <label>
+            Project slug
+            <input
+              required
+              maxLength={50}
+              pattern="[a-zA-Z0-9_-]+"
+              value={slug}
+              onChange={(e) => {
+                setSlug(e.target.value);
+                setSlugEdited(true);
+              }}
+              aria-describedby="project-slug-help"
+            />
+          </label>
+          <small id="project-slug-help">
+            Unique identifier for links and agent tools. Letters, numbers,
+            hyphens and underscores.
+          </small>
+          <label>
+            Project kind
+            <select
+              aria-label="Project kind"
+              value={kind}
+              onChange={(e) => setKind(e.target.value)}
+            >
+              <option value="code">Code</option>
+              <option value="design">Design</option>
+              <option value="content">Content</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>
+            Repository URL (optional)
+            <input
+              type="url"
+              maxLength={200}
+              value={repo}
+              onChange={(e) => setRepo(e.target.value)}
+              placeholder="https://github.com/you/project"
+            />
+          </label>
+          <label>
+            Documentation reference (optional)
+            <input
+              maxLength={500}
+              value={docs}
+              onChange={(e) => setDocs(e.target.value)}
+              placeholder="Documentation URL or path"
+            />
+          </label>
+        </fieldset>
+        {error && (
+          <p className="planning-error" role="alert">
+            {error}
+          </p>
+        )}
+        <footer>
+          <button type="submit" disabled={busy}>
+            {busy ? "Creating…" : "Create project"}
+          </button>
+          <button type="button" disabled={busy} onClick={close}>
+            Cancel
+          </button>
+        </footer>
+      </form>
+    </dialog>
   );
 }
 
@@ -125,7 +313,12 @@ function ProjectPlanning({
   openTask: (id: number) => void;
 }) {
   const client = useQueryClient();
-  const [tab, setTab] = useState("board");
+  const [tab, setTab] = useState(() =>
+    new URLSearchParams(window.location.search).get("planning_tab") ===
+    "settings"
+      ? "settings"
+      : "board",
+  );
   const [editor, setEditor] = useState<Card | null>(null);
   const [editorRevision, setEditorRevision] = useState(0);
   const [launch, setLaunch] = useState<Card | null>(null);

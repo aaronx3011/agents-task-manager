@@ -95,6 +95,7 @@ export interface Filters {
   ready: string;
 }
 export interface LocationState {
+  newProject: boolean;
   section:
     | "tasks"
     | "opencodes"

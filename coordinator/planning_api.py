@@ -10,6 +10,33 @@ from .auth import get_agent, staff_name
 from .models import Project, Worker
 
 
+class ProjectInput(serializers.Serializer):
+    slug = serializers.SlugField(max_length=50)
+    name = serializers.CharField(max_length=200)
+    kind = serializers.ChoiceField(choices=Project.Kind.choices, default=Project.Kind.CODE)
+    repo_url = serializers.URLField(max_length=200, required=False, allow_blank=True, default="")
+    docs_path = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
+
+
+@api_view(["POST"])
+@permission_classes([IsAdminUser])
+def projects_create(request):
+    serializer = ProjectInput(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    project = services.create_project(**serializer.validated_data)
+    return Response(
+        {
+            "slug": project.slug,
+            "name": project.name,
+            "kind": project.kind,
+            "repo_url": project.repo_url,
+            "docs_path": project.docs_path,
+            "active_count": 0,
+        },
+        status=201,
+    )
+
+
 class ModelChoice(serializers.Serializer):
     providerID = serializers.CharField(max_length=100)
     modelID = serializers.CharField(max_length=200)

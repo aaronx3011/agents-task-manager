@@ -234,6 +234,13 @@
   margin: 0;
   font-size: 18px;
 }
+.planning-project-dialog::backdrop {
+  background: #0009;
+}
+.planning-project-dialog {
+  color: var(--text);
+  margin: auto;
+}
 .planning-check {
   display: flex;
   gap: 8px;

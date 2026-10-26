@@ -5,6 +5,7 @@ function read(): LocationState {
   const params = new URLSearchParams(window.location.search);
   const page = Number(params.get("page"));
   return {
+    newProject: params.get("new_project") === "true",
     section:
       params.get("section") === "planning"
         ? "planning"

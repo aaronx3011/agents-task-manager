@@ -136,6 +136,14 @@ the existing acknowledged sync; the socket wakes that sync immediately.
 Open **Planning** in the sidebar/mobile navigation, or
 `/dashboard/?section=planning&project=PROJECT_SLUG`.
 
+Create projects directly with **New project** in Planning or the **+** beside
+Projects in the sidebar. Enter a name, suggested/editable unique slug, kind and
+optional repository/documentation references. Creation selects the project,
+refreshes navigation and opens its execution settings. The form is available
+even when the workspace has no projects. Duplicate slugs are rejected without
+changing the existing project. This uses staff-session-only `POST /api/projects`
+with CSRF; it provisions no agents, credentials or worker processes.
+
 1. In **Settings**, choose the project's default worker, workspace directory and
    model. Add project context, standing instructions, reusable prompt templates
    and board columns.

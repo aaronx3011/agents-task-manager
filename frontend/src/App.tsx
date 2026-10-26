@@ -23,6 +23,7 @@ import {
   Moon,
   PanelRightClose,
   PanelRightOpen,
+  Plus,
   Radio,
   Search,
   Settings,
@@ -363,6 +364,18 @@ export default function App() {
           </button>
           <div className="nav-caption project-caption">
             PROJECTS<span>{data?.projects.length || 0}</span>
+            <button
+              className="icon-button"
+              aria-label="Create project"
+              onClick={() =>
+                navigate(
+                  { section: "planning", new_project: "true", task: null },
+                  true,
+                )
+              }
+            >
+              <Plus size={14} />
+            </button>
           </div>
           <div className="project-navigation">
             {data?.projects.map((item) => (
@@ -517,6 +530,7 @@ export default function App() {
                 project={filters.project}
                 navigate={navigate}
                 openTask={openTask}
+                newProject={location.newProject}
               />
             </Suspense>
           ) : location.section === "opencodes" ||

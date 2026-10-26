@@ -20,6 +20,7 @@ from .models import (
     PendingInteraction,
     PlanningCard,
     PlanningJob,
+    Project,
     ProjectPlan,
     ServerState,
     Task,
@@ -83,6 +84,27 @@ def agent_registration_card(agent):
         "last_seen": agent.last_seen,
         "created_at": agent.created_at,
     }
+
+
+@retry_sqlite
+def create_project(slug, name, kind, repo_url="", docs_path=""):
+    """Explicit dashboard creation; the database arbitrates competing slugs."""
+    try:
+        with transaction.atomic():
+            project = Project.objects.create(
+                slug=slug, name=name, kind=kind, repo_url=repo_url, docs_path=docs_path
+            )
+            ProjectPlan.objects.create(project=project)
+            transaction.on_commit(
+                lambda: dispatch_notification("project.created", subject="projects"), robust=True
+            )
+    except IntegrityError:
+        if Project.objects.filter(slug=slug).exists():
+            raise TaskError(
+                "A project with this slug already exists. Choose another slug.", 409
+            ) from None
+        raise
+    return project
 
 
 def locked(queryset, skip_locked=False):

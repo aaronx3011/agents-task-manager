@@ -109,6 +109,48 @@ def verify_agent_registration(page, context, origin):
     page.set_viewport_size({"width": 1512, "height": 1050})
 
 
+def verify_project_creation(page, origin):
+    from playwright.sync_api import expect
+
+    page.get_by_role("button", name="Create project", exact=True).click()
+    dialog = page.get_by_role("dialog", name="New project", exact=True)
+    expect(dialog).to_be_visible()
+    dialog.get_by_label("Project name", exact=True).fill("Dashboard created project")
+    expect(dialog.get_by_label("Project slug", exact=True)).to_have_value(
+        "dashboard-created-project"
+    )
+    dialog.get_by_label("Project slug", exact=True).fill("dashboard-created")
+    dialog.get_by_label("Project kind", exact=True).select_option("other")
+    dialog.get_by_label("Repository URL (optional)", exact=True).fill(
+        "https://github.com/example/project"
+    )
+    dialog.get_by_role("button", name="Create project", exact=True).click()
+    expect(dialog).to_have_count(0)
+    expect(page.get_by_role("heading", name="Project configuration")).to_be_visible()
+    expect(page.get_by_label("Planning project", exact=True)).to_have_value("dashboard-created")
+    expect(
+        page.locator(".project-navigation").get_by_role(
+            "button", name=re.compile("^Dashboard created project")
+        )
+    ).to_be_visible()
+    assert page.request.get(origin + "/api/projects/dashboard-created/planning").status == 200
+    page.get_by_role("button", name="New project", exact=True).click()
+    dialog.get_by_label("Project name", exact=True).fill("Duplicate")
+    dialog.get_by_label("Project slug", exact=True).fill("dashboard-created")
+    dialog.get_by_role("button", name="Create project", exact=True).click()
+    expect(dialog.get_by_role("alert")).to_contain_text("already exists")
+    page.keyboard.press("Escape")
+    expect(dialog).to_have_count(0)
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.get_by_role("button", name="New project", exact=True).click()
+    expect(dialog).to_be_visible()
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    dialog.get_by_role("button", name="Cancel", exact=True).click()
+    page.set_viewport_size({"width": 1512, "height": 1050})
+    page.get_by_label("Planning project", exact=True).select_option("browser-check")
+    page.get_by_role("button", name="All tasks", exact=False).click()
+
+
 def verify_planning(page, origin):
     """Exercise real staff board/settings/queue writes without a model invocation."""
     from playwright.sync_api import expect
@@ -420,6 +462,7 @@ def run(directory, screenshots, assets_only=False):
                     page.get_by_text("Existing task UI remains available", exact=True)
                 ).to_be_visible()
                 verify_agent_registration(page, context, origin)
+                verify_project_creation(page, origin)
                 verify_planning(page, origin)
                 if assets_only:
                     page.goto(origin + "/dashboard/?section=opencodes")
