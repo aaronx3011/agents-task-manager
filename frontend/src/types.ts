@@ -95,7 +95,13 @@ export interface Filters {
   ready: string;
 }
 export interface LocationState {
-  section: "tasks" | "opencodes" | "sessions" | "activity" | "configuration";
+  section:
+    | "tasks"
+    | "opencodes"
+    | "sessions"
+    | "activity"
+    | "configuration"
+    | "planning";
   worker: string;
   session: string;
   filters: Filters;

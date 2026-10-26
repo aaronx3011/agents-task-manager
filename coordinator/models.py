@@ -522,3 +522,77 @@ class TaskExecutionAttempt(models.Model):
 
     def __str__(self):
         return f"attempt {self.pk} task={self.task_id} worker={self.worker.name}:{self.outcome}"
+
+
+def planning_columns():
+    return ["Ideas", "Backlog", "Ready", "In progress", "Completed"]
+
+
+class ProjectPlan(models.Model):
+    project = models.OneToOneField(Project, on_delete=models.PROTECT, related_name="plan")
+    default_worker = models.ForeignKey(Worker, null=True, blank=True, on_delete=models.PROTECT)
+    directory = models.CharField(max_length=500, blank=True)
+    model = models.JSONField(null=True, blank=True)
+    context = models.TextField(blank=True)
+    instructions = models.TextField(blank=True)
+    templates = models.JSONField(default=list, blank=True)
+    columns = models.JSONField(default=planning_columns)
+    playing = models.BooleanField(default=False)
+    pause_reason = models.TextField(blank=True)
+    revision = models.PositiveIntegerField(default=0)
+
+
+class PlanningCard(models.Model):
+    plan = models.ForeignKey(ProjectPlan, on_delete=models.PROTECT, related_name="cards")
+    title = models.CharField(max_length=300)
+    description = models.TextField(blank=True)
+    checklist = models.JSONField(default=list, blank=True)
+    labels = models.JSONField(default=list, blank=True)
+    column = models.CharField(max_length=100, default="Backlog")
+    position = models.PositiveIntegerField(default=0)
+    instructions = models.TextField(blank=True)
+    task = models.OneToOneField(Task, null=True, blank=True, on_delete=models.PROTECT)
+    archived = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["position", "pk"]
+
+
+class PlanningJob(models.Model):
+    plan = models.ForeignKey(ProjectPlan, on_delete=models.PROTECT, related_name="jobs")
+    card = models.ForeignKey(PlanningCard, on_delete=models.PROTECT, related_name="jobs")
+    worker = models.ForeignKey(Worker, on_delete=models.PROTECT)
+    position = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=20, default="queued", db_index=True)
+    # Frozen configuration/card context at admission; final prompt adds prior results.
+    snapshot = models.JSONField(default=dict)
+    prompt = models.TextField(blank=True)
+    report_token_hash = models.CharField(max_length=64, blank=True, editable=False)
+    attempt = models.OneToOneField(
+        TaskExecutionAttempt, null=True, blank=True, on_delete=models.PROTECT
+    )
+    stop_command = models.ForeignKey(
+        WorkerCommand,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="planning_stops",
+    )
+    detail = models.TextField(blank=True)
+    actor = models.CharField(max_length=100)
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["position", "pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["plan"], condition=Q(status="running"), name="one_running_planning_job"
+            ),
+            models.UniqueConstraint(
+                fields=["card"],
+                condition=Q(status__in=["queued", "running"]),
+                name="one_live_job_per_card",
+            ),
+        ]

@@ -47,6 +47,12 @@ def requests(monkeypatch):
         (lambda: tools.claim_task(7), "POST", "/tasks/7/claim", {}),
         (lambda: tools.heartbeat(7), "POST", "/tasks/7/heartbeat", {}),
         (
+            lambda: tools.report_planning_job(7, "job-token", "done", "Verified"),
+            "POST",
+            "/planning/jobs/7/report",
+            {"token": "job-token", "status": "done", "summary": "Verified"},
+        ),
+        (
             lambda: tools.update_status(7, "blocked", "Approval"),
             "POST",
             "/tasks/7/status",
@@ -130,7 +136,7 @@ def test_no_ready_task_is_distinguished_from_other_not_found_errors(monkeypatch,
         tools.get_task(7)
 
 
-def test_stdio_protocol_registers_all_ten_tools():
+def test_stdio_protocol_registers_all_tools():
     async def verify():
         params = StdioServerParameters(
             command=sys.executable,
@@ -153,6 +159,7 @@ def test_stdio_protocol_registers_all_ten_tools():
                         "update_status",
                         "release_task",
                         "add_note",
+                        "report_planning_job",
                     }
                     failure = await session.call_tool("get_overview", {})
                     assert failure.isError

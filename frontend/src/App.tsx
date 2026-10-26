@@ -59,6 +59,7 @@ const TaskModal = lazy(() =>
 const OpenCodes = lazy(() => import("./OpenCodes"));
 const Configuration = lazy(() => import("./Configuration"));
 const ActivityPage = lazy(() => import("./ActivityPage"));
+const Planning = lazy(() => import("./Planning"));
 
 function preference(key: string, fallback: string) {
   try {
@@ -322,6 +323,12 @@ export default function App() {
             All tasks<span className="nav-count">{data?.total ?? "—"}</span>
           </button>
           <button
+            className={`nav-link ${location.section === "planning" ? "active" : ""}`}
+            onClick={() => navigate({ section: "planning", task: null }, true)}
+          >
+            <LayoutGrid size={17} /> Planning
+          </button>
+          <button
             className={`nav-link ${location.section === "opencodes" ? "active" : ""}`}
             onClick={() => navigate({ section: "opencodes", task: null }, true)}
           >
@@ -417,15 +424,17 @@ export default function App() {
               <span>Workspace</span>
               <ChevronRight size={13} />
               <strong>
-                {location.section === "opencodes"
-                  ? "Connected OpenCodes"
-                  : location.section === "sessions"
-                    ? "Sessions"
-                    : location.section === "activity"
-                      ? "Activity"
-                      : location.section === "configuration"
-                        ? "Configuration"
-                        : project?.name || "All projects"}
+                {location.section === "planning"
+                  ? "Project planning"
+                  : location.section === "opencodes"
+                    ? "Connected OpenCodes"
+                    : location.section === "sessions"
+                      ? "Sessions"
+                      : location.section === "activity"
+                        ? "Activity"
+                        : location.section === "configuration"
+                          ? "Configuration"
+                          : project?.name || "All projects"}
               </strong>
             </div>
             <div className="topbar-actions">
@@ -456,6 +465,14 @@ export default function App() {
               onClick={reset}
             >
               Tasks
+            </button>
+            <button
+              aria-pressed={location.section === "planning"}
+              onClick={() =>
+                navigate({ section: "planning", task: null }, true)
+              }
+            >
+              Planning
             </button>
             <button
               aria-pressed={location.section === "opencodes"}
@@ -490,8 +507,20 @@ export default function App() {
               Configuration
             </button>
           </div>
-          {location.section === "opencodes" ||
-          location.section === "sessions" ? (
+          {location.section === "planning" ? (
+            <Suspense
+              key="planning"
+              fallback={<Loading label="Opening planning…" />}
+            >
+              <Planning
+                projects={data?.projects || []}
+                project={filters.project}
+                navigate={navigate}
+                openTask={openTask}
+              />
+            </Suspense>
+          ) : location.section === "opencodes" ||
+            location.section === "sessions" ? (
             <Suspense
               key={location.section}
               fallback={<Loading label="Opening OpenCodes…" />}

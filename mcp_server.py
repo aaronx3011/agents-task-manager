@@ -153,5 +153,28 @@ def add_note(task_id: int, message: str) -> dict:
     return call("POST", f"tasks/{task_id}/notes", json={"message": message})
 
 
+@mcp.tool()
+def report_planning_job(
+    job_id: int,
+    token: str,
+    status: Literal["heartbeat", "done", "blocked", "review"],
+    summary: str = "",
+) -> dict:
+    """Report a planning job using its first-prompt capability. Done requires verified results.
+
+    Use heartbeat every 2–5 minutes. The token permits reporting only this job,
+    even when the local MCP agent differs from the worker's task owner.
+    """
+    return call(
+        "POST",
+        f"planning/jobs/{job_id}/report",
+        json={
+            "token": token,
+            "status": status,
+            "summary": summary,
+        },
+    )
+
+
 if __name__ == "__main__":
     mcp.run()

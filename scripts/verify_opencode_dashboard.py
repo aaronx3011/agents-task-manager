@@ -109,6 +109,68 @@ def verify_agent_registration(page, context, origin):
     page.set_viewport_size({"width": 1512, "height": 1050})
 
 
+def verify_planning(page, origin):
+    """Exercise real staff board/settings/queue writes without a model invocation."""
+    from playwright.sync_api import expect
+
+    page.get_by_role("button", name="Planning", exact=True).click()
+    expect(page.get_by_role("heading", name="Project planning", exact=True)).to_be_visible()
+    page.get_by_role("button", name="Settings", exact=True).click()
+    page.get_by_label("Default worker", exact=True).select_option("offline-worker")
+    page.get_by_label("Default directory", exact=True).fill("/workspace/planning")
+    page.get_by_label("Project context", exact=True).fill("Browser planning context")
+    page.get_by_label("Standing instructions", exact=False).fill("Verify acceptance criteria")
+    page.get_by_role("button", name="Add prompt", exact=True).click()
+    page.get_by_label("Prompt name", exact=True).fill("Implement")
+    page.get_by_label("Prompt text", exact=True).fill("Follow repository conventions")
+    page.get_by_role("button", name="Save project settings", exact=True).click()
+    expect(page.get_by_text("Settings saved", exact=True)).to_be_visible()
+    page.get_by_role("button", name="Board", exact=True).click()
+    for title in ("Planning first task", "Planning second task"):
+        page.get_by_role("button", name="Add card to Backlog", exact=True).click()
+        page.get_by_label("Title", exact=True).fill(title)
+        page.get_by_label("Description / acceptance criteria", exact=True).fill(
+            "Deliver verified work"
+        )
+        page.get_by_role("button", name="Add checklist item", exact=True).click()
+        page.get_by_label("Checklist item 1", exact=True).fill("Run checks")
+        page.get_by_role("button", name="Save card", exact=True).click()
+        expect(page.get_by_role("dialog")).to_have_count(0)
+        card = page.locator(".planning-card").filter(has_text=title)
+        card.get_by_role("button", name="Run / Queue", exact=True).click()
+        page.get_by_label("Prompt template", exact=True).select_option(label="Implement")
+        page.get_by_label("What should the agent do?", exact=True).fill("Implement this task")
+        page.get_by_role("button", name="Add to queue", exact=True).click()
+        expect(page.get_by_role("dialog")).to_have_count(0)
+        page.get_by_role("button", name="Board", exact=True).click()
+    page.get_by_label("Move Planning first task", exact=True).select_option("Ready")
+    expect(
+        page.locator(".planning-column").filter(has=page.get_by_role("heading", name="Ready 1"))
+    ).to_be_visible()
+    page.get_by_role("button", name="Queue (2)", exact=True).click()
+    page.get_by_role("button", name="Move Planning second task up", exact=True).click()
+    expect(page.locator(".planning-job").first).to_contain_text("Planning second task")
+    page.get_by_role("button", name="Play", exact=True).click()
+    expect(page.get_by_role("button", name="Pause", exact=True)).to_be_visible()
+    page.reload()
+    expect(page.get_by_role("button", name="Pause", exact=True)).to_be_visible()
+    page.get_by_role("button", name="Pause", exact=True).click()
+    expect(page.get_by_text("Paused by operator", exact=True)).to_be_visible()
+    page.get_by_role("button", name="Queue (2)", exact=True).click()
+    data = page.request.get(origin + "/api/projects/browser-check/planning").json()
+    assert len(data["jobs"]) == 2 and not data["playing"]
+    assert all(job["snapshot"]["context"] == "Browser planning context" for job in data["jobs"])
+    assert all(
+        job["snapshot"]["template"] == "Follow repository conventions" for job in data["jobs"]
+    )
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    page.get_by_role("button", name="Board", exact=True).click()
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    page.set_viewport_size({"width": 1512, "height": 1050})
+    page.get_by_role("button", name="All tasks", exact=False).click()
+
+
 def run(directory, screenshots, assets_only=False):
     env = {
         **os.environ,
@@ -358,6 +420,7 @@ def run(directory, screenshots, assets_only=False):
                     page.get_by_text("Existing task UI remains available", exact=True)
                 ).to_be_visible()
                 verify_agent_registration(page, context, origin)
+                verify_planning(page, origin)
                 if assets_only:
                     page.goto(origin + "/dashboard/?section=opencodes")
                     expect(page.get_by_role("heading", name="Connected OpenCodes.")).to_be_visible()
@@ -375,7 +438,7 @@ def run(directory, screenshots, assets_only=False):
                     browser.close()
                     print(
                         "PASS agent registration/one-time keys/MCP config/clipboard, "
-                        "navigation/mobile, "
+                        "project planning/settings/cards/queue/reload/mobile, "
                         "production-collected lazy dashboard/task modules and deep reload; "
                         "one entry URL and zero browser errors"
                     )
@@ -406,18 +469,24 @@ def run(directory, screenshots, assets_only=False):
                 ).to_be_visible()
                 assert any(frame.get("type") == "session.live" for frame in frames)
                 page.get_by_role("button", name="Interrupt", exact=True).click()
+                page.get_by_role("button", name="Activity", exact=True).click()
                 expect(
-                    page.locator(".oc-commands").get_by_text("interrupt", exact=False).first
+                    page.locator(".oc-activity-commands")
+                    .get_by_text("interrupt", exact=False)
+                    .first
                 ).to_be_visible()
+                page.get_by_role("button", name="OpenCodes", exact=True).click()
                 page.locator(".oc-worker").filter(has_text="offline-worker").click()
                 expect(page.get_by_role("button", name="New session", exact=True)).to_be_disabled()
                 page.locator(".oc-worker").filter(has_text="interaction-worker").click()
+                page.locator(".oc-session").filter(has_text="Controlled interactions").click()
                 expect(page.get_by_role("form", name="Pending questions")).to_be_visible()
                 page.get_by_label("Custom answer 1").fill("Custom blue")
                 page.get_by_label("Logs", exact=True).check()
                 page.get_by_label("Metrics", exact=True).check()
                 page.locator(".oc-worker").filter(has_text="real-opencode").click()
                 page.locator(".oc-worker").filter(has_text="interaction-worker").click()
+                page.locator(".oc-session").filter(has_text="Controlled interactions").click()
                 expect(page.get_by_label("Custom answer 1")).to_have_value("Custom blue")
                 page.get_by_role("button", name="Submit answers", exact=True).click()
                 expect(page.get_by_role("form", name="Pending questions")).not_to_be_visible()
@@ -480,6 +549,7 @@ def run(directory, screenshots, assets_only=False):
             )
             print(
                 "PASS agent registration/one-time keys/MCP config/clipboard/navigation/mobile, "
+                "project planning/settings/cards/queue/reload/mobile, "
                 "real OpenCode create/prompt/history/interrupt, worker health/isolation, "
                 "controlled questions/approval, draft preservation, tool/reasoning, "
                 "live updates, CSRF/XSS, mobile, task views, production static graph/deep reload; "

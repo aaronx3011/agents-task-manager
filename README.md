@@ -131,6 +131,55 @@ the existing acknowledged sync; the socket wakes that sync immediately.
   (`frontend/src/ActivityPage.tsx`, `GET /api/commands`), keeping chat panels
   focused on conversations.
 
+## Project planning and execution queues
+
+Open **Planning** in the sidebar/mobile navigation, or
+`/dashboard/?section=planning&project=PROJECT_SLUG`.
+
+1. In **Settings**, choose the project's default worker, workspace directory and
+   model. Add project context, standing instructions, reusable prompt templates
+   and board columns.
+2. Create cards with descriptions/acceptance criteria, labels and checklists.
+   Drag cards between columns or use their move menu. Planning columns are
+   independent of task lifecycle status; cards enter the coordinator task pool
+   only when execution starts, where creation and claim happen atomically.
+3. Choose **Run / Queue**, select an optional prompt template and add your
+   instructions. **Start session** runs one card when the queue is empty;
+   **Add to queue** captures its settings/content for later execution.
+4. In **Queue**, reorder waiting tasks and press **Play**. Each task gets a new
+   session. Only explicit task `done` advances to the next task; idle sessions and
+   accepted prompts never count as completion. Previous completed results are
+   added to the next prompt as bounded handoff context.
+5. **Pause** allows current work to finish but prevents the next launch.
+   **Stop current** queues an interrupt and pauses; resolve the stopped task and
+   any uncertain commands before continuing. Questions/permissions, blocked or
+   review tasks, execution errors and overdue command acknowledgements pause the
+   queue. Answer/resolve the issue, then press Play explicitly.
+
+The queue is durable and advances during authenticated worker sync, including
+after browser closure or coordinator restarts. It needs an enabled connected
+worker bridge. Existing queued jobs retain their captured worker/directory/model
+and instructions when project settings change; remove/re-add a waiting job to
+capture new settings. The full assembled prompt is inspectable in the queue.
+Combined first prompts are limited to the existing 20,000-character command bound.
+
+The additional MCP tool **`report_planning_job`** accepts a job-specific token
+provided in the first prompt. An authenticated agent can report heartbeat,
+done/blocked/review for that active job even when its MCP identity differs from
+the worker's bound agent. This delegates reporting only; it does not grant task
+claims or access to other jobs. Task ownership stays with the bound agent and
+worker sync never renews claims. Reload the MCP connection after upgrading to
+discover the new tool. Staff can also explicitly complete a task with a handoff
+summary from the queue.
+
+Planning API: staff-session-only `GET/POST /api/projects/{slug}/planning`, with
+CSRF on writes and revision-based conflict detection. Agent reporting uses
+`POST /api/planning/jobs/{id}/report` plus agent authentication and the scoped
+token. Architecture/operations and verification: [issue #28](https://github.com/aaronx3011/agents-task-manager/issues/28).
+Apply migration `0010` before serving this feature. Source:
+`frontend/src/Planning.tsx`, `coordinator/planning_api.py`, and planning services
+in `coordinator/services.py`; focused regression tests: `tests/test_planning.py`.
+
 ## Source map
 
 | Area | Files |

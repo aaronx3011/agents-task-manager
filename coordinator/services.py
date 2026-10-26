@@ -1,5 +1,6 @@
 import hashlib
 import json
+import secrets
 import time
 import uuid
 from functools import wraps
@@ -8,7 +9,7 @@ from urllib.parse import urlsplit, urlunsplit
 from django.apps import apps
 from django.conf import settings
 from django.db import IntegrityError, OperationalError, connection, transaction
-from django.db.models import BigIntegerField, Q
+from django.db.models import BigIntegerField, F, Q
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -17,6 +18,9 @@ from .errors import TaskError
 from .models import (
     Agent,
     PendingInteraction,
+    PlanningCard,
+    PlanningJob,
+    ProjectPlan,
     ServerState,
     Task,
     TaskEvent,
@@ -618,6 +622,495 @@ def store_sessions(worker, records):
     return sessions
 
 
+# --- Project planning and durable sequential execution (#28) -----------------
+
+
+def planning_read(project):
+    from .models import planning_columns
+
+    plan = ProjectPlan.objects.filter(project=project).first()
+    settings_card = {
+        "worker": plan.default_worker.name if plan and plan.default_worker_id else "",
+        "directory": plan.directory if plan else "",
+        "model": plan.model if plan else None,
+        "context": plan.context if plan else "",
+        "instructions": plan.instructions if plan else "",
+        "templates": plan.templates if plan else [],
+        "columns": plan.columns if plan else planning_columns(),
+    }
+    cards = []
+    jobs = []
+    if plan:
+        for card in plan.cards.filter(archived=False).select_related("task"):
+            cards.append(
+                {
+                    "id": card.pk,
+                    "title": card.title,
+                    "description": card.description,
+                    "column": card.column,
+                    "position": card.position,
+                    "labels": card.labels,
+                    "checklist": card.checklist,
+                    "instructions": card.instructions,
+                    "task": card.task_id,
+                    "task_status": card.task.status if card.task else None,
+                }
+            )
+        history = list(
+            plan.jobs.exclude(status__in=["queued", "running"])
+            .order_by("-id")
+            .values_list("pk", flat=True)[:50]
+        )
+        for job in plan.jobs.filter(
+            Q(status__in=["queued", "running"]) | Q(pk__in=history)
+        ).select_related("card", "worker", "attempt__task"):
+            attempt = job.attempt
+            jobs.append(
+                {
+                    "id": job.pk,
+                    "card": job.card_id,
+                    "title": job.snapshot.get("title", job.card.title),
+                    "position": job.position,
+                    "status": job.status,
+                    "detail": job.detail,
+                    "worker": job.worker.name,
+                    "snapshot": job.snapshot,
+                    "prompt": job.prompt,
+                    "task": attempt.task_id if attempt else None,
+                    "session": attempt.remote_session_id if attempt else "",
+                    "task_status": attempt.task.status if attempt else None,
+                }
+            )
+    return {
+        "project": project.slug,
+        "name": project.name,
+        "settings": settings_card,
+        "revision": plan.revision if plan else 0,
+        "playing": plan.playing if plan else False,
+        "pause_reason": plan.pause_reason if plan else "",
+        "cards": cards,
+        "jobs": sorted(jobs, key=lambda row: (row["position"], row["id"])),
+    }
+
+
+@retry_sqlite
+@transaction.atomic
+def mutate_planning(project, actor, data):
+    """Staff-only caller; serialize board/queue edits with optimistic revision checks."""
+    plan, _ = ProjectPlan.objects.get_or_create(project=project)
+    plan = locked(ProjectPlan.objects.filter(pk=plan.pk)).get()
+    if data["revision"] != plan.revision:
+        raise TaskError("Project changed. Refresh before saving your changes.", 409)
+    operation = data["operation"]
+    if operation == "settings":
+        values = data["settings"]
+        worker = Worker.objects.filter(name=values.pop("worker", "")).first()
+        if values.get("model") and (not worker or not _model_allowed(worker, values["model"])):
+            raise TaskError("Model is not available on the selected worker", 400)
+        if any(c.column not in values["columns"] for c in plan.cards.filter(archived=False)):
+            raise TaskError("Move cards before removing their column", 400)
+        plan.default_worker = worker
+        for field, value in values.items():
+            setattr(plan, field, value)
+    elif operation == "card":
+        values = data["card"]
+        card_id = values.pop("id", None)
+        card = plan.cards.filter(pk=card_id, archived=False).first() if card_id else None
+        if card_id and not card:
+            raise TaskError("Card not found", 404)
+        if values["column"] not in plan.columns:
+            raise TaskError("Unknown board column", 400)
+        if card is None:
+            card = PlanningCard(plan=plan, position=plan.cards.count())
+        for field, value in values.items():
+            setattr(card, field, value)
+        plan.cards.filter(column=card.column, position__gte=card.position).exclude(
+            pk=card.pk
+        ).update(position=F("position") + 1)
+        card.save()
+        if card.task_id:
+            card.task.log(
+                TaskEvent.Type.NOTE, message=audit_message("Planning card updated", actor)
+            )
+    elif operation in {"enqueue", "run"}:
+        card = plan.cards.filter(pk=data.get("card_id"), archived=False).first()
+        if not card:
+            raise TaskError("Card not found", 404)
+        if plan.jobs.filter(card=card, status__in=["queued", "running"]).exists():
+            raise TaskError("This card already has queued or running work", 409)
+        if plan.jobs.filter(status__in=["queued", "running"]).count() >= 100:
+            raise TaskError("Project queue is full (100 jobs)", 429)
+        if operation == "run" and plan.jobs.filter(status__in=["queued", "running"]).exists():
+            raise TaskError("Use Play to run the existing queue first", 409)
+        worker = plan.default_worker
+        if not worker or not worker.is_enabled or not worker.agent_id or not worker.agent.is_active:
+            raise TaskError("Configure an enabled project worker first", 400)
+        if card.task_id and card.task.status in {Task.Status.DONE, Task.Status.CANCELLED}:
+            raise TaskError(
+                "This card's task is terminal. Create a new card for follow-up work.", 409
+            )
+        snapshot = {
+            "title": card.title,
+            "description": card.description,
+            "checklist": card.checklist,
+            "labels": card.labels,
+            "context": plan.context,
+            "standing_instructions": plan.instructions,
+            "instructions": data.get("instructions", card.instructions),
+            "template": data.get("template", ""),
+            "directory": plan.directory or worker.create_directory or worker.directory,
+            "model": plan.model or worker.default_model,
+            "project": project.slug,
+            "repo_url": project.repo_url,
+            "docs_path": project.docs_path,
+        }
+        PlanningJob.objects.create(
+            plan=plan,
+            card=card,
+            worker=worker,
+            snapshot=snapshot,
+            position=(
+                plan.jobs.order_by("-position").values_list("position", flat=True).first() or 0
+            )
+            + 1,
+            actor=actor,
+        )
+        if operation == "run":
+            plan.playing = True
+            plan.pause_reason = ""
+    elif operation == "reorder":
+        ids = data["job_ids"]
+        queued = list(plan.jobs.filter(status="queued").values_list("pk", flat=True))
+        if len(ids) != len(set(ids)) or set(ids) != set(queued):
+            raise TaskError("Reorder must include every queued job exactly once", 409)
+        base = (
+            plan.jobs.exclude(status="queued")
+            .order_by("-position")
+            .values_list("position", flat=True)
+            .first()
+            or 0
+        ) + 1
+        for offset, pk in enumerate(ids):
+            plan.jobs.filter(pk=pk).update(position=base + offset)
+    elif operation == "remove":
+        if not plan.jobs.filter(pk=data.get("job_id"), status="queued").update(status="cancelled"):
+            raise TaskError("Only queued jobs can be removed", 409)
+    elif operation == "archive":
+        card = plan.cards.filter(pk=data.get("card_id")).first()
+        if not card or card.jobs.filter(status__in=["queued", "running"]).exists():
+            raise TaskError("Remove queued work before archiving a card", 409)
+        card.archived = True
+        card.save(update_fields=["archived"])
+    elif operation == "play":
+        if not plan.jobs.filter(status__in=["queued", "running"]).exists():
+            raise TaskError("Add tasks to the queue before pressing Play", 409)
+        plan.playing = True
+        plan.pause_reason = ""
+    elif operation in {"pause", "stop"}:
+        plan.playing = False
+        plan.pause_reason = "Paused by operator"
+        if operation == "stop":
+            job = plan.jobs.filter(status="running").select_related("attempt", "worker").first()
+            if job:
+                if not job.attempt.remote_session_id:
+                    raise TaskError(
+                        "Session creation is still in flight. "
+                        "Pause, then stop once the session is known.",
+                        409,
+                    )
+                stop_command, _ = enqueue_worker_command(
+                    job.worker.agent,
+                    actor,
+                    job.worker,
+                    "interrupt",
+                    {},
+                    remote_session_id=job.attempt.remote_session_id,
+                    client_request_id=f"planning-stop-{job.pk}",
+                )
+                job.status = "failed"
+                job.stop_command = stop_command
+                job.detail = (
+                    "Stopped by operator; task remains owned until explicitly resolved or released."
+                )
+                job.save(update_fields=["status", "detail", "stop_command"])
+    else:
+        raise TaskError("Unsupported planning operation", 400)
+    plan.revision += 1
+    plan.save()
+    transaction.on_commit(
+        lambda: dispatch_notification("planning.changed", subject="planning"), robust=True
+    )
+
+
+def _planning_prompt(job, task, report_token):
+    s = job.snapshot
+    previous = list(
+        job.plan.jobs.filter(status="completed", position__lt=job.position)
+        .select_related("attempt__task")
+        .order_by("-position")[:10]
+    )
+    handoffs = "\n\n".join(
+        f"{j.snapshot.get('title')}: {j.attempt.task.result_summary[:2000]}"
+        for j in reversed(previous)
+        if j.attempt_id
+    )
+    prompt = (
+        f"# Project: {s['project']}\nRepository: {s['repo_url']}\nDocumentation: {s['docs_path']}\n"
+        f"\n## Project context\n{s['context']}\n"
+        f"\n## Standing instructions\n{s['standing_instructions']}\n"
+        f"\n## Task #{task.pk}: {s['title']}\n{s['description']}\n"
+        f"\nLabels: {', '.join(s['labels']) or 'None'}\n"
+        f"\nChecklist / acceptance criteria:\n{json.dumps(s['checklist'], ensure_ascii=False)}\n"
+        f"\n## Selected prompt\n{s['template']}\n\n## Your instructions\n{s['instructions']}\n"
+        f"\n## Previous completed work\n{handoffs or 'None'}\n"
+        f"\n## Coordination protocol\nTask {task.pk} is already claimed "
+        f"by agent {job.worker.agent.name}. "
+        "Do not claim a different task. Use the task-coordinator report_planning_job tool "
+        f"with job_id={job.pk}, token={report_token}. This token is scoped to this job only. "
+        "Call it with status=heartbeat every 2–5 minutes. "
+        "When work and verification succeed, explicitly call it with status=done "
+        "and a concrete summary/handoff. If blocked, use status=blocked with a summary; "
+        "if review is required, use status=review with a summary. "
+        "Never report done merely because the prompt was accepted. "
+        "Do not put the job token in your result summary. If this tool is unavailable, "
+        "ask the operator to complete the task through the planning queue."
+    )
+    if len(prompt) > 20000:
+        raise TaskError(
+            "Combined first prompt exceeds 20,000 characters. Shorten project/card context.", 400
+        )
+    return prompt
+
+
+def _pause_planning(plan, reason):
+    plan.playing = False
+    plan.pause_reason = str(reason)[:2000]
+
+
+def _advance_planning(plan, worker):
+    job = (
+        plan.jobs.filter(status="running").select_related("attempt__task", "card", "worker").first()
+    )
+    if job:
+        if job.worker_id != worker.pk:
+            return
+        attempt = job.attempt
+        task = attempt.task
+        commands = [attempt.create_command, attempt.prompt_command]
+        unsettled = any(c and c.status in {"queued", "dispatched"} for c in commands)
+        failure = next(
+            (c for c in commands if c and (c.status == "error" or c.delivery_uncertain)), None
+        )
+        if failure or attempt.outcome in {"error", "uncertain"}:
+            job.status = "failed"
+            job.detail = (
+                (failure.error or failure.uncertain_text) if failure else attempt.outcome_detail
+            )
+            _pause_planning(plan, job.detail or "Command failed; inspect before retrying")
+        elif task.status == Task.Status.DONE:
+            if unsettled or not attempt.prompt_command_id:
+                _pause_planning(
+                    plan,
+                    "Task completed before command delivery was confirmed. "
+                    "Reconcile commands before proceeding.",
+                )
+                return
+            # Explicit task completion is the only successful queue-advancement signal.
+            job.status = "completed"
+            job.detail = task.result_summary
+            job.completed_at = timezone.now()
+        elif task.status != Task.Status.IN_PROGRESS or task.claimed_by_id != attempt.owner_id:
+            _pause_planning(
+                plan, task.blocked_reason or f"Task is {task.status}; resolve it before resuming"
+            )
+        elif attempt.session and attempt.session.last_error:
+            _pause_planning(plan, attempt.session.last_error)
+        elif any(
+            c
+            and c.status == "dispatched"
+            and c.dispatched_at
+            and (timezone.now() - c.dispatched_at).total_seconds() > 120
+            for c in commands
+        ):
+            _pause_planning(
+                plan,
+                "Command acknowledgement is overdue. "
+                "Inspect Activity and reconcile; do not blindly replay.",
+            )
+        elif (
+            attempt.remote_session_id
+            and PendingInteraction.objects.filter(
+                worker=worker, remote_session_id=attempt.remote_session_id, resolved_at__isnull=True
+            ).exists()
+        ):
+            _pause_planning(
+                plan, "Task needs your input. Open its session, answer, then press Play."
+            )
+        elif not attempt.prompt_command_id and attempt.remote_session_id:
+            session = WorkerSession.objects.filter(
+                worker=worker, remote_id=attempt.remote_session_id
+            ).first()
+            if session:
+                link_attempt_session(attempt, session)
+                payload = {"text": job.prompt}
+                if job.snapshot.get("model"):
+                    payload["model"] = job.snapshot["model"]
+                enqueue_worker_command(
+                    worker.agent,
+                    job.actor,
+                    worker,
+                    "prompt",
+                    payload,
+                    remote_session_id=session.remote_id,
+                    client_request_id=f"planning-prompt-{job.pk}",
+                )
+        job.save(update_fields=["status", "detail", "completed_at"])
+        if job.status == "running":
+            return
+    if not plan.playing:
+        return
+    for failed in plan.jobs.filter(status="failed").select_related("attempt__task"):
+        if failed.attempt_id and (
+            failed.attempt.task.status not in {Task.Status.DONE, Task.Status.CANCELLED}
+            or WorkerCommand.objects.filter(
+                pk__in=[
+                    failed.attempt.create_command_id,
+                    failed.attempt.prompt_command_id,
+                    failed.stop_command_id,
+                ],
+                status__in=["queued", "dispatched"],
+            ).exists()
+        ):
+            _pause_planning(
+                plan,
+                "Resolve the failed/stopped task and any uncertain commands before continuing.",
+            )
+            return
+    next_job = plan.jobs.filter(status="queued").select_related("card", "worker").first()
+    if not next_job:
+        plan.playing = False
+        plan.pause_reason = "Queue completed"
+        return
+    if next_job.worker_id != worker.pk:
+        return
+    if not worker.is_online() or not worker.connected or not worker.stream_connected:
+        return
+    # Savepoint: rejected starts cannot leave a claimed task or orphan create command.
+    try:
+        with transaction.atomic():
+            card = next_job.card
+            if card.task_id:
+                task = get_locked(card.task_id, skip_locked=True)
+                if not task.is_ready:
+                    raise TaskError(
+                        "Task is already owned or not ready; resolve it before launching"
+                    )
+            else:
+                task = create_task(
+                    worker.agent,
+                    plan.project,
+                    next_job.snapshot["title"],
+                    next_job.snapshot["description"],
+                    human_actor=next_job.actor,
+                )
+                card.task = task
+                card.save(update_fields=["task"])
+            claim_task(worker.agent, task.pk)
+            report_token = secrets.token_urlsafe(32)
+            prompt = _planning_prompt(next_job, task, report_token)
+            attempt, command, _ = launch_task_execution(
+                worker.agent,
+                next_job.actor,
+                task.pk,
+                worker,
+                directory=next_job.snapshot["directory"],
+                client_request_id=f"planning-create-{next_job.pk}",
+                title=next_job.snapshot["title"],
+                model=next_job.snapshot.get("model"),
+            )
+            next_job.attempt = attempt
+            next_job.prompt = prompt
+            next_job.report_token_hash = hashlib.sha256(report_token.encode()).hexdigest()
+            next_job.status = "running"
+            next_job.save(update_fields=["attempt", "prompt", "report_token_hash", "status"])
+    except TaskError as exc:
+        _pause_planning(plan, exc.message)
+
+
+def tick_planning_queues(worker):
+    """Called inside authenticated worker sync, before dispatch. No browser scheduler.
+
+    SKIP LOCKED avoids waiting on a plan held by another worker; one plan lock
+    serializes every state transition and durable command idempotency key.
+    Worker connectivity does not renew task claims.
+    """
+    plans = ProjectPlan.objects.filter(
+        jobs__worker=worker, jobs__status__in=["queued", "running"]
+    ).distinct()
+    for pk in plans.values_list("pk", flat=True):
+        plan = locked(ProjectPlan.objects.filter(pk=pk), skip_locked=True).first()
+        if not plan:
+            continue
+        before = (
+            plan.playing,
+            plan.pause_reason,
+            tuple(plan.jobs.filter(status__in=["queued", "running"]).values_list("pk", "status")),
+        )
+        try:
+            with transaction.atomic():
+                _advance_planning(plan, worker)
+        except TaskError as exc:
+            _pause_planning(plan, exc.message)
+        # Running/queued rows are polled independently; revision changes only when
+        # control state changes, so normal worker heartbeats don't invalidate edits.
+        if before != (
+            plan.playing,
+            plan.pause_reason,
+            tuple(plan.jobs.filter(status__in=["queued", "running"]).values_list("pk", "status")),
+        ):
+            plan.revision += 1
+            plan.save(update_fields=["playing", "pause_reason", "revision"])
+
+
+@retry_sqlite
+@transaction.atomic
+def report_planning_job(reporter, job_id, token, status, summary=""):
+    # Lock order is plan -> task, matching queue orchestration. A job capability
+    # delegates only reporting, never task ownership or other coordinator access.
+    job = PlanningJob.objects.filter(pk=job_id).first()
+    if (
+        not job
+        or not job.report_token_hash
+        or not secrets.compare_digest(
+            job.report_token_hash, hashlib.sha256(token.encode()).hexdigest()
+        )
+    ):
+        raise TaskError("Unknown job or invalid report token", 404)
+    locked(ProjectPlan.objects.filter(pk=job.plan_id)).get()
+    job.refresh_from_db()
+    if job.status != "running" or not job.attempt_id:
+        raise TaskError("Job is not running", 409)
+    task = get_locked(job.attempt.task_id)
+    if task.claimed_by_id != job.attempt.owner_id:
+        raise TaskError("Job no longer owns this task", 409)
+    if status == "heartbeat":
+        heartbeat(job.attempt.owner, task.pk)
+    else:
+        update_status(
+            job.attempt.owner,
+            task.pk,
+            status,
+            reason=summary if status == "blocked" else "",
+            result_summary=summary,
+        )
+        task.log(
+            TaskEvent.Type.NOTE,
+            reporter,
+            f"Planning job {job.pk} report by {reporter.name}: {status}",
+        )
+    return {"ok": True, "task": task.pk, "status": status}
+
+
 def resolve_parent_link(session):
     """Link a subagent to its same-worker parent when that session is observed."""
     changed = False
@@ -1005,6 +1498,7 @@ def apply_worker_sync(worker, intent):
             locked_worker.save(update_fields=["last_batch_id", "updated_at"])
     apply_command_results(locked_worker, intent["results"])
     pending_count = ingest_pending_interactions(locked_worker, intent["pending"])
+    tick_planning_queues(locked_worker)
     response = {
         "protocol_version": intent["protocol_version"],
         "epoch": sync_epoch(),
@@ -1727,7 +2221,14 @@ def attempt_read_model(attempt):
 @retry_sqlite
 @transaction.atomic
 def launch_task_execution(
-    actor_agent, actor_label, task_id, worker, directory="", client_request_id=""
+    actor_agent,
+    actor_label,
+    task_id,
+    worker,
+    directory="",
+    client_request_id="",
+    title="",
+    model=None,
 ):
     """Authorized launcher: reuse the atomic claim rules; never bypass ownership.
 
@@ -1775,12 +2276,17 @@ def launch_task_execution(
             409,
         )
     create_request_id = client_request_id or f"task-{task.pk}-launch"
+    payload = {"directory": directory}
+    if title:
+        payload["title"] = title
+    if model:
+        payload["model"] = model
     command, _created = enqueue_worker_command(
         owner,
         actor_label or owner.name,
         worker,
         "create",
-        {"directory": directory},
+        payload,
         remote_session_id="",
         client_request_id=create_request_id,
     )

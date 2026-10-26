@@ -256,7 +256,7 @@ async def connect(name, key, url, metrics):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 tools = await session.list_tools()
-                assert len(tools.tools) == 10
+                assert len(tools.tools) == 11
                 yield AgentClient(name, session, metrics)
 
 

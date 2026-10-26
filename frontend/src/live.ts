@@ -31,6 +31,7 @@ export function useLiveUpdates() {
     }
     const unwatch = watchFocus(subscribe);
     function refresh() {
+      void client.invalidateQueries({ queryKey: ["planning"] });
       void client.invalidateQueries({ queryKey: ["configuration", "agents"] });
       void client.invalidateQueries({ queryKey: ["opencodes"] });
       void client.invalidateQueries({ queryKey: ["workspace"] });
