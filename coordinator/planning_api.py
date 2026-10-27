@@ -51,6 +51,7 @@ class PlanSettings(serializers.Serializer):
     worker = serializers.CharField(max_length=100, allow_blank=True)
     directory = serializers.CharField(max_length=500, allow_blank=True)
     model = ModelChoice(allow_null=True)
+    agent = serializers.CharField(max_length=100, allow_blank=True, default="")
     context = serializers.CharField(max_length=8000, allow_blank=True)
     instructions = serializers.CharField(max_length=8000, allow_blank=True)
     templates = PromptTemplate(many=True, max_length=30)
@@ -88,6 +89,8 @@ class CardInput(serializers.Serializer):
     labels = serializers.ListField(child=serializers.CharField(max_length=50), max_length=20)
     checklist = ChecklistItem(many=True, max_length=100)
     instructions = serializers.CharField(max_length=8000, allow_blank=True)
+    agent = serializers.CharField(max_length=100, allow_blank=True, required=False)
+    model = ModelChoice(allow_null=True, required=False)
 
 
 class PlanningMutation(serializers.Serializer):

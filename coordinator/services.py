@@ -485,6 +485,9 @@ def record_worker_meta(worker, meta):
     catalog = meta.get("models")
     if isinstance(catalog, list):
         worker.model_catalog = catalog
+    agents = _sanitize_agent_catalog(meta.get("agents"))
+    if agents is not None:
+        worker.agent_catalog = agents
     default_model = meta.get("default_model")
     if isinstance(default_model, dict):
         worker.default_model = default_model
@@ -547,6 +550,7 @@ def worker_read_model(worker, counts=False):
         "last_error_at": worker.last_error_at,
         "default_model": worker.default_model,
         "models": worker.model_catalog,
+        "agents": worker.agent_catalog,
         "session_limit": worker.session_limit,
         "message_limit": worker.message_limit,
         "dropped_events": worker.dropped_events,
@@ -655,6 +659,7 @@ def planning_read(project):
         "worker": plan.default_worker.name if plan and plan.default_worker_id else "",
         "directory": plan.directory if plan else "",
         "model": plan.model if plan else None,
+        "agent": plan.agent if plan else "",
         "context": plan.context if plan else "",
         "instructions": plan.instructions if plan else "",
         "templates": plan.templates if plan else [],
@@ -674,6 +679,8 @@ def planning_read(project):
                     "labels": card.labels,
                     "checklist": card.checklist,
                     "instructions": card.instructions,
+                    "agent": card.agent,
+                    "model": card.model,
                     "task": card.task_id,
                     "task_status": card.task.status if card.task else None,
                 }
@@ -696,6 +703,8 @@ def planning_read(project):
                     "status": job.status,
                     "detail": job.detail,
                     "worker": job.worker.name,
+                    "agent": job.snapshot.get("agent", ""),
+                    "model": job.snapshot.get("model"),
                     "snapshot": job.snapshot,
                     "prompt": job.prompt,
                     "task": attempt.task_id if attempt else None,
@@ -727,6 +736,9 @@ def mutate_planning(project, actor, data):
     if operation == "settings":
         values = data["settings"]
         worker = Worker.objects.filter(name=values.pop("worker", "")).first()
+        values["agent"] = (values.get("agent") or "").strip()
+        if values["agent"] and (not worker or not _agent_allowed(worker, values["agent"])):
+            raise TaskError("Agent is not available on the selected worker", 400)
         if values.get("model") and (not worker or not _model_allowed(worker, values["model"])):
             raise TaskError("Model is not available on the selected worker", 400)
         if any(c.column not in values["columns"] for c in plan.cards.filter(archived=False)):
@@ -742,6 +754,15 @@ def mutate_planning(project, actor, data):
             raise TaskError("Card not found", 404)
         if values["column"] not in plan.columns:
             raise TaskError("Unknown board column", 400)
+        if "agent" in values:
+            values["agent"] = (values["agent"] or "").strip()
+        effective_agent = values.get("agent", card.agent if card else "")
+        effective_model = values.get("model", card.model if card else None)
+        if plan.default_worker_id:
+            if effective_agent and not _agent_allowed(plan.default_worker, effective_agent):
+                raise TaskError("Agent is not available on the project worker", 400)
+            if effective_model and not _model_allowed(plan.default_worker, effective_model):
+                raise TaskError("Model is not available on the project worker", 400)
         if card is None:
             card = PlanningCard(plan=plan, position=plan.cards.count())
         for field, value in values.items():
@@ -771,6 +792,12 @@ def mutate_planning(project, actor, data):
             raise TaskError(
                 "This card's task is terminal. Create a new card for follow-up work.", 409
             )
+        agent = (card.agent or plan.agent or "").strip()
+        if agent and not _agent_allowed(worker, agent):
+            raise TaskError("Agent is not available on the project worker", 400)
+        model = card.model or plan.model or worker.default_model
+        if model and not _model_allowed(worker, model):
+            raise TaskError("Model is not available on the project worker", 400)
         snapshot = {
             "title": card.title,
             "description": card.description,
@@ -781,7 +808,8 @@ def mutate_planning(project, actor, data):
             "instructions": data.get("instructions", card.instructions),
             "template": data.get("template", ""),
             "directory": plan.directory or worker.create_directory or worker.directory,
-            "model": plan.model or worker.default_model,
+            "agent": agent,
+            "model": model,
             "project": project.slug,
             "repo_url": project.repo_url,
             "docs_path": project.docs_path,
@@ -975,6 +1003,8 @@ def _advance_planning(plan, worker):
             if session:
                 link_attempt_session(attempt, session)
                 payload = {"text": job.prompt}
+                if job.snapshot.get("agent"):
+                    payload["agent"] = job.snapshot["agent"]
                 if job.snapshot.get("model"):
                     payload["model"] = job.snapshot["model"]
                 enqueue_worker_command(
@@ -1589,6 +1619,11 @@ def validate_command_payload(action, payload):
         stored["text"] = text[:WORKER_COMMAND_TEXT_LIMIT]
         if payload.get("noReply") is not None:
             stored["noReply"] = bool(payload["noReply"])
+        agent = payload.get("agent")
+        if agent is not None:
+            if not isinstance(agent, str) or not agent.strip():
+                raise TaskError("agent must be a non-empty string", 400)
+            stored["agent"] = agent.strip()[:100]
         model = payload.get("model")
         if model is not None:
             stored["model"] = _validate_model(model)
@@ -1599,6 +1634,42 @@ def _validate_model(model):
     if not isinstance(model, dict) or not model.get("providerID") or not model.get("modelID"):
         raise TaskError("model must carry providerID and modelID", 400)
     return {"providerID": str(model["providerID"])[:128], "modelID": str(model["modelID"])[:128]}
+
+
+def _sanitize_agent_catalog(value):
+    """Bound and normalize the bridge-observed OpenCode agent list."""
+    if not isinstance(value, list):
+        return None
+    agents = []
+    for item in value[:200]:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if not isinstance(name, str) or not name.strip():
+            continue
+        agent = {"name": name.strip()[:100]}
+        description = item.get("description")
+        if isinstance(description, str) and description:
+            agent["description"] = description[:500]
+        if item.get("mode") in {"primary", "subagent", "all"}:
+            agent["mode"] = item["mode"]
+        if isinstance(item.get("builtIn"), bool):
+            agent["builtIn"] = item["builtIn"]
+        model = item.get("model")
+        if isinstance(model, dict) and model.get("providerID") and model.get("modelID"):
+            agent["model"] = _validate_model(model)
+        agents.append(agent)
+    return agents
+
+
+def _agent_allowed(worker, agent):
+    if not agent:
+        return True
+    catalog = worker.agent_catalog or []
+    if not catalog:
+        # No catalog observed yet; unknown worker-facing agents are forwarded as-is.
+        return True
+    return any(isinstance(row, dict) and row.get("name") == agent for row in catalog)
 
 
 def _model_allowed(worker, model):
@@ -1721,6 +1792,8 @@ def enqueue_worker_command(
             stored_payload = _validate_question_reply(interaction, payload)
         else:
             stored_payload = {}
+    if "agent" in stored_payload and not _agent_allowed(worker, stored_payload["agent"]):
+        raise TaskError("Agent is not in this worker's connected agent catalog", 400)
     if "model" in stored_payload and not _model_allowed(worker, stored_payload["model"]):
         raise TaskError("Model is not in this worker's connected model catalog", 400)
     # Absent ids persist as SQL NULL so empty-string ids do not collide under

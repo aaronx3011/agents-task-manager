@@ -144,10 +144,14 @@ even when the workspace has no projects. Duplicate slugs are rejected without
 changing the existing project. This uses staff-session-only `POST /api/projects`
 with CSRF; it provisions no agents, credentials or worker processes.
 
-1. In **Settings**, choose the project's default worker, workspace directory and
-   model. Add project context, standing instructions, reusable prompt templates
-   and board columns.
+1. In **Settings**, choose the project's default worker, workspace directory,
+   agent and model. Add project context, standing instructions, reusable prompt
+   templates and board columns. Agent and model choices come from the selected
+   worker's connected OpenCode catalogs; leaving them blank uses the worker
+   defaults.
 2. Create cards with descriptions/acceptance criteria, labels and checklists.
+   Each card can override the project agent and model for that task only; the
+   override never rewrites the project defaults and is captured with the job.
    Drag cards between columns or use their move menu. Planning columns are
    independent of task lifecycle status; cards enter the coordinator task pool
    only when execution starts, where creation and claim happen atomically.
@@ -166,9 +170,11 @@ with CSRF; it provisions no agents, credentials or worker processes.
 
 The queue is durable and advances during authenticated worker sync, including
 after browser closure or coordinator restarts. It needs an enabled connected
-worker bridge. Existing queued jobs retain their captured worker/directory/model
-and instructions when project settings change; remove/re-add a waiting job to
-capture new settings. The full assembled prompt is inspectable in the queue.
+worker bridge. Existing queued jobs retain their captured worker, directory,
+agent, model and instructions when project settings change; remove/re-add a
+waiting job to capture new settings. The first session prompt starts with the
+task agent and model, which can still be changed from the session afterwards.
+The full assembled prompt is inspectable in the queue.
 Combined first prompts are limited to the existing 20,000-character command bound.
 
 The additional MCP tool **`report_planning_job`** accepts a job-specific token
@@ -184,7 +190,7 @@ Planning API: staff-session-only `GET/POST /api/projects/{slug}/planning`, with
 CSRF on writes and revision-based conflict detection. Agent reporting uses
 `POST /api/planning/jobs/{id}/report` plus agent authentication and the scoped
 token. Architecture/operations and verification: [issue #28](https://github.com/aaronx3011/agents-task-manager/issues/28).
-Apply migration `0010` before serving this feature. Source:
+Apply migration `0011` before serving this feature. Source:
 `frontend/src/Planning.tsx`, `coordinator/planning_api.py`, and planning services
 in `coordinator/services.py`; focused regression tests: `tests/test_planning.py`.
 

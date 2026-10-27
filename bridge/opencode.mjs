@@ -82,6 +82,7 @@ export class OpenCodeConnection {
         body: {
           parts: [{ type: "text", text: payload.text }],
           noReply: payload.noReply ?? false,
+          ...(payload.agent ? { agent: payload.agent } : {}),
           ...((payload.model ?? this.model) ? { model: payload.model ?? this.model } : {}),
         },
       })

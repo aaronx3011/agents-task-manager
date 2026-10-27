@@ -20,6 +20,7 @@ interface SettingsData {
   worker: string;
   directory: string;
   model: ModelChoice | null;
+  agent: string;
   context: string;
   instructions: string;
   templates: { name: string; text: string }[];
@@ -34,6 +35,8 @@ interface Card {
   labels: string[];
   checklist: { text: string; done: boolean }[];
   instructions: string;
+  agent: string;
+  model: ModelChoice | null;
   task?: number | null;
   task_status?: string | null;
 }
@@ -44,6 +47,8 @@ interface Job {
   status: string;
   position: number;
   worker: string;
+  agent: string;
+  model: ModelChoice | null;
   session: string;
   task: number | null;
   task_status: string | null;
@@ -411,6 +416,11 @@ function ProjectPlanning({
     );
   const queued = data.jobs.filter((j) => j.status === "queued");
   const active = data.jobs.find((j) => j.status === "running");
+  const projectWorker = workers.data?.items.find(
+    (w) => w.name === data.settings.worker,
+  );
+  const workerAgents = projectWorker?.agents || [];
+  const workerModels = projectWorker?.models || [];
   const edit = (card: Card) => {
     setEditor({ ...card });
     setEditorRevision(data.revision);
@@ -505,6 +515,8 @@ function ProjectPlanning({
                     labels: [],
                     checklist: [],
                     instructions: "",
+                    agent: "",
+                    model: null,
                   })
                 }
               >
@@ -642,6 +654,8 @@ function ProjectPlanning({
                         labels: [],
                         checklist: [],
                         instructions: "",
+                        agent: "",
+                        model: null,
                       })
                     }
                   >
@@ -752,6 +766,8 @@ function ProjectPlanning({
                 <strong>{job.title}</strong>
                 <small>
                   {job.status} · {job.worker}
+                  {job.agent ? ` · ${job.agent}` : ""}
+                  {` · ${job.model?.modelID || "worker default model"}`}
                   {job.task_status ? ` · task ${job.task_status}` : ""}
                 </small>
                 {job.detail && <p>{job.detail}</p>}
@@ -938,6 +954,89 @@ function ProjectPlanning({
                   Add checklist item
                 </button>
               </fieldset>
+              <div className="planning-settings-grid">
+                <label>
+                  Agent for this task
+                  <select
+                    aria-label="Task agent"
+                    value={editor.agent}
+                    onChange={(e) =>
+                      setEditor({ ...editor, agent: e.target.value })
+                    }
+                  >
+                    <option value="">
+                      {`Project default (${data.settings.agent || "worker default"})`}
+                    </option>
+                    {editor.agent &&
+                      !workerAgents.some((a) => a.name === editor.agent) && (
+                        <option value={editor.agent}>
+                          {editor.agent} (not reported)
+                        </option>
+                      )}
+                    {workerAgents.map((agent) => (
+                      <option key={agent.name} value={agent.name}>
+                        {agent.name}
+                        {agent.mode && agent.mode !== "all"
+                          ? ` · ${agent.mode}`
+                          : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Model for this task
+                  <select
+                    aria-label="Task model"
+                    value={
+                      editor.model
+                        ? JSON.stringify({
+                            providerID: editor.model.providerID,
+                            modelID: editor.model.modelID,
+                          })
+                        : ""
+                    }
+                    onChange={(e) =>
+                      setEditor({
+                        ...editor,
+                        model: e.target.value
+                          ? (JSON.parse(e.target.value) as ModelChoice)
+                          : null,
+                      })
+                    }
+                  >
+                    <option value="">
+                      {`Project default (${data.settings.model?.modelID || "worker default"})`}
+                    </option>
+                    {editor.model &&
+                      !workerModels.some(
+                        (m) =>
+                          m.providerID === editor.model?.providerID &&
+                          m.modelID === editor.model?.modelID,
+                      ) && (
+                        <option
+                          value={JSON.stringify({
+                            providerID: editor.model.providerID,
+                            modelID: editor.model.modelID,
+                          })}
+                        >
+                          {editor.model.providerID}/{editor.model.modelID} (not
+                          reported)
+                        </option>
+                      )}
+                    {workerModels.map((model) => (
+                      <option
+                        key={`${model.providerID}/${model.modelID}`}
+                        value={JSON.stringify({
+                          providerID: model.providerID,
+                          modelID: model.modelID,
+                        })}
+                      >
+                        {model.providerID}/{model.modelID}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
               <label>
                 Default instructions for this card
                 <textarea
@@ -995,7 +1094,9 @@ function ProjectPlanning({
             <p>
               {data.settings.worker || "No worker configured"} ·{" "}
               {data.settings.directory || "Worker default directory"} ·{" "}
-              {data.settings.model?.modelID || "Worker default model"}
+              {launch.agent || data.settings.agent || "Worker default agent"} ·{" "}
+              {(launch.model || data.settings.model)?.modelID ||
+                "Worker default model"}
             </p>
             <label>
               Prompt template
@@ -1088,6 +1189,8 @@ function editableCard(card: Card) {
     labels: [...new Set(card.labels.filter(Boolean))],
     checklist: card.checklist,
     instructions: card.instructions,
+    agent: card.agent,
+    model: card.model,
   };
 }
 
@@ -1149,6 +1252,7 @@ function SettingsForm({
                 worker: e.target.value,
                 directory: w?.create_directory || w?.directory || "",
                 model: null,
+                agent: "",
               });
             }}
           >
@@ -1156,6 +1260,22 @@ function SettingsForm({
             {workers.map((w) => (
               <option key={w.name} value={w.name}>
                 {w.name} · {w.online ? "online" : "offline"}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Default agent
+          <select
+            aria-label="Default agent"
+            value={draft.agent}
+            onChange={(e) => setDraft({ ...draft, agent: e.target.value })}
+          >
+            <option value="">Worker default</option>
+            {(worker?.agents || []).map((agent) => (
+              <option key={agent.name} value={agent.name}>
+                {agent.name}
+                {agent.mode && agent.mode !== "all" ? ` · ${agent.mode}` : ""}
               </option>
             ))}
           </select>

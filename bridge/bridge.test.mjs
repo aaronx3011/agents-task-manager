@@ -76,6 +76,10 @@ async function localServer(t, { version = "1.18.32" } = {}) {
     }
     if (path === "/global/health") return json(response, { version })
     if (path === "/provider") return json(response, { connected: ["p"], all: [{ id: "p", models: { m: { name: "Model" } } }] })
+    if (path === "/agent") return json(response, [
+      { name: "build", description: "Default builder", mode: "primary", builtIn: true },
+      { name: "plan", mode: "primary", builtIn: true },
+    ])
     if (path === "/session/status") return json(response, {})
     if (["/session", "/experimental/session"].includes(path) && request.method === "GET") {
       return json(response, [{ id: "ses_fixture", directory: "/fixture", title: "Fixture", time: { updated: 1 } }])
@@ -109,7 +113,7 @@ test("all six mappings preserve directories/models, pending checks and local aut
   const connection = new OpenCodeConnection({ url: local.url, password: "local-secret", createDirectory: "/create", model: { providerID: "p", modelID: "default" } })
   const sessions = [{ id: "ses_fixture", directory: "/fixture" }]
   await connection.execute(command("1", "create", { title: "New", model: { providerID: "p", modelID: "m" } }), sessions)
-  await connection.execute(command("2", "prompt", { text: "Record", noReply: true }), sessions)
+  await connection.execute(command("2", "prompt", { text: "Record", noReply: true, agent: "plan" }), sessions)
   await connection.execute(command("3", "interrupt"), sessions)
   await connection.execute(command("4", "permission.reply", { reply: "once" }, { requestID: "per_1" }), sessions)
   await connection.execute(command("5", "question.reply", { answers: [["yes"]] }, { requestID: "que_1" }), sessions)
@@ -118,7 +122,7 @@ test("all six mappings preserve directories/models, pending checks and local aut
   assert.deepEqual(posts.map((call) => call.path), ["/session", "/session/ses_fixture/prompt_async", "/session/ses_fixture/abort", "/permission/per_1/reply", "/question/que_1/reply", "/question/que_2/reject"])
   assert.deepEqual(posts[0].body, { title: "New", model: { providerID: "p", id: "m" } })
   assert.equal(new URL(posts[0].url, local.url).searchParams.get("directory"), "/create")
-  assert.deepEqual(posts[1].body, { parts: [{ type: "text", text: "Record" }], noReply: true, model: { providerID: "p", modelID: "default" } })
+  assert.deepEqual(posts[1].body, { parts: [{ type: "text", text: "Record" }], noReply: true, agent: "plan", model: { providerID: "p", modelID: "default" } })
   assert.deepEqual(posts[3].body, { reply: "once" })
   assert.deepEqual(posts[4].body, { answers: [["yes"]] })
   assert.ok(posts.slice(1).every((call) => new URL(call.url, local.url).searchParams.get("directory") === "/fixture"))
@@ -162,6 +166,11 @@ test("lost sync response retries identical body, retains outcomes and republishe
   await until(() => resynced)
   assert.equal(local.calls.filter((call) => call.path.endsWith("/prompt_async")).length, 1)
   assert.ok(uploads.some((upload) => upload.events.some((event) => event.payload && !event.frame)))
+  assert.ok(
+    uploads.some((upload) =>
+      upload.meta.agents?.some((agent) => agent.name === "build" && agent.builtIn === true),
+    ),
+  )
   const receipts = new CommandReceipts(directory)
   await until(() => resultsReceived)
   await until(async () => (await receipts.pending()).length === 0)

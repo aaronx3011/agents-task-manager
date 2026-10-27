@@ -3,6 +3,12 @@ export interface ModelChoice {
   modelID: string;
   name?: string;
 }
+export interface AgentChoice {
+  name: string;
+  description?: string;
+  mode?: "subagent" | "primary" | "all";
+  builtIn?: boolean;
+}
 export interface Worker {
   name: string;
   agent: string | null;
@@ -18,6 +24,7 @@ export interface Worker {
   last_sync_at: string | null;
   default_model: ModelChoice | null;
   models: ModelChoice[];
+  agents: AgentChoice[];
   dropped_events: number;
   counts?: {
     sessions: number;

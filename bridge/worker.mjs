@@ -32,6 +32,7 @@ export function startWorker(input) {
   let dropped = 0
   let snapshotEpoch
   let models = []
+  let agents = []
   let catalogAt = 0
   let eventCursor = 0
   let inFlight = null
@@ -116,6 +117,22 @@ export function startWorker(input) {
               name: model.name ?? id,
             })),
           )
+        try {
+          const list = await connection.request("/agent")
+          if (Array.isArray(list)) {
+            agents = list
+              .filter((agent) => agent && typeof agent.name === "string" && agent.name)
+              .map((agent) => ({
+                name: agent.name,
+                description: agent.description ?? "",
+                mode: agent.mode,
+                builtIn: agent.builtIn === true,
+              }))
+          }
+        } catch {
+          // Agent discovery is optional; task prompts still use the worker default.
+          agents = []
+        }
         catalogAt = Date.now()
       }
       // The regular list is project-scoped; the v1 global list spans projects.
@@ -219,6 +236,7 @@ export function startWorker(input) {
             stream_connected: streamConnected,
             error,
             models,
+            agents,
             default_model: options.model,
             session_limit: options.sessionLimit,
             message_limit: options.messageLimit,
