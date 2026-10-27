@@ -155,8 +155,8 @@ def verify_planning(page, origin):
     """Exercise real staff board/settings/queue writes without a model invocation."""
     from playwright.sync_api import expect
 
-    page.get_by_role("button", name="Planning", exact=True).click()
-    expect(page.get_by_role("heading", name="Project planning", exact=True)).to_be_visible()
+    page.locator(".sidebar").get_by_role("button", name="Planning", exact=True).click()
+    expect(page.get_by_role("region", name="Project planning overview")).to_be_visible()
     page.get_by_role("button", name="Settings", exact=True).click()
     page.get_by_label("Default worker", exact=True).select_option("offline-worker")
     page.get_by_label("Default directory", exact=True).fill("/workspace/planning")
@@ -211,6 +211,48 @@ def verify_planning(page, origin):
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
     page.set_viewport_size({"width": 1512, "height": 1050})
     page.get_by_role("button", name="All tasks", exact=False).click()
+
+
+def verify_project_navigation(page):
+    from playwright.sync_api import expect
+
+    page.get_by_label("Search tasks", exact=True).fill("unrelated filter")
+    expect(page).to_have_url(re.compile("q=unrelated"))
+    project = page.locator(".project-navigation").get_by_role(
+        "button", name=re.compile("^Dashboard created project")
+    )
+    project.click()
+    expect(page.get_by_role("region", name="Project planning overview")).to_be_visible()
+    expect(page.get_by_label("Planning project", exact=True)).to_have_value("dashboard-created")
+    expect(
+        page.get_by_role("heading", name="Dashboard created project", exact=True)
+    ).to_be_visible()
+    expect(page.get_by_label("Project filter", exact=True)).to_have_count(0)
+    expect(page.locator(".planning-board, .planning-settings")).to_have_count(0)
+    assert "q=" not in page.url
+    page.get_by_role("button", name="Settings", exact=True).click()
+    page.go_back()
+    expect(page.get_by_role("region", name="Project planning overview")).to_be_visible()
+    page.go_forward()
+    expect(page.get_by_role("heading", name="Project configuration")).to_be_visible()
+    project.click()
+    expect(page.get_by_role("region", name="Project planning overview")).to_be_visible()
+    page.get_by_role("button", name="New work item", exact=True).click()
+    page.get_by_label("Title", exact=True).fill("Overview work item")
+    page.get_by_role("button", name="Save card", exact=True).click()
+    expect(page.get_by_role("dialog")).to_have_count(0)
+    expect(page.locator(".planning-work-items")).to_contain_text("Overview work item")
+    page.reload()
+    expect(page.get_by_role("region", name="Project planning overview")).to_be_visible()
+    expect(page.locator(".planning-work-items")).to_contain_text("Overview work item")
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.get_by_label("Planning project", exact=True).select_option("browser-check")
+    expect(page.get_by_role("region", name="Project planning overview")).to_be_visible()
+    expect(page.locator(".planning-work-items")).to_contain_text("Planning first task")
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    page.get_by_role("button", name="All tasks", exact=True).click()
+    expect(page.get_by_label("Project filter", exact=True)).to_have_value("")
+    page.set_viewport_size({"width": 1512, "height": 1050})
 
 
 def run(directory, screenshots, assets_only=False):
@@ -464,6 +506,7 @@ def run(directory, screenshots, assets_only=False):
                 verify_agent_registration(page, context, origin)
                 verify_project_creation(page, origin)
                 verify_planning(page, origin)
+                verify_project_navigation(page)
                 if assets_only:
                     page.goto(origin + "/dashboard/?section=opencodes")
                     expect(page.get_by_role("heading", name="Connected OpenCodes.")).to_be_visible()

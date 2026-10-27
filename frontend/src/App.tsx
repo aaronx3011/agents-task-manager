@@ -381,11 +381,23 @@ export default function App() {
             {data?.projects.map((item) => (
               <button
                 key={item.slug}
-                className={`project-nav ${filters.project === item.slug ? "selected" : ""}`}
+                className={`project-nav ${location.section === "planning" && filters.project === item.slug ? "selected" : ""}`}
                 onClick={() =>
-                  filter({
-                    project: filters.project === item.slug ? null : item.slug,
-                  })
+                  navigate(
+                    {
+                      section: "planning",
+                      project: item.slug,
+                      planning_tab: null,
+                      new_project: null,
+                      task: null,
+                      q: null,
+                      claimed_by: null,
+                      status: null,
+                      ready: null,
+                      page: null,
+                    },
+                    true,
+                  )
                 }
               >
                 <span className={`project-square ${tone(item.slug)}`} />
@@ -438,7 +450,7 @@ export default function App() {
               <ChevronRight size={13} />
               <strong>
                 {location.section === "planning"
-                  ? "Project planning"
+                  ? project?.name || "Project planning"
                   : location.section === "opencodes"
                     ? "Connected OpenCodes"
                     : location.section === "sessions"
@@ -531,6 +543,7 @@ export default function App() {
                 navigate={navigate}
                 openTask={openTask}
                 newProject={location.newProject}
+                tab={location.planningTab}
               />
             </Suspense>
           ) : location.section === "opencodes" ||

@@ -82,6 +82,36 @@
   padding-bottom: 20px;
   min-height: 350px;
 }
+.planning-overview-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 16px;
+}
+.planning-overview-summary article,
+.planning-overview-context {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  margin-bottom: 20px;
+}
+.planning-overview h2 {
+  font-size: 16px;
+}
+.planning-overview p {
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.planning-work-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 16px;
+}
+.planning-work-items .planning-card {
+  margin: 0;
+  min-width: 0;
+}
 .planning-column {
   flex: 0 0 285px;
   background: var(--surface, #1c1e28);

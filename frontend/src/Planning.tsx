@@ -11,7 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { get, post } from "./api";
-import type { Page, Project } from "./types";
+import type { LocationState, Page, Project } from "./types";
 import type { ModelChoice, Worker } from "./opencode-types";
 import { ErrorState, Loading } from "./ui";
 import "./planning.css";
@@ -72,12 +72,14 @@ export default function Planning({
   navigate,
   openTask,
   newProject,
+  tab,
 }: {
   projects: Project[];
   project: string;
   navigate: Navigate;
   openTask: (id: number) => void;
   newProject: boolean;
+  tab: LocationState["planningTab"];
 }) {
   const slug = project || projects[0]?.slug || "";
   return (
@@ -85,7 +87,9 @@ export default function Planning({
       <header className="planning-heading">
         <div>
           <div className="eyebrow">PLAN → EXECUTE → REVIEW</div>
-          <h1>Project planning</h1>
+          <h1>
+            {projects.find((p) => p.slug === slug)?.name || "Project planning"}
+          </h1>
           <p>Organize your work. Launch contextual sessions in order.</p>
         </div>
         <label>
@@ -94,7 +98,7 @@ export default function Planning({
             aria-label="Planning project"
             value={slug}
             onChange={(e) =>
-              navigate({ project: e.target.value, planning_tab: null })
+              navigate({ project: e.target.value, planning_tab: null }, true)
             }
           >
             {projects.map((p) => (
@@ -114,6 +118,7 @@ export default function Planning({
           slug={slug}
           navigate={navigate}
           openTask={openTask}
+          tab={tab}
         />
       ) : (
         <p>Create your first project with New project to start planning.</p>
@@ -307,18 +312,16 @@ function ProjectPlanning({
   slug,
   navigate,
   openTask,
+  tab,
 }: {
   slug: string;
   navigate: Navigate;
   openTask: (id: number) => void;
+  tab: LocationState["planningTab"];
 }) {
   const client = useQueryClient();
-  const [tab, setTab] = useState(() =>
-    new URLSearchParams(window.location.search).get("planning_tab") ===
-    "settings"
-      ? "settings"
-      : "board",
-  );
+  const setTab = (tab: LocationState["planningTab"]) =>
+    navigate({ planning_tab: tab === "overview" ? null : tab }, true);
   const [editor, setEditor] = useState<Card | null>(null);
   const [editorRevision, setEditorRevision] = useState(0);
   const [launch, setLaunch] = useState<Card | null>(null);
@@ -404,7 +407,7 @@ function ProjectPlanning({
     return plan.isError ? (
       <ErrorState error={plan.error} retry={() => void plan.refetch()} />
     ) : (
-      <Loading label="Loading project board…" />
+      <Loading label="Loading project planning…" />
     );
   const queued = data.jobs.filter((j) => j.status === "queued");
   const active = data.jobs.find((j) => j.status === "running");
@@ -430,13 +433,19 @@ function ProjectPlanning({
   return (
     <>
       <div className="planning-toolbar">
-        <div className="view-tabs">
-          {["board", "queue", "settings"].map((t) => (
+        <div
+          className="view-tabs"
+          role="group"
+          aria-label="Project planning view"
+        >
+          {(["overview", "board", "queue", "settings"] as const).map((t) => (
             <button key={t} aria-pressed={tab === t} onClick={() => setTab(t)}>
               {t === "settings" && <Settings size={14} />}{" "}
-              {t === "queue"
-                ? `Queue (${queued.length})`
-                : t[0].toUpperCase() + t.slice(1)}
+              {t === "overview"
+                ? "Planning"
+                : t === "queue"
+                  ? `Queue (${queued.length})`
+                  : t[0].toUpperCase() + t.slice(1)}
             </button>
           ))}
         </div>
@@ -475,7 +484,113 @@ function ProjectPlanning({
           Updates interrupted: {plan.error.message}
         </div>
       )}
-      {tab === "settings" ? (
+      {tab === "overview" ? (
+        <section
+          className="planning-overview"
+          aria-label="Project planning overview"
+        >
+          <div className="planning-overview-summary">
+            <article>
+              <h2>Planning</h2>
+              <p>
+                Shape the next steps for {data.name}. Select a work item to
+                refine its scope and acceptance criteria.
+              </p>
+              <button
+                onClick={() =>
+                  edit({
+                    title: "",
+                    description: "",
+                    column: data.settings.columns[0],
+                    labels: [],
+                    checklist: [],
+                    instructions: "",
+                  })
+                }
+              >
+                <Plus size={16} /> New work item
+              </button>
+            </article>
+            <article>
+              <h2>Execution</h2>
+              <p>
+                {data.cards.length} work items · {queued.length} queued ·{" "}
+                {data.jobs.filter((job) => job.status === "completed").length}{" "}
+                completed runs
+              </p>
+              {active && <p>Current: {active.title}</p>}
+              <button onClick={() => setTab("queue")}>
+                View execution queue
+              </button>
+            </article>
+          </div>
+          {data.settings.context && (
+            <article className="planning-overview-context">
+              <h2>Project context</h2>
+              <p>{data.settings.context}</p>
+            </article>
+          )}
+          <h2>Planned work</h2>
+          {!data.cards.length && (
+            <p>
+              No work items yet. Add your first work item to start planning.
+            </p>
+          )}
+          <div className="planning-work-items">
+            {data.cards.map((card) => (
+              <article className="planning-card" key={card.id}>
+                <small>{card.column}</small>
+                <button
+                  className="planning-card-title"
+                  onClick={() => edit(card)}
+                >
+                  {card.title}
+                </button>
+                {card.description && <p>{card.description.slice(0, 240)}</p>}
+                <div className="planning-labels">
+                  {card.labels.map((label) => (
+                    <span key={label}>{label}</span>
+                  ))}
+                </div>
+                {!!card.checklist.length && (
+                  <small>
+                    Checklist{" "}
+                    {card.checklist.filter((item) => item.done).length}/
+                    {card.checklist.length}
+                  </small>
+                )}
+                {card.task && (
+                  <button
+                    className="planning-task-link"
+                    onClick={() => openTask(card.task!)}
+                  >
+                    Task #{card.task} · {card.task_status}
+                  </button>
+                )}
+                <footer>
+                  <button
+                    disabled={
+                      busy ||
+                      data.jobs.some(
+                        (job) =>
+                          job.card === card.id &&
+                          ["queued", "running"].includes(job.status),
+                      )
+                    }
+                    onClick={() => {
+                      setLaunch(card);
+                      setInstructions(card.instructions);
+                      setTemplate("");
+                    }}
+                  >
+                    Run / Queue
+                  </button>
+                </footer>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : tab === "settings" ? (
         <SettingsForm
           initial={data.settings}
           revision={data.revision}
