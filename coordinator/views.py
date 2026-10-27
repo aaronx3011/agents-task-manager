@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.db.models import Count
+from django.db.models import Count, Exists, OuterRef, Prefetch
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action, api_view
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -11,6 +11,7 @@ from . import sync as sync_module
 from .auth import get_agent, staff_name
 from .models import (
     Agent,
+    PendingInteraction,
     Project,
     Task,
     TaskExecutionAttempt,
@@ -477,9 +478,31 @@ def sessions_read(request):
         status=request.query_params.get("status") or "",
         project_id=request.query_params.get("project") or None,
     )
+    pending_only = request.query_params.get("pending") in {"1", "true", "yes"}
+    if pending_only:
+        # Approval notifications (#145): only sessions blocked on input, with the
+        # unresolved requests attached so the dashboard can label each alert.
+        sessions = sessions.filter(
+            Exists(PendingInteraction.objects.filter(session=OuterRef("pk"), resolved_at=None))
+        ).prefetch_related(
+            Prefetch(
+                "pending_interactions",
+                queryset=PendingInteraction.objects.filter(resolved_at=None).order_by("-id"),
+                to_attr="unresolved_interactions",
+            )
+        )
     paginator = TaskPagination()
     page = paginator.paginate_queryset(sessions, request, view=sessions_read)
-    return paginator.get_paginated_response([services.session_card(s) for s in page])
+    cards = []
+    for session in page:
+        card = services.session_card(session)
+        if pending_only:
+            card["pendingInteractions"] = [
+                services.interaction_card(interaction)
+                for interaction in session.unresolved_interactions
+            ]
+        cards.append(card)
+    return paginator.get_paginated_response(cards)
 
 
 @api_view(["GET"])

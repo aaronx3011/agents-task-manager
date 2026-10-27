@@ -35,6 +35,7 @@ import {
   X,
 } from "lucide-react";
 import { ApiError, get, query } from "./api";
+import { ApprovalNotifications } from "./ApprovalNotifications";
 import { Board } from "./Board";
 import { useLiveUpdates } from "./live";
 import { useLocationState } from "./location";
@@ -470,6 +471,7 @@ export default function App() {
                 <span className="live-dot" />
                 {connectionLabel}
               </span>
+              <ApprovalNotifications navigate={navigate} />
               <button
                 className="icon-button theme-toggle"
                 onClick={() => setTheme(theme === "dark" ? "light" : "dark")}

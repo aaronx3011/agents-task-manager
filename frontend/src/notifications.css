@@ -1,0 +1,205 @@
+.approval-notifications {
+  position: relative;
+  display: inline-flex;
+}
+.approval-bell {
+  position: relative;
+}
+.approval-bell.has-pending {
+  color: var(--amber);
+}
+.approval-count {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--amber);
+  color: #10151c;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+.approval-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 60;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(480px, calc(100vh - 90px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 14px 40px #00000055;
+}
+.approval-popover > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.approval-popover > header div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.approval-popover > header strong {
+  font-size: 13px;
+}
+.approval-popover > header span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.approval-list {
+  overflow: auto;
+  padding: 6px;
+}
+.approval-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  width: 100%;
+  padding: 11px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.approval-item:hover,
+.approval-item:focus-visible {
+  border-color: var(--line);
+  background: var(--hover);
+}
+.approval-item strong {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.approval-item p {
+  margin: 0;
+  color: var(--secondary);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.approval-item small {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.approval-kind {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.approval-kind.question {
+  background: color-mix(in srgb, var(--blue) 14%, transparent);
+  color: var(--blue);
+}
+.approval-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 22px 16px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.approval-toasts {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 80;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 10px;
+  width: min(340px, calc(100vw - 32px));
+}
+.approval-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--amber);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 12px 34px #00000055;
+  animation: approval-toast-in 180ms ease-out;
+}
+.approval-toast-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.approval-toast-body:hover {
+  background: var(--hover);
+}
+.approval-toast-body strong {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.approval-toast-body p {
+  margin: 0;
+  color: var(--secondary);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.approval-toast-body small {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--accent);
+  font-size: 10px;
+}
+.approval-toast-close {
+  width: 26px;
+  height: 26px;
+}
+@keyframes approval-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (max-width: 640px) {
+  .approval-toasts {
+    right: 16px;
+    bottom: 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .approval-toast {
+    animation: none;
+  }
+}

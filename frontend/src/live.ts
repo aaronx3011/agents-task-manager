@@ -34,6 +34,7 @@ export function useLiveUpdates() {
       void client.invalidateQueries({ queryKey: ["planning"] });
       void client.invalidateQueries({ queryKey: ["configuration", "agents"] });
       void client.invalidateQueries({ queryKey: ["opencodes"] });
+      void client.invalidateQueries({ queryKey: ["approvals"] });
       void client.invalidateQueries({ queryKey: ["workspace"] });
       void client.invalidateQueries({ queryKey: ["tasks"] });
       // Detail embeds prerequisites: their events can change a different open task.
