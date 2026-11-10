@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from . import services
 from . import sync as sync_module
 from .auth import get_agent, staff_name
+from .chat_export import export_session
 from .models import (
     Agent,
     PendingInteraction,
@@ -141,6 +142,13 @@ class WorkerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
                 limit=request.query_params.get("limit"),
             )
         )
+
+    @action(detail=True, methods=["get"], url_path=r"sessions/(?P<sid>[^/]{1,128})/export")
+    def session_export(self, request, name=None, sid=None):
+        session = self._session_worker().sessions.filter(remote_id=sid).first()
+        if session is None:
+            raise services.TaskError("Unknown session for this worker", 404)
+        return export_session(session, request.query_params.get("kind", "md"))
 
     @action(detail=True, methods=["get"], url_path="events")
     def events(self, request, name=None):

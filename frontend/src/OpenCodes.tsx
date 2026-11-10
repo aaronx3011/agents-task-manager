@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import {
   ArrowDown,
+  Download,
   Monitor,
   Pin,
   Plus,
@@ -43,6 +44,71 @@ const encoded = encodeURIComponent;
 const workerPath = (name: string) => `/api/workers/${encoded(name)}`;
 const sessionPath = (worker: string, session: string) =>
   `${workerPath(worker)}/sessions/${encoded(session)}`;
+
+function ChatExport({ path }: { path: string }) {
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  async function download(kind: "md" | "zip") {
+    setPending(kind);
+    setError(null);
+    try {
+      const response = await fetch(`${path}/export?kind=${kind}`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      if (
+        response.redirected ||
+        response.status === 401 ||
+        response.status === 403
+      )
+        throw new Error("Your session has expired. Sign in to export.");
+      if (!response.ok)
+        throw new Error(
+          `Export failed (${response.status}). Retry the download.`,
+        );
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download =
+        response.headers
+          .get("Content-Disposition")
+          ?.match(/filename="([^"]+)"/)?.[1] || `conversation.${kind}`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Export failed.");
+    } finally {
+      setPending(null);
+    }
+  }
+  return (
+    <div className="oc-export" aria-label="Export conversation">
+      {(["md", "zip"] as const).map((kind) => (
+        <button
+          key={kind}
+          className="button secondary"
+          disabled={pending !== null}
+          onClick={() => void download(kind)}
+        >
+          <Download size={13} />
+          {pending === kind
+            ? "Exporting…"
+            : kind === "md"
+              ? "Export Markdown"
+              : "Export ZIP"}
+        </button>
+      ))}
+      <p className="muted">
+        Exports all retained messages, not just this page. History may be
+        partial; ZIP includes supplied attachments and a coverage manifest.
+      </p>
+      {error && <p role="alert">{error}</p>}
+    </div>
+  );
+}
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -848,6 +914,7 @@ function SessionPanel({
     <section className="oc-conversation" aria-label="OpenCode conversation">
       <header>
         <h2>{data.title || sessionID}</h2>
+        <ChatExport key={path} path={path} />
         <button
           className={`button secondary ${pinned ? "selected" : ""}`}
           aria-pressed={pinned}
