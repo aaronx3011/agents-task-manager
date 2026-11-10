@@ -2,8 +2,12 @@
   --surface: var(--panel);
   --border: var(--line);
   --text-muted: var(--muted);
-  padding: 28px;
+  flex: 1;
+  min-height: 0;
   min-width: 0;
+  padding: 28px;
+  overflow: auto;
+  scrollbar-width: thin;
 }
 .planning-heading,
 .planning-toolbar,
