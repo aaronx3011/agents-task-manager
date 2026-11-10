@@ -11,7 +11,9 @@ import {
   X,
 } from "lucide-react";
 import { get, post } from "./api";
-import type { LocationState, Page, Project } from "./types";
+import type { LocationState, Page, Project, Status } from "./types";
+import { LABELS, STATUSES } from "./types";
+import { refreshTaskViews } from "./task-sync";
 import type { ModelChoice, Worker } from "./opencode-types";
 import { ErrorState, Loading } from "./ui";
 import "./planning.css";
@@ -38,7 +40,7 @@ interface Card {
   agent: string;
   model: ModelChoice | null;
   task?: number | null;
-  task_status?: string | null;
+  task_status?: Status | null;
 }
 interface Job {
   id: number;
@@ -51,7 +53,7 @@ interface Job {
   model: ModelChoice | null;
   session: string;
   task: number | null;
-  task_status: string | null;
+  task_status: Status | null;
   detail: string;
   prompt: string;
   snapshot: Record<string, unknown>;
@@ -376,8 +378,8 @@ function ProjectPlanning({
   }, [dialogOpen]);
   const plan = useQuery({
     queryKey: ["planning", slug],
-    queryFn: () => get<Plan>(`/api/projects/${slug}/planning`),
-    refetchInterval: 5000,
+    queryFn: ({ signal }) =>
+      get<Plan>(`/api/projects/${slug}/planning`, signal),
   });
   const workers = useQuery({
     queryKey: ["planning-workers"],
@@ -398,7 +400,7 @@ function ProjectPlanning({
         ...values,
       });
       client.setQueryData(["planning", slug], result);
-      void client.invalidateQueries({ queryKey: ["workspace"] });
+      void refreshTaskViews(client);
       return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save changes");
@@ -579,6 +581,12 @@ function ProjectPlanning({
                     Task #{card.task} · {card.task_status}
                   </button>
                 )}
+                {card.task && card.task_status && (
+                  <TaskStatusEditor
+                    task={card.task}
+                    status={card.task_status}
+                  />
+                )}
                 <footer>
                   <button
                     disabled={
@@ -709,6 +717,12 @@ function ProjectPlanning({
                           Task #{card.task} · {card.task_status}
                         </button>
                       )}
+                      {card.task && card.task_status && (
+                        <TaskStatusEditor
+                          task={card.task}
+                          status={card.task_status}
+                        />
+                      )}
                       <footer>
                         <button
                           disabled={
@@ -744,7 +758,8 @@ function ProjectPlanning({
           </div>
           <p className="planning-help">
             Drag cards between columns, or use their Move menu. Board columns
-            are independent of task execution status.
+            organize planning stages. Use Execution status on a linked task to
+            update its status here and in All Tasks.
           </p>
         </>
       ) : (
@@ -825,9 +840,9 @@ function ProjectPlanning({
                 <pre>{job.prompt || JSON.stringify(job.snapshot, null, 2)}</pre>
               </details>
               {job.task && ["running", "failed"].includes(job.status) && (
-                <CompletionForm
+                <TaskStatusEditor
                   task={job.task}
-                  done={() => void plan.refetch()}
+                  status={job.task_status || "in_progress"}
                 />
               )}
             </article>
@@ -1432,7 +1447,18 @@ function SettingsForm({
   );
 }
 
-function CompletionForm({ task, done }: { task: number; done: () => void }) {
+function TaskStatusEditor({ task, status }: { task: number; status: Status }) {
+  return (
+    <details className="planning-task-status">
+      <summary>Execution status: {LABELS[status]}</summary>
+      <TaskStatusForm key={`${task}:${status}`} task={task} status={status} />
+    </details>
+  );
+}
+
+function TaskStatusForm({ task, status }: { task: number; status: Status }) {
+  const client = useQueryClient();
+  const [target, setTarget] = useState<Status>(status);
   const [summary, setSummary] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1441,33 +1467,64 @@ function CompletionForm({ task, done }: { task: number; done: () => void }) {
       className="planning-completion"
       onSubmit={(e) => {
         e.preventDefault();
+        if (busy || target === status) return;
         setBusy(true);
         setError("");
-        void post(`/api/tasks/${task}/status`, {
-          status: "done",
-          result_summary: summary,
-        })
-          .then(() => {
+        void post(
+          `/api/tasks/${task}/${target === "pending" ? "release" : "status"}`,
+          {
+            status: target,
+            reason: summary,
+            result_summary: summary,
+          },
+        )
+          .then(async () => {
             setSummary("");
-            done();
+            await refreshTaskViews(client);
           })
           .catch((e) =>
-            setError(e instanceof Error ? e.message : "Completion failed"),
+            setError(e instanceof Error ? e.message : "Status update failed"),
           )
           .finally(() => setBusy(false));
       }}
     >
       <label>
-        Explicit completion / handoff
+        Task #{task} status (also updates All Tasks)
+        <select
+          aria-label={`Execution status for task ${task}`}
+          value={target}
+          disabled={busy}
+          onChange={(event) => setTarget(event.target.value as Status)}
+        >
+          {STATUSES.map((value) => (
+            <option key={value} value={value}>
+              {LABELS[value]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        {target === "blocked" ? "Blocker reason" : "Outcome / handoff"}
         <textarea
-          required
+          required={["blocked", "review", "done"].includes(target)}
+          disabled={busy}
           rows={2}
+          maxLength={5000}
           value={summary}
           onChange={(e) => setSummary(e.target.value)}
           placeholder="Verified outcome and context for the next task"
         />
       </label>
-      <button disabled={busy || !summary.trim()}>Mark task completed</button>
+      <p>In progress requires an existing claim. Pending releases the claim.</p>
+      <button
+        disabled={
+          busy ||
+          target === status ||
+          (["blocked", "review", "done"].includes(target) && !summary.trim())
+        }
+      >
+        {busy ? "Saving…" : "Update task status"}
+      </button>
       {error && <p role="alert">{error}</p>}
     </form>
   );

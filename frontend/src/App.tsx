@@ -207,7 +207,8 @@ export default function App() {
   const { filters } = location;
   const workspace = useQuery({
     queryKey: ["workspace", filters],
-    queryFn: () => get<Workspace>(`/dashboard/workspace/?${query(filters)}`),
+    queryFn: ({ signal }) =>
+      get<Workspace>(`/dashboard/workspace/?${query(filters)}`, signal),
   });
   const data = workspace.data;
   useEffect(() => {

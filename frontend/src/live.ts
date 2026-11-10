@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getFocus, publishSnapshot, watchFocus } from "./session-live";
 import type { LiveSnapshot } from "./session-live";
+import { refreshTaskViews, TASK_SYNC_INTERVAL } from "./task-sync";
 
 export type Connection = "connecting" | "live" | "reconnecting" | "expired";
 export function useLiveUpdates() {
@@ -31,14 +32,10 @@ export function useLiveUpdates() {
     }
     const unwatch = watchFocus(subscribe);
     function refresh() {
-      void client.invalidateQueries({ queryKey: ["planning"] });
+      void refreshTaskViews(client);
       void client.invalidateQueries({ queryKey: ["configuration", "agents"] });
       void client.invalidateQueries({ queryKey: ["opencodes"] });
       void client.invalidateQueries({ queryKey: ["approvals"] });
-      void client.invalidateQueries({ queryKey: ["workspace"] });
-      void client.invalidateQueries({ queryKey: ["tasks"] });
-      // Detail embeds prerequisites: their events can change a different open task.
-      void client.invalidateQueries({ queryKey: ["task"] });
       if (broad) {
         void client.invalidateQueries({ queryKey: ["events"] });
       } else
@@ -132,6 +129,13 @@ export function useLiveUpdates() {
       };
     }
     connect();
+    // Match Planning's freshness even when a broker notification is missed.
+    // Inactive caches are marked stale; only mounted views issue requests.
+    const reconcileTasks = () => {
+      if (!document.hidden) void refreshTaskViews(client);
+    };
+    const taskRecovery = setInterval(reconcileTasks, TASK_SYNC_INTERVAL);
+    document.addEventListener("visibilitychange", reconcileTasks);
     const heartbeat = setInterval(() => {
       if (socket?.readyState === WebSocket.OPEN)
         socket.send(JSON.stringify({ type: "ping" }));
@@ -147,6 +151,8 @@ export function useLiveUpdates() {
       clearTimeout(updateTimer);
       clearInterval(heartbeat);
       clearInterval(recovery);
+      clearInterval(taskRecovery);
+      document.removeEventListener("visibilitychange", reconcileTasks);
       highlights.forEach(clearTimeout);
       socket?.close();
     };

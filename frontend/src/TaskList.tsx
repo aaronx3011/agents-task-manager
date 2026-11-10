@@ -35,9 +35,10 @@ export function TaskList({
 }) {
   const tasks = useQuery({
     queryKey: ["tasks", "list", filters, ordering, page],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       get<Page<Task>>(
         `/api/tasks?${query(filters, { ordering, limit: SIZE, offset: page * SIZE })}`,
+        signal,
       ),
   });
   function heading(title: string, field: string) {
