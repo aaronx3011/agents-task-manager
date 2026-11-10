@@ -1,9 +1,12 @@
 """POST /api/worker/sync acceptance tests (issues #7/#11)."""
 
+import json
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
 import pytest
+from django.conf import settings
 from django.db import close_old_connections, connection
 from django.test import Client
 from django.utils import timezone
@@ -50,6 +53,52 @@ def sync_payload(**overrides):
 
 def post_sync(client, payload):
     return client.post("/api/worker/sync", payload, content_type="application/json")
+
+
+def test_bridge_sanitized_history_persists_in_database(api_client, worker):
+    raw = "tool\0 high\ud800 low\udfff emoji😀"
+    expected = "tool� high� low� emoji😀"
+    payload = sync_payload(
+        sessions=[{"id": "ses_unicode", "title": raw}],
+        updates=[
+            {
+                "sessionID": "ses_unicode",
+                "messages": [
+                    {
+                        "info": {"id": "msg_unicode", "role": "assistant"},
+                        "parts": [{"type": "tool", "state": {"output": raw, "input": {raw: raw}}}],
+                    }
+                ],
+            }
+        ],
+    )
+    # Exercise the tracked Node sanitizer before the real Django sync/storage
+    # path. On PostgreSQL this proves jsonb accepts both keys and nested values.
+    result = subprocess.run(
+        [
+            "node",
+            "--input-type=module",
+            "-e",
+            """
+import { readFileSync } from 'node:fs';
+import { sanitizeSync } from './bridge/worker.mjs';
+process.stdout.write(JSON.stringify(sanitizeSync(JSON.parse(readFileSync(0, 'utf8')))));
+""",
+        ],
+        input=json.dumps(payload),
+        text=True,
+        capture_output=True,
+        cwd=settings.BASE_DIR,
+        check=True,
+        timeout=10,
+    )
+    response = api_client.post(
+        "/api/worker/sync", data=result.stdout, content_type="application/json"
+    )
+    assert response.status_code == 200
+    assert WorkerSession.objects.get(worker=worker, remote_id="ses_unicode").title == expected
+    message = WorkerMessage.objects.get(session__worker=worker, remote_id="msg_unicode")
+    assert message.parts[0]["state"] == {"output": expected, "input": {expected: expected}}
 
 
 class TestSyncContract:

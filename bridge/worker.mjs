@@ -13,6 +13,19 @@ import { LiveSnapshots, syncScheduler } from "./live.mjs"
 
 const EVENT_BUFFER = 1000
 
+// PostgreSQL jsonb rejects NUL and unpaired UTF-16 surrogates, even when
+// JSON.stringify escapes them. Normalize the whole wire envelope, including
+// property names, without mutating canonical OpenCode records or receipts.
+export function sanitizeSync(value) {
+  if (typeof value === "string") return value.replaceAll("\0", "\uFFFD").toWellFormed()
+  if (Array.isArray(value)) return value.map(sanitizeSync)
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) =>
+      [sanitizeSync(key), sanitizeSync(item)]))
+  }
+  return value
+}
+
 export function startWorker(input) {
   const options = workerSettings(input)
   const controller = new AbortController()
@@ -222,7 +235,7 @@ export function startWorker(input) {
      inFlight = {
        id: batchID,
        completed,
-       body: JSON.stringify({
+       body: JSON.stringify(sanitizeSync({
           worker: workerID,
           protocol_version: 1,
           meta: {
@@ -234,7 +247,8 @@ export function startWorker(input) {
             create_directory: options.createDirectory ?? options.directory ?? "",
             connected,
             stream_connected: streamConnected,
-            error,
+            // An omitted/undefined error leaves the server's old error intact.
+            error: error ?? "",
             models,
             agents,
             default_model: options.model,
@@ -248,7 +262,7 @@ export function startWorker(input) {
            events: queue.splice(0, EVENT_BUFFER),
           results: completed,
           cursor: { after: eventCursor, batch_id: batchID },
-         }),
+         })),
      }
      await deliver()
    }

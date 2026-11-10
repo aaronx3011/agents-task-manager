@@ -9,7 +9,7 @@ import test from "node:test"
 import { OpenCodeConnection, consumeSSE } from "./opencode.mjs"
 import { workerSettings } from "./settings.mjs"
 import { CommandReceipts } from "./receipts.mjs"
-import { startWorker } from "./worker.mjs"
+import { sanitizeSync, startWorker } from "./worker.mjs"
 
 const fixtures = new WeakMap()
 
@@ -63,7 +63,7 @@ async function state(t) {
   return directory
 }
 
-async function localServer(t, { version = "1.18.32" } = {}) {
+async function localServer(t, { version = "1.18.32", history = [], title = "Fixture" } = {}) {
   const calls = []
   const url = await serve(t, (request, response, body) => {
     const path = new URL(request.url, "http://fixture").pathname
@@ -74,7 +74,7 @@ async function localServer(t, { version = "1.18.32" } = {}) {
       response.write('data: {"payload":{"type":"session.updated","properties":{"info":{"id":"ses_fixture"}}}}\n\n')
       return
     }
-    if (path === "/global/health") return json(response, { version })
+    if (path === "/global/health") return json(response, { version: typeof version === "function" ? version() : version })
     if (path === "/provider") return json(response, { connected: ["p"], all: [{ id: "p", models: { m: { name: "Model" } } }] })
     if (path === "/agent") return json(response, [
       { name: "build", description: "Default builder", mode: "primary", builtIn: true },
@@ -82,9 +82,9 @@ async function localServer(t, { version = "1.18.32" } = {}) {
     ])
     if (path === "/session/status") return json(response, {})
     if (["/session", "/experimental/session"].includes(path) && request.method === "GET") {
-      return json(response, [{ id: "ses_fixture", directory: "/fixture", title: "Fixture", time: { updated: 1 } }])
+      return json(response, [{ id: "ses_fixture", directory: "/fixture", title, time: { updated: 1 } }])
     }
-    if (path.endsWith("/message")) return json(response, [])
+    if (path.endsWith("/message")) return json(response, history)
     // Pending interactions are workspace-scoped: the installed API returns an
     // empty list without the directory query, exactly like production.
     if (path === "/permission") return json(response, directory ? [{ id: "per_1", sessionID: "ses_fixture" }] : [])
@@ -175,6 +175,80 @@ test("lost sync response retries identical body, retains outcomes and republishe
   await until(() => resultsReceived)
   await until(async () => (await receipts.pending()).length === 0)
   assert.deepEqual(await receipts.pending(), [])
+})
+
+test("sync sanitization handles every string value and key without mutating source records", () => {
+  const bad = "NUL\0 high\uD800 low\uDC00 emoji😀 end\uDFFF"
+  const good = "NUL� high� low� emoji😀 end�"
+  const source = {
+    meta: { error: bad, models: [{ name: bad }], enabled: true, count: 0 },
+    sessions: [{ title: bad }], pending: { questions: [{ text: bad }] },
+    updates: [{ messages: [{ parts: [{ type: "tool", state: { output: bad } }] }] }],
+    events: [{ payload: { [bad]: bad } }], results: [{ result: bad, error: null }],
+  }
+  const snapshot = JSON.stringify(source)
+  const clean = sanitizeSync(source)
+  assert.equal(clean.meta.error, good)
+  assert.equal(clean.meta.models[0].name, good)
+  assert.equal(clean.sessions[0].title, good)
+  assert.equal(clean.pending.questions[0].text, good)
+  assert.equal(clean.updates[0].messages[0].parts[0].state.output, good)
+  assert.equal(clean.events[0].payload[good], good)
+  assert.equal(clean.results[0].result, good)
+  assert.equal(clean.results[0].error, null)
+  assert.equal(clean.meta.enabled, true)
+  assert.equal(clean.meta.count, 0)
+  assert.equal(JSON.stringify(source), snapshot)
+  assert.equal(sanitizeSync("\uD83D\uDE00\uD83D\uDE80México\n\t"), "😀🚀México\n\t")
+})
+
+test("real sync sanitizes nested tool history and freezes the same bytes on retry", async (t) => {
+  const raw = "before\0\uD800after\uDC00😀"
+  const expected = "before��after�😀"
+  const local = await localServer(t, { title: raw, history: [{
+    info: { id: "msg_invalid", role: "assistant" },
+    parts: [{ type: "tool", state: { output: raw, input: { [raw]: raw } } }],
+  }] })
+  let first
+  let accepted = false
+  const hub = await serve(t, (request, response, body) => {
+    const envelope = JSON.parse(body)
+    if (!first) {
+      first = body
+      response.destroy()
+      return
+    }
+    if (!accepted) {
+      assert.equal(body, first)
+      assert.equal(envelope.sessions[0].title, expected)
+      const tool = envelope.updates[0].messages[0].parts[0]
+      assert.equal(tool.state.output, expected)
+      assert.deepEqual(tool.state.input, { [expected]: expected })
+      assert.equal(envelope.meta.error, "")
+      accepted = true
+    }
+    json(response, ack(envelope))
+  })
+  await worker(t, local, hub, await state(t))
+  await until(() => accepted)
+})
+
+test("OpenCode recovery explicitly clears the previously reported error", async (t) => {
+  let healthy = false
+  const local = await localServer(t, { version: () => healthy ? "1.18.32" : "unsupported" })
+  const uploads = []
+  const hub = await serve(t, (request, response, body) => {
+    const envelope = JSON.parse(body)
+    uploads.push(envelope)
+    if (!healthy) healthy = true
+    json(response, ack(envelope))
+  })
+  await worker(t, local, hub, await state(t))
+  await until(() => uploads.some((envelope) => envelope.meta.connected))
+  assert.equal(uploads[0].meta.connected, false)
+  assert.match(uploads[0].meta.error, /Unsupported OpenCode/)
+  const recovered = uploads.find((envelope) => envelope.meta.connected)
+  assert.equal(recovered.meta.error, "")
 })
 
 test("crash after write-ahead intent publishes uncertain outcome without executing prompt", async (t) => {
