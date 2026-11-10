@@ -18,7 +18,6 @@ import type {
   Interaction,
   MessageWindow,
   Message,
-  ModelChoice,
   RemoteCommand,
   Session,
   Worker,
@@ -27,6 +26,12 @@ import "./opencodes.css";
 import { mergeLiveMessages, useFocusedSession } from "./session-live";
 import { sessionIdentity } from "./session-library";
 import type { SessionLibrary, SessionReference } from "./session-library";
+import {
+  composerModel,
+  conversationModel,
+  modelKey,
+  modelPayload,
+} from "./session-model";
 
 type Navigate = (
   changes: Record<string, string | number | null>,
@@ -67,14 +72,6 @@ function health(worker: Worker) {
           ? "Event stream reconnecting"
           : "Connected";
 }
-function modelPayload(value: string, models: ModelChoice[]) {
-  const selected = models.find(
-    (model) => `${model.providerID}/${model.modelID}` === value,
-  );
-  return selected
-    ? { model: { providerID: selected.providerID, modelID: selected.modelID } }
-    : {};
-}
 function ModelSelect({
   value,
   change,
@@ -96,6 +93,9 @@ function ModelSelect({
           Worker default
           {worker.default_model ? ` · ${worker.default_model.modelID}` : ""}
         </option>
+        {value && !worker.models.some((model) => modelKey(model) === value) && (
+          <option value={value}>{value} (not in worker catalog)</option>
+        )}
         {worker.models.map((model) => (
           <option
             key={`${model.providerID}/${model.modelID}`}
@@ -716,7 +716,7 @@ function SessionPanel({
   library: SessionLibrary;
 }) {
   const [text, setText] = useState("");
-  const [model, setModel] = useState("");
+  const [modelOverride, setModelOverride] = useState<string>();
   const [noReply, setNoReply] = useState(false);
   const [history, setHistory] = useState<{
     messages: Message[];
@@ -758,6 +758,8 @@ function SessionPanel({
     [...(history?.messages || []), ...(messages.data?.messages || [])],
     live,
   );
+  const currentModel = conversationModel(displayedMessages, detail.data?.model);
+  const model = composerModel(modelOverride, currentModel);
   const cursor = history ? history.cursor : messages.data?.olderCursor;
   const title = detail.data?.title || sessionID;
   const observed = Boolean(detail.data);
@@ -859,9 +861,7 @@ function SessionPanel({
         <p>
           {live?.executionStatus || data.executionStatus || "Unknown state"} ·{" "}
           {data.agentName || "Default agent"}
-          {data.model
-            ? ` · ${data.model.providerID}/${data.model.modelID}`
-            : ""}
+          {currentModel ? ` · ${modelKey(currentModel)}` : ""}
         </p>
         <code>{sessionID}</code>
         <p className="oc-directory">{data.directory}</p>
@@ -1033,7 +1033,7 @@ function SessionPanel({
         className="oc-compose oc-form"
         onSubmit={(event) => {
           event.preventDefault();
-          if (text.trim())
+          if (text.trim() && !disabled && !messages.isPending)
             queue.mutate(
               {
                 worker: worker.name,
@@ -1042,7 +1042,7 @@ function SessionPanel({
                 payload: {
                   text: text.trim(),
                   noReply,
-                  ...modelPayload(model, worker.models),
+                  ...modelPayload(model, worker.models, currentModel),
                 },
               },
               { onSuccess: () => setText("") },
@@ -1061,7 +1061,11 @@ function SessionPanel({
           />
         </label>
         <div className="oc-compose-actions">
-          <ModelSelect worker={worker} value={model} change={setModel} />
+          <ModelSelect
+            worker={worker}
+            value={model}
+            change={setModelOverride}
+          />
           <label className="oc-inline">
             <input
               type="checkbox"
@@ -1072,7 +1076,7 @@ function SessionPanel({
           </label>
           <button
             className="button secondary"
-            disabled={disabled || !text.trim()}
+            disabled={disabled || messages.isPending || !text.trim()}
           >
             <Send size={14} />
             Send message
