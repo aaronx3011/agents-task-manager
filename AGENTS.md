@@ -56,6 +56,9 @@ SPA behind Caddy, `deploy/web/Caddyfile`), which owns the public port.
 through invite links.
 Set `REDIS_URL` for multiple workers; the empty default is single-process memory only.
 `uv run python manage.py createsuperuser` provisions a Django admin (superuser).
+Django admin is superuser-only operations: role owners are not admins, owners manage
+people in the SPA. `DJANGO_ADMIN_ENABLED`/`DJANGO_ADMIN_PATH` disable or move it, and
+`/api-auth/` (DRF browsable login) exists only with `DJANGO_DEBUG=true`.
 `uv run python manage.py create_agent NAME` prints a new key once.
 
 Checks: `uv run ruff check .`, `uv run ruff format --check .`,

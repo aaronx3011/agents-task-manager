@@ -3787,9 +3787,14 @@
                 "properties": {
                     "demo": {
                         "type": "boolean"
+                    },
+                    "admin_url": {
+                        "type": "string",
+                        "nullable": true
                     }
                 },
                 "required": [
+                    "admin_url",
                     "demo"
                 ]
             },

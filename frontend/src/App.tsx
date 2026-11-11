@@ -467,10 +467,10 @@ export default function App() {
                 </div>
               </button>
               <div className="user-menu-actions">
-                {me.is_superuser && (
+                {me.is_superuser && meta.data?.admin_url && (
                   <a
                     className="icon-button"
-                    href="/admin/"
+                    href={meta.data.admin_url}
                     aria-label="Open Django admin"
                   >
                     <ArrowUpRight size={15} />
@@ -864,11 +864,12 @@ export default function App() {
               {expired && (
                 <div className="session-notice">
                   Your session has ended.{" "}
-                  <a
-                    href={`/admin/login/?next=${encodeURIComponent(window.location.pathname + window.location.search)}`}
+                  <button
+                    className="link-button"
+                    onClick={() => window.location.reload()}
                   >
                     Sign in again
-                  </a>
+                  </button>
                 </div>
               )}
               <div className="workspace-content">

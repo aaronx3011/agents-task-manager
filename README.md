@@ -225,7 +225,8 @@ npm run dev --prefix frontend
 ```
 
 Visit http://localhost:5173/ for the workspace (sign in with the owner you created),
-`/admin/` for Django administration, `/api/v1/schema` for the OpenAPI contract, and
+`/admin/` for Django administration (superusers only; see `DJANGO_ADMIN_ENABLED` and
+`DJANGO_ADMIN_PATH` in `.env.example`), `/api/v1/schema` for the OpenAPI contract, and
 `/healthz` for public liveness. Owners add people from **Users & invites** with
 single-use invite links. `docker compose up` runs the same split: Django behind the
 Caddy front door on http://localhost:8000. SQLite is
