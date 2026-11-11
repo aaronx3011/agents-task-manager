@@ -102,7 +102,9 @@ jobs:
             deploy scripts "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_HOST }}:/opt/agents-task-manager/_tmp/" \
           && ssh -i ~/.ssh/prod_deploy_key "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_HOST }}" \
             "cd /opt/agents-task-manager && mkdir -p deploy scripts && cp -r _tmp/deploy _tmp/scripts . && rm -rf _tmp"
-      - name: Docker up, migrate, health check (HTTPS reverse proxy required; see deploy/production/compose.yaml)
+      # VPS1 only: Caddy terminates TLS there. The database host (VPS2) is deployed
+      # by hand with scripts/deploy_db.sh, which also runs the restore drill (#52).
+      - name: Docker up, migrate, health check on the app host
         run: |
           ssh -i ~/.ssh/prod_deploy_key "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_HOST }}" \
             "cd /opt/agents-task-manager && IMAGE_TAG=${{ github.sha }} bash scripts/deploy.sh production ${{ github.sha }}"

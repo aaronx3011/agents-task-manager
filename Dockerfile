@@ -10,7 +10,7 @@ COPY frontend ./
 RUN npm run build
 
 FROM caddy:2.10-alpine AS web
-COPY deploy/web/Caddyfile /etc/caddy/Caddyfile
+COPY deploy/web/Caddyfile deploy/web/Caddyfile.tls deploy/web/routes.caddy /etc/caddy/
 COPY --from=frontend /build/frontend/dist /srv
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --retries=12 \

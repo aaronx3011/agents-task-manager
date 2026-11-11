@@ -1,0 +1,56 @@
+# Production VPS2 — the database host (#52).
+#
+# PostgreSQL listens only on this host's private address (DB_BIND_ADDRESS), never
+# on a public interface; the host firewall must also allow 5432 only from VPS1's
+# private address. The backup service writes a nightly pg_dump to BACKUP_DIR with
+# retention, and scripts/restore_drill.sh proves a dump restores. Deploy with
+# `bash scripts/deploy_db.sh` on VPS2; see the runbook in issue #3.
+#
+# Required in deploy/production-db/.env (never committed): POSTGRES_PASSWORD and
+# DB_BIND_ADDRESS (e.g. the WireGuard or VPC address, 10.x.x.x).
+
+name: atm-prod-db
+
+x-postgres-env: &postgres-env
+  POSTGRES_DB: coordinator
+  POSTGRES_USER: coordinator
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set in the production environment}
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment: *postgres-env
+    ports:
+      - "${DB_BIND_ADDRESS:?Set to this host's private address}:${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coordinator -d coordinator"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+  backup:
+    # Nightly logical backup with retention; same client version as the server.
+    image: postgres:17-alpine
+    environment:
+      <<: *postgres-env
+      PGHOST: db
+      PGUSER: coordinator
+      PGDATABASE: coordinator
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_DIR: /backups
+      BACKUP_HOUR_UTC: ${BACKUP_HOUR_UTC:-3}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    entrypoint: ["sh", "/scripts/backup_postgres.sh", "--schedule"]
+    volumes:
+      - ${BACKUP_DIR:-./backups}:/backups
+      - ../../scripts/backup_postgres.sh:/scripts/backup_postgres.sh:ro
+      - ../../scripts/restore_drill.sh:/scripts/restore_drill.sh:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

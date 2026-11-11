@@ -1,15 +1,18 @@
-# Production deployment structure.
+# Production VPS1 — the app host (#52).
 #
-# The production job requires the PROD_HOST / PROD_SSH_USER environment secrets
-# and an HTTPS reverse proxy in front of the web service. Do not deploy here
-# until: the environment protection rule requires a human reviewer, TLS terminates
-# at the proxy, and backups for the postgres_data volume exist and are tested.
+#   Internet ──443──> front (Caddy: TLS, SPA, proxy) ──> web (Django/uvicorn) ──> redis
+#                                                          │
+#                                     private network ─────┴──> VPS2 Postgres (deploy/production-db)
 #
-# Differences from development:
-# - Secrets must be provided explicitly (no host-side generation).
-# - Secure cookies and CSRF settings are enabled by default.
-# - No fixed host port mapping: the reverse proxy reaches `front` (SPA + API
-#   proxy, port 8080) on the shared proxy network.
+# Caddy terminates TLS itself (Let's Encrypt over ACME), so nothing else sits in
+# front: DJANGO_NUM_PROXIES is 1. PostgreSQL lives on VPS2 and is reached only over
+# the private network (DB_HOST is VPS2's private address); see the runbook in
+# https://github.com/aaronx3011/agents-task-manager/issues/3.
+#
+# Required in deploy/production/.env (never committed): DJANGO_SECRET_KEY,
+# POSTGRES_PASSWORD, DB_HOST, SITE_ADDRESS (public hostname) and TLS (ACME contact
+# email). Deploy only after the GitHub "production" environment requires a human
+# reviewer and the restore drill on VPS2 has passed.
 
 name: atm-prod
 
@@ -18,15 +21,16 @@ x-web: &web
   environment: &web-environment
     DJANGO_DEBUG: "false"
     DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set in the production environment}
-    DATABASE_URL: postgresql://coordinator:${POSTGRES_PASSWORD:?Set in the production environment}@db:5432/coordinator
+    DATABASE_URL: postgresql://coordinator:${POSTGRES_PASSWORD:?Set in the production environment}@${DB_HOST:?Set to the database host private address}:${DB_PORT:-5432}/coordinator
     REDIS_URL: redis://redis:6379/0
-    DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?Set to the public hostname}
-    DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:?Set to the public origin}
+    # The public name, plus loopback for in-container health checks.
+    DJANGO_ALLOWED_HOSTS: ${SITE_ADDRESS:?Set to the public hostname},127.0.0.1,localhost
+    DJANGO_CSRF_TRUSTED_ORIGINS: https://${SITE_ADDRESS}
     DJANGO_SECURE_SSL_REDIRECT: "true"
     DJANGO_SECURE_COOKIES: "true"
     DJANGO_TRUST_PROXY: "true"
-    # HTTPS reverse proxy, then the Caddy front door.
-    DJANGO_NUM_PROXIES: "2"
+    # Caddy is the only proxy in front of Django.
+    DJANGO_NUM_PROXIES: "1"
     # Superuser-only operations console (#53); keep in sync with the front door.
     DJANGO_ADMIN_ENABLED: ${DJANGO_ADMIN_ENABLED:-true}
     DJANGO_ADMIN_PATH: ${DJANGO_ADMIN_PATH:-admin}
@@ -40,26 +44,10 @@ x-web: &web
     WORKER_COMMAND_QUEUE_CAP: ${WORKER_COMMAND_QUEUE_CAP:-100}
   restart: unless-stopped
   depends_on:
-    db:
-      condition: service_healthy
     redis:
       condition: service_healthy
 
 services:
-  db:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_DB: coordinator
-      POSTGRES_USER: coordinator
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set in the production environment}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U coordinator -d coordinator"]
-      interval: 5s
-      timeout: 5s
-      retries: 12
-    restart: unless-stopped
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
@@ -77,24 +65,37 @@ services:
       - sh
       - -c
       - python manage.py migrate --noinput && exec uvicorn config.asgi:application --host 0.0.0.0 --port 8000 --workers $${WEB_CONCURRENCY}
+    expose:
+      - "8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
       interval: 10s
       timeout: 5s
       retries: 12
   front:
-    # SPA + same-origin proxy to Django (#50); the HTTPS proxy reaches it on
-    # the shared network at front:8080.
+    # Public TLS front door: SPA + same-origin proxy to Django.
     image: agents-task-manager-web:${IMAGE_TAG:-latest}
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile.tls", "--adapter", "caddyfile"]
     environment:
+      SITE_ADDRESS: ${SITE_ADDRESS}
       ADMIN_PATH: ${DJANGO_ADMIN_PATH:-admin}
+      TLS: ${TLS:?Set to the ACME contact email (or internal for a staging rehearsal)}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    volumes:
+      # Certificates and ACME account; keep across deploys to avoid rate limits.
+      - caddy_data:/data
+      - caddy_config:/config
+    healthcheck:
+      # The image's check targets the plain :8080 front door; the deploy verifies
+      # https://SITE_ADDRESS/healthz end to end instead.
+      disable: true
     restart: unless-stopped
     depends_on:
       web:
         condition: service_healthy
-    networks:
-      - default
-      - proxy
   reaper:
     <<: *web
     command: ["sh", "-c", "while true; do python manage.py release_stale_tasks --minutes ${TASK_CLAIM_TIMEOUT_MINUTES:-15} || exit 1; sleep ${TASK_REAPER_INTERVAL_SECONDS:-300}; done"]
@@ -103,10 +104,6 @@ services:
         condition: service_healthy
 
 volumes:
-  postgres_data:
   redis_data:
-
-networks:
-  proxy:
-    name: ${PROXY_NETWORK:?Set to the reverse proxy network}
-    external: true
+  caddy_data:
+  caddy_config:
