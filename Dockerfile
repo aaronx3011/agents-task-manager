@@ -13,6 +13,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-install-project
 COPY config ./config
+COPY accounts ./accounts
 COPY coordinator ./coordinator
 COPY --from=frontend /build/coordinator/static/coordinator/app ./coordinator/static/coordinator/app
 COPY manage.py mcp_server.py ./
