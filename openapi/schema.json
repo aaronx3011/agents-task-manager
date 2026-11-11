@@ -1438,6 +1438,38 @@
                 }
             }
         },
+        "/api/v1/realtime/ticket": {
+            "post": {
+                "operationId": "realtime_ticket",
+                "summary": "Single-use ticket for /ws/dashboard/ (send as WebSocket subprotocols)",
+                "tags": [
+                    "realtime"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RealtimeTicket"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sessions": {
             "get": {
                 "operationId": "sessions_retrieve",
@@ -4142,6 +4174,28 @@
                 "required": [
                     "name",
                     "text"
+                ]
+            },
+            "RealtimeTicket": {
+                "type": "object",
+                "properties": {
+                    "ticket": {
+                        "type": "string"
+                    },
+                    "expires_in": {
+                        "type": "integer"
+                    },
+                    "subprotocols": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "required": [
+                    "expires_in",
+                    "subprotocols",
+                    "ticket"
                 ]
             },
             "ReleaseRequest": {
