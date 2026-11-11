@@ -1,7 +1,12 @@
 from django.conf import settings
 from django.db.models import Count
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_view,
+    inline_serializer,
+)
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action, api_view
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -12,6 +17,7 @@ from . import sync as sync_module
 from .auth import IsMember, IsOwner, get_agent, human_actor
 from .models import (
     Agent,
+    PendingInteraction,
     Project,
     Task,
     TaskExecutionAttempt,
@@ -636,3 +642,63 @@ def overview(request):
             }
         )
     return Response(result)
+
+
+INTERACTION_CARD = inline_serializer(
+    "PendingInteractionCard",
+    {
+        "id": serializers.CharField(help_text="Request ID; send it back as payload.requestID."),
+        "kind": serializers.ChoiceField(choices=["permission", "question"]),
+        "worker": serializers.CharField(),
+        "sessionID": serializers.CharField(allow_null=True),
+        "sessionTitle": serializers.CharField(allow_null=True),
+        "lastSeenAt": serializers.CharField(allow_null=True),
+        "replyDispatched": serializers.BooleanField(),
+        "replyCommandId": serializers.CharField(allow_null=True),
+        # Permission requests fill type/title/description/patterns; questions fill
+        # questions. Every key is always present (null or empty when unused).
+        "type": serializers.CharField(allow_null=True),
+        "title": serializers.CharField(allow_null=True),
+        "description": serializers.CharField(allow_null=True),
+        "patterns": serializers.ListField(child=serializers.CharField()),
+        "questions": serializers.ListField(child=serializers.JSONField()),
+    },
+)
+
+
+@extend_schema(
+    operation_id="interactions_list",
+    summary="Unresolved permission and question requests across workers (#55)",
+    responses=paginated("PendingInteractionPage", INTERACTION_CARD),
+)
+@api_view(["GET"])
+def interactions_read(request):
+    """Pending approvals for the mobile and web inboxes.
+
+    Humans see every worker's requests; agent keys only their bound worker's.
+    Answer with POST /api/v1/commands (permission.reply, question.reply,
+    question.reject), which requires a member.
+    """
+    agent = get_agent(request)
+    rows = PendingInteraction.objects.filter(resolved_at=None).select_related("worker", "session")
+    if agent:
+        rows = rows.filter(worker__agent=agent)
+    rows = rows.order_by("-id")[: services.MAX_PENDING_READ]
+    blank = {
+        "replyCommandId": None,
+        "type": None,
+        "title": None,
+        "description": None,
+        "patterns": [],
+        "questions": [],
+    }
+    items = [
+        {
+            **blank,
+            **services.interaction_card(row),
+            "worker": row.worker.name,
+            "sessionTitle": row.session.title if row.session_id else None,
+        }
+        for row in rows
+    ]
+    return Response({"count": len(items), "items": items})

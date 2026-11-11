@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -12,6 +12,7 @@ import { router, Stack } from "expo-router";
 import { ApiError, unwrap } from "@/api/client";
 import type { Task } from "@/api/client";
 import { useSession } from "@/auth/session";
+import { useLive } from "@/realtime/useLive";
 import { STATUS_LABELS, usePalette } from "@/ui/theme";
 
 const PAGE = 20;
@@ -67,6 +68,19 @@ export default function Tasks() {
     };
   }, [api, load]);
 
+  // Live while open: task changes reload the first page (#55).
+  const reloadSoon = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const live = useLive(
+    useCallback(
+      (event) => {
+        if (event.subject !== "tasks" && !event.task_id) return;
+        if (reloadSoon.current) clearTimeout(reloadSoon.current);
+        reloadSoon.current = setTimeout(() => void load(0), 400);
+      },
+      [load],
+    ),
+  );
+
   const refresh = async () => {
     setRefreshing(true);
     await load(0);
@@ -88,6 +102,15 @@ export default function Tasks() {
       <Stack.Screen
         options={{
           title: "Tasks",
+          headerLeft: () => (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push("/approvals")}
+              hitSlop={10}
+            >
+              <Text style={{ color: palette.accent, fontSize: 16 }}>Approvals</Text>
+            </Pressable>
+          ),
           headerRight: () => (
             <Pressable accessibilityRole="button" onPress={leave} hitSlop={10}>
               <Text style={{ color: palette.accent, fontSize: 16 }}>Sign out</Text>
@@ -107,6 +130,7 @@ export default function Tasks() {
         ListHeaderComponent={
           <View style={{ marginBottom: 6 }}>
             <Text style={{ color: palette.secondary }}>
+              {live === "live" ? "● Live · " : live === "connecting" ? "Connecting… · " : ""}
               {user ? `${user.username} · ${user.role}` : ""}
               {count !== null ? ` · ${count} tasks` : ""}
             </Text>

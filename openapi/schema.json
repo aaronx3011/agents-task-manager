@@ -931,6 +931,39 @@
                 }
             }
         },
+        "/api/v1/interactions": {
+            "get": {
+                "operationId": "interactions_list",
+                "description": "Pending approvals for the mobile and web inboxes.\n\nHumans see every worker's requests; agent keys only their bound worker's.\nAnswer with POST /api/v1/commands (permission.reply, question.reply,\nquestion.reject), which requires a member.",
+                "summary": "Unresolved permission and question requests across workers (#55)",
+                "tags": [
+                    "interactions"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PendingInteractionPage"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/invites": {
             "get": {
                 "operationId": "invites_list",
@@ -3683,16 +3716,6 @@
                     "token"
                 ]
             },
-            "KindEnum": {
-                "enum": [
-                    "code",
-                    "design",
-                    "content",
-                    "other"
-                ],
-                "type": "string",
-                "description": "* `code` - Code\n* `design` - Design\n* `content` - Content\n* `other` - Other"
-            },
             "LaunchRequest": {
                 "type": "object",
                 "properties": {
@@ -3950,6 +3973,103 @@
                     }
                 }
             },
+            "PendingInteractionCard": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Request ID; send it back as payload.requestID."
+                    },
+                    "kind": {
+                        "$ref": "#/components/schemas/PendingInteractionCardKindEnum"
+                    },
+                    "worker": {
+                        "type": "string"
+                    },
+                    "sessionID": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "sessionTitle": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "lastSeenAt": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "replyDispatched": {
+                        "type": "boolean"
+                    },
+                    "replyCommandId": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "type": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "title": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "description": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "patterns": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "questions": {
+                        "type": "array",
+                        "items": {}
+                    }
+                },
+                "required": [
+                    "description",
+                    "id",
+                    "kind",
+                    "lastSeenAt",
+                    "patterns",
+                    "questions",
+                    "replyCommandId",
+                    "replyDispatched",
+                    "sessionID",
+                    "sessionTitle",
+                    "title",
+                    "type",
+                    "worker"
+                ]
+            },
+            "PendingInteractionCardKindEnum": {
+                "enum": [
+                    "permission",
+                    "question"
+                ],
+                "type": "string",
+                "description": "* `permission` - permission\n* `question` - question"
+            },
+            "PendingInteractionPage": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer"
+                    },
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PendingInteractionCard"
+                        }
+                    }
+                },
+                "required": [
+                    "count",
+                    "items"
+                ]
+            },
             "PlanSettingsRequest": {
                 "type": "object",
                 "properties": {
@@ -4092,6 +4212,16 @@
                     "slug"
                 ]
             },
+            "ProjectInputKindEnum": {
+                "enum": [
+                    "code",
+                    "design",
+                    "content",
+                    "other"
+                ],
+                "type": "string",
+                "description": "* `code` - Code\n* `design` - Design\n* `content` - Content\n* `other` - Other"
+            },
             "ProjectInputRequest": {
                 "type": "object",
                 "properties": {
@@ -4109,7 +4239,7 @@
                     "kind": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/KindEnum"
+                                "$ref": "#/components/schemas/ProjectInputKindEnum"
                             }
                         ],
                         "default": "code"
