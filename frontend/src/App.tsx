@@ -34,7 +34,9 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { ApiError, get, query } from "./api";
+import { ApiError } from "./api";
+import { api, unwrap } from "./api-client";
+import { workspaceQuery } from "./workspace-query";
 import { Board } from "./Board";
 import { useLiveUpdates } from "./live";
 import { useLocationState } from "./location";
@@ -42,7 +44,7 @@ import { useSessionLibrary } from "./session-library";
 import { TaskList } from "./TaskList";
 import { ModalBoundary } from "./ModalBoundary";
 import { LABELS, STATUSES } from "./types";
-import type { Agent, Workspace } from "./types";
+import type { Agent } from "./types";
 import {
   Age,
   Avatar,
@@ -206,7 +208,12 @@ export default function App() {
   const { filters } = location;
   const workspace = useQuery({
     queryKey: ["workspace", filters],
-    queryFn: () => get<Workspace>(`/dashboard/workspace/?${query(filters)}`),
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/dashboard/workspace", {
+          params: { query: workspaceQuery(filters) },
+        }),
+      ),
   });
   const data = workspace.data;
   useEffect(() => {

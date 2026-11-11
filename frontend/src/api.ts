@@ -1,13 +1,8 @@
+import { ApiError, SESSION_EXPIRED } from "./api-client";
 import type { Filters } from "./types";
 
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+// Legacy untyped helpers; new code uses the generated client in ./api-client.
+export { ApiError };
 export async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, {
     credentials: "same-origin",
@@ -20,7 +15,7 @@ export async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
     response.status === 401 ||
     response.status === 403
   ) {
-    throw new ApiError(401, "Your session has expired. Sign in to reconnect.");
+    throw new ApiError(401, SESSION_EXPIRED);
   }
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -49,7 +44,7 @@ export async function post<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   if (response.redirected || response.status === 401)
-    throw new ApiError(401, "Your session has expired. Sign in to reconnect.");
+    throw new ApiError(401, SESSION_EXPIRED);
   const data = (await response.json().catch(() => ({}))) as Record<
     string,
     unknown

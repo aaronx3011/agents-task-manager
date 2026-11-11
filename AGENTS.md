@@ -56,6 +56,10 @@ Set `REDIS_URL` for multiple workers; the empty default is single-process memory
 Checks: `uv run ruff check .`, `uv run ruff format --check .`,
 `uv run python manage.py check`, `uv run python manage.py makemigrations --check --dry-run`,
 and `uv run pytest`. Run the suite against PostgreSQL for row-lock guarantees.
+API contract: `openapi/schema.json` is generated from the DRF views and the TypeScript
+types in `frontend/src/api-client/` are generated from it; run `scripts/update_api_client.sh`
+after any API change (CI fails on drift). New frontend calls use `api`/`unwrap` from
+`./api-client` against `/api/v1/...`.
 Frontend checks: `npm run lint --prefix frontend`, `npm run format:check --prefix frontend`,
 and `npm run build --prefix frontend` (includes TypeScript checking).
 Keep mutations/audit events transactional in `coordinator/services.py`; keep MCP

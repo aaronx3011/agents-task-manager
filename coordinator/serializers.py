@@ -32,8 +32,8 @@ class TaskSerializer(serializers.ModelSerializer):
     )
     description = serializers.CharField(required=False, allow_blank=True, max_length=50000)
     priority = serializers.IntegerField(required=False, min_value=-2147483648, max_value=2147483647)
-    claimed_by = serializers.StringRelatedField(read_only=True)
-    created_by = serializers.StringRelatedField(read_only=True)
+    claimed_by = serializers.StringRelatedField(read_only=True, allow_null=True)
+    created_by = serializers.StringRelatedField(read_only=True, allow_null=True)
     is_ready = serializers.SerializerMethodField()
     dependency_progress = serializers.SerializerMethodField()
 

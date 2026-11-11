@@ -21,6 +21,8 @@ from .models import (
     WorkerSession,
 )
 from .openapi import (
+    AGENT_CARD,
+    AGENT_CREDENTIALS,
     DETAIL_RESPONSE,
     HEARTBEAT_RESPONSE,
     LAUNCH_RESPONSE,
@@ -32,6 +34,7 @@ from .openapi import (
     TASK_EVENT_PAGE,
     TASK_LIST_PARAMS,
     TaskDetailResponse,
+    paginated,
     query,
     read_model_page,
 )
@@ -52,9 +55,9 @@ from .serializers import (
 @extend_schema_view(
     list=extend_schema(
         parameters=PAGINATION_PARAMS,
-        responses=read_model_page("AgentRegistrationPage"),
+        responses=paginated("AgentCardPage", AGENT_CARD),
     ),
-    create=extend_schema(request=AgentRegistrationSerializer, responses={201: READ_MODEL}),
+    create=extend_schema(request=AgentRegistrationSerializer, responses={201: AGENT_CREDENTIALS}),
 )
 class AgentRegistrationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     """Staff configuration surface; agent keys never grant provisioning rights."""

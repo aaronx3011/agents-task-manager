@@ -1,6 +1,10 @@
 """Versioned API mount and OpenAPI contract (#39)."""
 
+import json
+from pathlib import Path
+
 import pytest
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.test import Client
@@ -84,3 +88,24 @@ def test_unnamespaced_route_names_still_resolve_to_legacy_paths():
     assert reverse("overview") == "/api/overview"
     assert reverse("v1:task-list") == "/api/v1/tasks"
     assert reverse("v1:overview") == "/api/v1/overview"
+
+
+@pytest.mark.django_db
+def test_committed_schema_matches_the_code(tmp_path):
+    # Web and mobile clients are generated from openapi/schema.json; regenerate with
+    # scripts/update_api_client.sh whenever the API changes.
+    generated = tmp_path / "schema.json"
+    call_command("spectacular", "--format", "openapi-json", "--file", str(generated))
+    committed = Path(settings.BASE_DIR) / "openapi" / "schema.json"
+    assert json.loads(generated.read_text()) == json.loads(committed.read_text()), (
+        "openapi/schema.json is stale: run scripts/update_api_client.sh"
+    )
+
+
+@pytest.mark.django_db
+def test_response_components_require_every_rendered_field(api_client):
+    schemas = api_client.get(SCHEMA).json()["components"]["schemas"]
+    task = schemas["Task"]
+    assert set(task["required"]) == set(task["properties"])
+    assert task["properties"]["claimed_by"]["nullable"] is True
+    assert "priority" not in schemas["TaskRequest"].get("required", [])
