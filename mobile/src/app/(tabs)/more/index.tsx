@@ -9,7 +9,7 @@ type Destination = { href: Parameters<typeof router.push>[0]; title: string; det
 
 export default function More() {
   const { api, server, signOut } = useSession();
-  const { username, role } = useAccess();
+  const { username, role, canManage } = useAccess();
   const pending = useQuery({
     queryKey: ["interactions"],
     enabled: !!api,
@@ -23,6 +23,12 @@ export default function More() {
       detail: waiting ? `${waiting} waiting for an answer` : "Permission and question requests",
     },
   ];
+  if (canManage)
+    destinations.push({
+      href: "/more/configuration",
+      title: "Configuration",
+      detail: "Register agents and connect them over MCP",
+    });
   return (
     <Screen>
       <Stack.Screen options={{ title: "More" }} />

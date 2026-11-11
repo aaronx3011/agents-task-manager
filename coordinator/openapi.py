@@ -88,17 +88,22 @@ def paginated(name, item):
     return page
 
 
-AGENT_CARD_FIELDS = {
-    "id": serializers.IntegerField(),
-    "name": serializers.CharField(),
-    "is_active": serializers.BooleanField(),
-    "last_seen": serializers.DateTimeField(allow_null=True),
-    "created_at": serializers.DateTimeField(),
-}
-AGENT_CARD = inline_serializer("AgentCard", AGENT_CARD_FIELDS)
+def agent_card_fields():
+    # Fresh field instances per serializer: a DRF field binds to one parent, so
+    # sharing them dropped the card fields from AgentCredentials in the schema.
+    return {
+        "id": serializers.IntegerField(),
+        "name": serializers.CharField(),
+        "is_active": serializers.BooleanField(),
+        "last_seen": serializers.DateTimeField(allow_null=True),
+        "created_at": serializers.DateTimeField(),
+    }
+
+
+AGENT_CARD = inline_serializer("AgentCard", agent_card_fields())
 AGENT_CREDENTIALS = inline_serializer(
     "AgentCredentials",
-    {**AGENT_CARD_FIELDS, "api_key": serializers.CharField(help_text="Shown once.")},
+    {**agent_card_fields(), "api_key": serializers.CharField(help_text="Shown once.")},
 )
 OK_RESPONSE = inline_serializer("Ok", {"ok": serializers.BooleanField()})
 HEARTBEAT_RESPONSE = inline_serializer(

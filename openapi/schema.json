@@ -3071,13 +3071,36 @@
             "AgentCredentials": {
                 "type": "object",
                 "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "is_active": {
+                        "type": "boolean"
+                    },
+                    "last_seen": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
                     "api_key": {
                         "type": "string",
                         "description": "Shown once."
                     }
                 },
                 "required": [
-                    "api_key"
+                    "api_key",
+                    "created_at",
+                    "id",
+                    "is_active",
+                    "last_seen",
+                    "name"
                 ]
             },
             "AgentRegistrationRequest": {
