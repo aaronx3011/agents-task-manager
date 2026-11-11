@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ActivityIndicator,
   FlatList,
@@ -12,8 +13,9 @@ import { Stack } from "expo-router";
 import { unwrap } from "@/api/client";
 import type { Schemas } from "@/api/client";
 import { useSession } from "@/auth/session";
-import { useLive } from "@/realtime/useLive";
-import type { ChangeEvent } from "@/realtime/useLive";
+import { useAccess } from "@/auth/access";
+import { LiveStatus } from "@/ui/kit";
+import { requestId } from "@/ui/format";
 import { usePalette } from "@/ui/theme";
 import type { Palette } from "@/ui/theme";
 
@@ -24,19 +26,6 @@ interface Question {
   text: string;
   options: { label: string; description: string }[];
   multiple: boolean;
-}
-
-function isApprovalEvent(event: ChangeEvent) {
-  const type = event.event_type ?? "";
-  return (
-    event.subject === "workers" ||
-    event.subject === "sessions" ||
-    /^(interaction|permission|question|command)\./.test(type)
-  );
-}
-
-function newRequestId() {
-  return `mobile-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function Button({
@@ -203,46 +192,20 @@ function Card({
 }
 
 export default function Approvals() {
-  const { api, user } = useSession();
+  const { api } = useSession();
+  const { canWrite: canAnswer } = useAccess();
   const palette = usePalette();
-  const canAnswer = user?.role === "member" || user?.role === "owner";
-  const [items, setItems] = useState<Interaction[] | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const client = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
-  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const load = useCallback(async () => {
-    if (!api) return;
-    try {
-      const page = await unwrap(api.GET("/api/v1/interactions"));
-      setItems(page.items);
-    } catch (e) {
-      setMessage({
-        text: e instanceof Error ? e.message : "Could not load approvals",
-        error: true,
-      });
-    }
-  }, [api]);
-
-  useEffect(() => {
-    const first = async () => {
-      await load();
-    };
-    void first();
-  }, [load]);
-
-  const live = useLive(
-    useCallback(
-      (event: ChangeEvent) => {
-        if (!isApprovalEvent(event)) return;
-        // Coalesce bursts of worker events into one refresh.
-        if (pending.current) clearTimeout(pending.current);
-        pending.current = setTimeout(() => void load(), 300);
-      },
-      [load],
-    ),
-  );
+  // Shared with the More tab badge; live notices invalidate it.
+  const query = useQuery({
+    queryKey: ["interactions"],
+    enabled: !!api,
+    queryFn: () => unwrap(api!.GET("/api/v1/interactions")),
+  });
+  const items = query.data?.items ?? null;
+  const load = () => client.invalidateQueries({ queryKey: ["interactions"] });
 
   async function answer(item: Interaction, action: ReplyAction, payload: Record<string, unknown>) {
     if (!api) return;
@@ -256,7 +219,7 @@ export default function Approvals() {
             action,
             sessionID: item.sessionID ?? "",
             payload: { requestID: item.id, ...payload },
-            client_request_id: newRequestId(),
+            client_request_id: requestId(),
           },
         }),
       );
@@ -281,21 +244,19 @@ export default function Approvals() {
         contentContainerStyle={{ padding: 16, gap: 12 }}
         refreshControl={
           <RefreshControl
-            refreshing={refreshing}
+            refreshing={query.isRefetching}
             tintColor={palette.accent}
-            onRefresh={async () => {
-              setRefreshing(true);
-              await load();
-              setRefreshing(false);
-            }}
+            onRefresh={() => void query.refetch()}
           />
         }
         ListHeaderComponent={
           <View style={{ gap: 6 }}>
-            <Text style={{ color: palette.secondary }}>
-              {live === "live" ? "● Live" : live === "connecting" ? "Connecting…" : "Offline"}
-              {items ? ` · ${items.length} waiting` : ""}
-            </Text>
+            <LiveStatus suffix={items ? `${items.length} waiting` : undefined} />
+            {query.error ? (
+              <Text accessibilityRole="alert" style={{ color: palette.danger }}>
+                {query.error.message}
+              </Text>
+            ) : null}
             {!canAnswer ? (
               <Text accessibilityRole="text" style={{ color: palette.muted }}>
                 Viewers can see requests; members and owners answer them.
