@@ -10,6 +10,8 @@ from .api import (
     LogoutView,
     MeView,
     OwnPasswordView,
+    TokenListView,
+    TokenRevokeView,
     UserDetailView,
     UserListView,
     UserPasswordView,
@@ -23,6 +25,8 @@ urlpatterns = [
     path("logout", LogoutView.as_view(), name="logout"),
     path("me", MeView.as_view(), name="me"),
     path("password", OwnPasswordView.as_view(), name="password"),
+    path("tokens", TokenListView.as_view(), name="tokens"),
+    path("tokens/<str:pk>/revoke", TokenRevokeView.as_view(), name="token-revoke"),
 ]
 
 # Mounted under /api/v1/ (config/urls.py).

@@ -67,6 +67,8 @@ class AccountEvent(models.Model):
         USER_REACTIVATED = "user.reactivated", "User reactivated"
         PASSWORD_SET = "password.set", "Password set for user"
         PASSWORD_CHANGED = "password.changed", "Own password changed"
+        TOKEN_CREATED = "token.created", "Device token created"
+        TOKEN_REVOKED = "token.revoked", "Device token revoked"
 
     event_type = models.CharField(max_length=40, choices=Type.choices)
     # The human who acted (None for anonymous invite acceptance) and their label.
@@ -124,3 +126,28 @@ class Invite(models.Model):
 
     def __str__(self):
         return f"{self.token_prefix}… ({self.role})"
+
+
+class UserToken(models.Model):
+    """Per-device API token for mobile clients (#48): `Authorization: Token <key>`.
+
+    Keys are 256-bit random values, so a SHA-256 digest is a safe and fast
+    per-request check (agent keys keep PBKDF2). The prefix narrows the lookup
+    and lets people tell their devices apart; the raw key is never stored.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="api_tokens"
+    )
+    name = models.CharField(max_length=100)
+    key_prefix = models.CharField(max_length=8, db_index=True, editable=False)
+    key_hash = models.CharField(max_length=64, unique=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+
+    def __str__(self):
+        return f"{self.name} ({self.key_prefix}…)"

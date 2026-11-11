@@ -36,6 +36,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -81,6 +84,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -140,6 +146,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -296,6 +305,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -345,6 +357,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -353,6 +368,164 @@
                         "description": "No response body"
                     },
                     "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LoginError"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/tokens": {
+            "get": {
+                "operationId": "auth_tokens_list",
+                "description": "Issue (public, credentials in the body) and list (signed in) device tokens.",
+                "summary": "Your device tokens (owners: ?all=true for everyone's)",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "all",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "Owners only: include every user's tokens"
+                    }
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/Token"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "auth_tokens_create",
+                "description": "Issue (public, credentials in the body) and list (signed in) device tokens.",
+                "summary": "Sign in from a device and receive a token (shown once)",
+                "tags": [
+                    "auth"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TokenRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TokenRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TokenRequestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/IssuedToken"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LoginError"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LoginError"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/tokens/{id}/revoke": {
+            "post": {
+                "operationId": "auth_tokens_revoke",
+                "summary": "Revoke one of your tokens ('current' for this device); owners revoke any",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Token"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -419,6 +592,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -466,6 +642,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -505,6 +684,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -568,6 +750,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -606,6 +791,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -713,6 +901,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -749,6 +940,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -800,6 +994,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -836,6 +1033,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -1000,6 +1200,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -1061,6 +1264,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -1110,6 +1316,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -1146,6 +1355,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -1203,6 +1415,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -1286,6 +1501,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -1408,6 +1626,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -1454,6 +1675,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -1491,6 +1715,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -1549,6 +1776,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -1586,6 +1816,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -1635,6 +1868,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -1672,6 +1908,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -1732,6 +1971,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -1803,6 +2045,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -1859,6 +2104,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -1920,6 +2168,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -1967,6 +2218,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -2003,6 +2257,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -2064,6 +2321,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -2145,6 +2405,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -2209,6 +2472,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -2257,6 +2523,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -2295,6 +2564,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -2352,6 +2624,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -2435,6 +2710,9 @@
                         "agentKey": []
                     },
                     {
+                        "deviceToken": []
+                    },
+                    {
                         "cookieAuth": []
                     }
                 ],
@@ -2490,6 +2768,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -2575,6 +2856,9 @@
                 "security": [
                     {
                         "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
                     },
                     {
                         "cookieAuth": []
@@ -3267,6 +3551,60 @@
                 },
                 "required": [
                     "token"
+                ]
+            },
+            "IssuedToken": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "key_prefix": {
+                        "type": "string"
+                    },
+                    "username": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "last_used_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "revoked_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "current": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "token": {
+                        "type": "string",
+                        "description": "Shown once; send as `Authorization: Token <key>`."
+                    },
+                    "user": {
+                        "$ref": "#/components/schemas/Me"
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "current",
+                    "id",
+                    "key_prefix",
+                    "last_used_at",
+                    "name",
+                    "revoked_at",
+                    "token",
+                    "user",
+                    "username"
                 ]
             },
             "JobReportRequest": {
@@ -4296,6 +4634,78 @@
                 "type": "string",
                 "description": "* `in_progress` - in_progress\n* `blocked` - blocked\n* `review` - review\n* `done` - done\n* `cancelled` - cancelled"
             },
+            "Token": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "key_prefix": {
+                        "type": "string"
+                    },
+                    "username": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "last_used_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "revoked_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "current": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "current",
+                    "id",
+                    "key_prefix",
+                    "last_used_at",
+                    "name",
+                    "revoked_at",
+                    "username"
+                ]
+            },
+            "TokenRequestRequest": {
+                "type": "object",
+                "properties": {
+                    "username": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 150
+                    },
+                    "password": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "minLength": 1,
+                        "maxLength": 4096
+                    },
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Device label, e.g. 'Ana's iPhone'.",
+                        "maxLength": 100
+                    }
+                },
+                "required": [
+                    "name",
+                    "password",
+                    "username"
+                ]
+            },
             "User": {
                 "type": "object",
                 "properties": {
@@ -4513,6 +4923,12 @@
                 "type": "apiKey",
                 "in": "cookie",
                 "name": "sessionid"
+            },
+            "deviceToken": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "Authorization",
+                "description": "Per-device user token: `Authorization: Token <key>`."
             }
         }
     }

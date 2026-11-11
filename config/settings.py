@@ -156,6 +156,7 @@ X_FRAME_OPTIONS = "DENY"
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "coordinator.auth.AgentKeyAuthentication",
+        "accounts.authentication.UserTokenAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": ["coordinator.auth.IsAgentOrRole"],
