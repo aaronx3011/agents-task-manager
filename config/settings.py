@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "channels",
     "coordinator.apps.CoordinatorConfig",
+    "accounts.apps.AccountsConfig",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
