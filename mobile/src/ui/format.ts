@@ -8,6 +8,22 @@ export function age(value: string | null | undefined, now = Date.now()) {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
+/** A past or future time, relative to now: "in 3d" or "2h ago". */
+export function relative(value: string | null | undefined, now = Date.now()) {
+  if (!value) return "—";
+  const future = Date.parse(value) > now;
+  const span = Math.abs(Date.parse(value) - now) / 1000;
+  const text =
+    span < 60
+      ? `${Math.round(span)}s`
+      : span < 3600
+        ? `${Math.round(span / 60)}m`
+        : span < 86400
+          ? `${Math.round(span / 3600)}h`
+          : `${Math.round(span / 86400)}d`;
+  return future ? `in ${text}` : `${text} ago`;
+}
+
 export function overdue(value: string | null | undefined, now = Date.now()) {
   return !!value && now - Date.parse(value) > 900_000;
 }
