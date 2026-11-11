@@ -1,12 +1,11 @@
 import { useState } from "react";
-import type { ReactNode } from "react";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 import { ApiError } from "@/api/client";
 import type { Interaction, Message, Worker } from "@/api/types";
 import { useAccess } from "@/auth/access";
 import { modelKey } from "@/sessions/api";
 import type { CommandQueue } from "@/sessions/api";
-import { Button, Field, Label, Notice, Panel, Picker, Row, Toggle } from "@/ui/kit";
+import { Button, Disclosure, Field, Label, Notice, Panel, Picker, Row, Toggle } from "@/ui/kit";
 import { age } from "@/ui/format";
 import { Markdown } from "@/ui/markdown";
 import { usePalette } from "@/ui/theme";
@@ -73,27 +72,6 @@ export function CommandFeedback({ queue }: { queue: CommandQueue }) {
       </Label>
     );
   return null;
-}
-
-function Disclosure({ title, children }: { title: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  const palette = usePalette();
-  return (
-    <View
-      style={{ borderWidth: 1, borderColor: palette.line, borderRadius: 8, padding: 8, gap: 6 }}
-    >
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
-        onPress={() => setOpen(!open)}
-      >
-        <Label tone="secondary" size={13} bold>
-          {open ? "▾" : "▸"} {title}
-        </Label>
-      </Pressable>
-      {open ? children : null}
-    </View>
-  );
 }
 
 function Code({ children }: { children: string }) {
