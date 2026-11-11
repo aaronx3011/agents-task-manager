@@ -313,6 +313,58 @@
                 }
             }
         },
+        "/api/v1/auth/password": {
+            "post": {
+                "operationId": "auth_change_password",
+                "summary": "Change your own password (requires the current one)",
+                "tags": [
+                    "auth"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/OwnPasswordInputRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/OwnPasswordInputRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/OwnPasswordInputRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LoginError"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/commands": {
             "get": {
                 "operationId": "commands_list",
@@ -1942,6 +1994,187 @@
                 }
             }
         },
+        "/api/v1/users": {
+            "get": {
+                "operationId": "users_list",
+                "tags": [
+                    "users"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/User"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/users/{id}": {
+            "patch": {
+                "operationId": "users_update",
+                "summary": "Change a user's role and/or active state (keeps an active owner)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "users"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedUserUpdateRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedUserUpdateRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedUserUpdateRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/User"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LoginError"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LoginError"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/users/{id}/password": {
+            "post": {
+                "operationId": "users_set_password",
+                "summary": "Set a new password for a user (their sessions end)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "users"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PasswordInputRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PasswordInputRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PasswordInputRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LoginError"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LoginError"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/worker/sync": {
             "post": {
                 "operationId": "worker_sync_create",
@@ -3216,6 +3449,27 @@
                 "type": "string",
                 "description": "* `settings` - settings\n* `card` - card\n* `enqueue` - enqueue\n* `run` - run\n* `play` - play\n* `pause` - pause\n* `stop` - stop\n* `reorder` - reorder\n* `remove` - remove\n* `archive` - archive"
             },
+            "OwnPasswordInputRequest": {
+                "type": "object",
+                "properties": {
+                    "current_password": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "minLength": 1,
+                        "maxLength": 4096
+                    },
+                    "new_password": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "minLength": 1,
+                        "maxLength": 4096
+                    }
+                },
+                "required": [
+                    "current_password",
+                    "new_password"
+                ]
+            },
             "PaginatedTaskList": {
                 "type": "object",
                 "required": [
@@ -3233,6 +3487,20 @@
                         }
                     }
                 }
+            },
+            "PasswordInputRequest": {
+                "type": "object",
+                "properties": {
+                    "password": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "minLength": 1,
+                        "maxLength": 4096
+                    }
+                },
+                "required": [
+                    "password"
+                ]
             },
             "PatchedTaskRequest": {
                 "type": "object",
@@ -3260,6 +3528,17 @@
                         "items": {
                             "type": "integer"
                         }
+                    }
+                }
+            },
+            "PatchedUserUpdateRequest": {
+                "type": "object",
+                "properties": {
+                    "role": {
+                        "$ref": "#/components/schemas/RoleEnum"
+                    },
+                    "is_active": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -4016,6 +4295,50 @@
                 ],
                 "type": "string",
                 "description": "* `in_progress` - in_progress\n* `blocked` - blocked\n* `review` - review\n* `done` - done\n* `cancelled` - cancelled"
+            },
+            "User": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "username": {
+                        "type": "string"
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email"
+                    },
+                    "role": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "is_active": {
+                        "type": "boolean"
+                    },
+                    "is_superuser": {
+                        "type": "boolean"
+                    },
+                    "last_login": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "date_joined": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "date_joined",
+                    "email",
+                    "id",
+                    "is_active",
+                    "is_superuser",
+                    "last_login",
+                    "role",
+                    "username"
+                ]
             },
             "WorkerCommandPage": {
                 "type": "object",

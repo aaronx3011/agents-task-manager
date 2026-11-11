@@ -103,6 +103,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/auth/password": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Change your own password (requires the current one) */
+    post: operations["auth_change_password"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/commands": {
     parameters: {
       query?: never;
@@ -497,6 +514,56 @@ export interface paths {
     get?: never;
     put?: never;
     post: operations["tasks_next_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/users": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["users_list"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/users/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    /** Change a user's role and/or active state (keeps an active owner) */
+    patch: operations["users_update"];
+    trace?: never;
+  };
+  "/api/v1/users/{id}/password": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Set a new password for a user (their sessions end) */
+    post: operations["users_set_password"];
     delete?: never;
     options?: never;
     head?: never;
@@ -931,9 +998,16 @@ export interface components {
       | "reorder"
       | "remove"
       | "archive";
+    OwnPasswordInputRequest: {
+      current_password: string;
+      new_password: string;
+    };
     PaginatedTaskList: {
       count: number;
       items: components["schemas"]["Task"][];
+    };
+    PasswordInputRequest: {
+      password: string;
     };
     PatchedTaskRequest: {
       title?: string;
@@ -941,6 +1015,10 @@ export interface components {
       project?: string;
       priority?: number;
       depends_on?: number[];
+    };
+    PatchedUserUpdateRequest: {
+      role?: components["schemas"]["RoleEnum"];
+      is_active?: boolean;
     };
     PlanSettingsRequest: {
       worker: string;
@@ -1139,6 +1217,19 @@ export interface components {
      */
     TaskStatusUpdateEnum:
       "in_progress" | "blocked" | "review" | "done" | "cancelled";
+    User: {
+      id: number;
+      username: string;
+      /** Format: email */
+      email: string;
+      readonly role: string;
+      is_active: boolean;
+      is_superuser: boolean;
+      /** Format: date-time */
+      last_login: string | null;
+      /** Format: date-time */
+      date_joined: string;
+    };
     WorkerCommandPage: {
       count: number;
       items: unknown[];
@@ -1368,6 +1459,38 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Me"];
+        };
+      };
+    };
+  };
+  auth_change_password: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["OwnPasswordInputRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["OwnPasswordInputRequest"];
+        "multipart/form-data": components["schemas"]["OwnPasswordInputRequest"];
+      };
+    };
+    responses: {
+      /** @description No response body */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LoginError"];
         };
       };
     };
@@ -2203,6 +2326,110 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Detail"];
+        };
+      };
+    };
+  };
+  users_list: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["User"][];
+        };
+      };
+    };
+  };
+  users_update: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["PatchedUserUpdateRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["PatchedUserUpdateRequest"];
+        "multipart/form-data": components["schemas"]["PatchedUserUpdateRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["User"];
+        };
+      };
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LoginError"];
+        };
+      };
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LoginError"];
+        };
+      };
+    };
+  };
+  users_set_password: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["PasswordInputRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["PasswordInputRequest"];
+        "multipart/form-data": components["schemas"]["PasswordInputRequest"];
+      };
+    };
+    responses: {
+      /** @description No response body */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LoginError"];
+        };
+      };
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LoginError"];
         };
       };
     };

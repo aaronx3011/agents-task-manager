@@ -1,10 +1,17 @@
-"""Session auth (#45) and invite links (#46) for the web client.
+"""Session auth (#45), invite links (#46) and user management (#47) for the web client.
 
 Django sessions + CSRF only; no third-party auth packages or external services.
 Mobile clients use per-device tokens instead (#48).
 """
 
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import (
+    authenticate,
+    get_user_model,
+    login,
+    logout,
+    update_session_auth_hash,
+)
+from django.db import transaction
 from django.middleware.csrf import get_token
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -25,9 +32,13 @@ from .services import (
     INVITE_MAX_HOURS,
     AccountError,
     accept_invite,
+    change_own_password,
     create_invite,
     revoke_invite,
     role_of,
+    set_active,
+    set_password,
+    set_role,
     usable_invite,
 )
 
@@ -296,3 +307,130 @@ class InviteAcceptView(PublicAuthView):
             return account_error(exc)
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         return Response(me_payload(user), status=status.HTTP_201_CREATED)
+
+
+# --- User management (#47) ---------------------------------------------------------
+
+
+class UserSerializer(serializers.Serializer):
+    id = serializers.IntegerField(source="pk")
+    username = serializers.CharField(source="get_username")
+    email = serializers.EmailField()
+    role = serializers.SerializerMethodField()
+    is_active = serializers.BooleanField()
+    is_superuser = serializers.BooleanField()
+    last_login = serializers.DateTimeField(allow_null=True)
+    date_joined = serializers.DateTimeField()
+
+    def get_role(self, user) -> str:
+        return role_of_any(user)
+
+
+def role_of_any(user):
+    """Role regardless of is_active, for listing deactivated accounts."""
+    profile = getattr(user, "profile", None)
+    return profile.role if profile else Role.VIEWER
+
+
+class UserUpdate(serializers.Serializer):
+    role = serializers.ChoiceField(choices=Role.choices, required=False)
+    is_active = serializers.BooleanField(required=False)
+
+
+class PasswordInput(serializers.Serializer):
+    password = serializers.CharField(max_length=4096, trim_whitespace=False, write_only=True)
+
+
+class OwnPasswordInput(serializers.Serializer):
+    current_password = serializers.CharField(
+        max_length=4096, trim_whitespace=False, write_only=True
+    )
+    new_password = serializers.CharField(max_length=4096, trim_whitespace=False, write_only=True)
+
+
+def managed_user(pk):
+    user = get_user_model().objects.select_related("profile").filter(pk=pk).first()
+    if user is None:
+        raise AccountError("User not found", 404)
+    return user
+
+
+@method_decorator(never_cache, name="dispatch")
+class UserListView(APIView):
+    permission_classes = [IsOwner]
+
+    @extend_schema(operation_id="users_list", responses=UserSerializer(many=True))
+    def get(self, request):
+        users = get_user_model().objects.select_related("profile").order_by("username")
+        return Response(UserSerializer(users, many=True).data)
+
+
+@method_decorator(never_cache, name="dispatch")
+class UserDetailView(APIView):
+    permission_classes = [IsOwner]
+
+    @extend_schema(
+        operation_id="users_update",
+        summary="Change a user's role and/or active state (keeps an active owner)",
+        request=UserUpdate,
+        responses={200: UserSerializer, 404: LOGIN_ERROR, 409: LOGIN_ERROR},
+    )
+    def patch(self, request, pk):
+        serializer = UserUpdate(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            user = managed_user(pk)
+            with transaction.atomic():
+                if "role" in data:
+                    set_role(user, data["role"], request.user.get_username(), "owner edit")
+                if "is_active" in data:
+                    set_active(user, data["is_active"], request.user)
+        except AccountError as exc:
+            return account_error(exc)
+        return Response(UserSerializer(managed_user(pk)).data)
+
+
+@method_decorator(never_cache, name="dispatch")
+class UserPasswordView(APIView):
+    permission_classes = [IsOwner]
+
+    @extend_schema(
+        operation_id="users_set_password",
+        summary="Set a new password for a user (their sessions end)",
+        request=PasswordInput,
+        responses={204: None, 400: LOGIN_ERROR, 404: LOGIN_ERROR},
+    )
+    def post(self, request, pk):
+        serializer = PasswordInput(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            user = managed_user(pk)
+            set_password(user, serializer.validated_data["password"], actor_user=request.user)
+        except AccountError as exc:
+            return account_error(exc)
+        if user.pk == request.user.pk:
+            update_session_auth_hash(request, managed_user(pk))
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@method_decorator(never_cache, name="dispatch")
+class OwnPasswordView(APIView):
+    permission_classes = [IsViewer]
+
+    @extend_schema(
+        operation_id="auth_change_password",
+        summary="Change your own password (requires the current one)",
+        request=OwnPasswordInput,
+        responses={204: None, 400: LOGIN_ERROR},
+    )
+    def post(self, request):
+        serializer = OwnPasswordInput(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            user = change_own_password(request.user, data["current_password"], data["new_password"])
+        except AccountError as exc:
+            return account_error(exc)
+        update_session_auth_hash(request, user)  # Keep this session; others end.
+        return Response(status=status.HTTP_204_NO_CONTENT)

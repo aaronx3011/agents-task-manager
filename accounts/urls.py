@@ -9,6 +9,10 @@ from .api import (
     LoginView,
     LogoutView,
     MeView,
+    OwnPasswordView,
+    UserDetailView,
+    UserListView,
+    UserPasswordView,
 )
 
 app_name = "auth"
@@ -18,6 +22,7 @@ urlpatterns = [
     path("login", LoginView.as_view(), name="login"),
     path("logout", LogoutView.as_view(), name="logout"),
     path("me", MeView.as_view(), name="me"),
+    path("password", OwnPasswordView.as_view(), name="password"),
 ]
 
 # Mounted under /api/v1/ (config/urls.py).
@@ -26,4 +31,7 @@ invite_urlpatterns = [
     path("invites/check", InviteCheckView.as_view(), name="invite-check"),
     path("invites/accept", InviteAcceptView.as_view(), name="invite-accept"),
     path("invites/<int:pk>/revoke", InviteRevokeView.as_view(), name="invite-revoke"),
+    path("users", UserListView.as_view(), name="users"),
+    path("users/<int:pk>", UserDetailView.as_view(), name="user"),
+    path("users/<int:pk>/password", UserPasswordView.as_view(), name="user-password"),
 ]
