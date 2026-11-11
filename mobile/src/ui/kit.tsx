@@ -602,6 +602,28 @@ function PickerSheet<T extends string>({
   );
 }
 
+/** A collapsed section, like HTML <details>. */
+export function Disclosure({ title, children }: { title: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const palette = usePalette();
+  return (
+    <View
+      style={{ borderWidth: 1, borderColor: palette.line, borderRadius: 8, padding: 8, gap: 6 }}
+    >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen(!open)}
+      >
+        <Label tone="secondary" size={13} bold>
+          {open ? "▾" : "▸"} {title}
+        </Label>
+      </Pressable>
+      {open ? children : null}
+    </View>
+  );
+}
+
 export const styles = StyleSheet.create({
   screen: { padding: 16, gap: 12 },
   panel: { borderWidth: 1, borderRadius: 10, padding: 14, gap: 8 },
