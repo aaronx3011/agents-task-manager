@@ -1,0 +1,1945 @@
+// Generated from openapi/schema.json by `npm run api:generate`. Do not edit.
+export interface paths {
+  "/api/v1/agents": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Staff configuration surface; agent keys never grant provisioning rights. */
+    get: operations["agents_list"];
+    put?: never;
+    /** @description Staff configuration surface; agent keys never grant provisioning rights. */
+    post: operations["agents_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/attempts/{id}/link": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Explicit authorized attempt↔session link after ownership checks (#13). */
+    post: operations["attempts_link_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/commands": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Durable command queue APIs (issue #12): staff any worker; agents own worker. */
+    get: operations["commands_list"];
+    put?: never;
+    /** @description Durable command queue APIs (issue #12): staff any worker; agents own worker. */
+    post: operations["commands_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/commands/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Durable command queue APIs (issue #12): staff any worker; agents own worker. */
+    get: operations["commands_retrieve"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/commands/{id}/resolve": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Explicit staff reconciliation for uncertain or pending commands (#12). */
+    post: operations["commands_resolve_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/dashboard/state": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Dashboard snapshot: counts, projects, agents, recent tasks and events */
+    get: operations["dashboard_state"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/dashboard/workspace": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Workspace totals, agent assignments and events for a task filter */
+    get: operations["dashboard_workspace"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/overview": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["overview_list"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/planning/jobs/{id}/report": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["planning_jobs_report_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/projects": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["projects_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/projects/{slug}/planning": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["projects_planning_retrieve"];
+    put?: never;
+    post: operations["projects_planning_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/sessions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * @description Unified cross-worker session list (#15).
+     *
+     *     Workers stay isolated: the same remote ID on two workers remains two rows.
+     *     Agents read only sessions of their bound worker; staff reads everything.
+     */
+    get: operations["sessions_retrieve"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["tasks_list"];
+    put?: never;
+    post: operations["tasks_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["tasks_retrieve"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: operations["tasks_partial_update"];
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/claim": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["tasks_claim_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/events": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["tasks_events_retrieve"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/heartbeat": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["tasks_heartbeat_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/launch": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Authorized remote launch (issue #13): atomic-claim-based, idempotent. */
+    post: operations["tasks_launch_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/notes": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["tasks_notes_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/release": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["tasks_release_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/{id}/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["tasks_status_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/tasks/next": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["tasks_next_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/worker/sync": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Outbound bridge sync (#11): one authenticated envelope per cycle. */
+    post: operations["worker_sync_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/workers": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * @description Authenticated, credential-free worker registry reads (#10, #15).
+     *
+     *     The registry stays readable by every agent; session data is scoped to the
+     *     bound agent (#15): worker-scoped identity extends the project/task rules.
+     */
+    get: operations["workers_list"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/workers/{name}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * @description Authenticated, credential-free worker registry reads (#10, #15).
+     *
+     *     The registry stays readable by every agent; session data is scoped to the
+     *     bound agent (#15): worker-scoped identity extends the project/task rules.
+     */
+    get: operations["workers_retrieve"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/workers/{name}/events": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * @description Authenticated, credential-free worker registry reads (#10, #15).
+     *
+     *     The registry stays readable by every agent; session data is scoped to the
+     *     bound agent (#15): worker-scoped identity extends the project/task rules.
+     */
+    get: operations["workers_events_retrieve"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/workers/{name}/sessions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * @description Authenticated, credential-free worker registry reads (#10, #15).
+     *
+     *     The registry stays readable by every agent; session data is scoped to the
+     *     bound agent (#15): worker-scoped identity extends the project/task rules.
+     */
+    get: operations["workers_sessions_list"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/workers/{name}/sessions/{sid}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * @description Authenticated, credential-free worker registry reads (#10, #15).
+     *
+     *     The registry stays readable by every agent; session data is scoped to the
+     *     bound agent (#15): worker-scoped identity extends the project/task rules.
+     */
+    get: operations["workers_sessions_retrieve"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/workers/{name}/sessions/{sid}/messages": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * @description Authenticated, credential-free worker registry reads (#10, #15).
+     *
+     *     The registry stays readable by every agent; session data is scoped to the
+     *     bound agent (#15): worker-scoped identity extends the project/task rules.
+     */
+    get: operations["workers_sessions_messages_retrieve"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+}
+export type webhooks = Record<string, never>;
+export interface components {
+  schemas: {
+    /**
+     * @description * `create` - create
+     *     * `prompt` - prompt
+     *     * `interrupt` - interrupt
+     *     * `permission.reply` - permission.reply
+     *     * `question.reply` - question.reply
+     *     * `question.reject` - question.reject
+     * @enum {string}
+     */
+    ActionEnum:
+      | "create"
+      | "prompt"
+      | "interrupt"
+      | "permission.reply"
+      | "question.reply"
+      | "question.reject";
+    AgentCard: {
+      id: number;
+      name: string;
+      is_active: boolean;
+      /** Format: date-time */
+      last_seen: string | null;
+      /** Format: date-time */
+      created_at: string;
+    };
+    AgentCardPage: {
+      count: number;
+      items: components["schemas"]["AgentCard"][];
+    };
+    AgentCredentials: {
+      /** @description Shown once. */
+      api_key: string;
+    };
+    AgentRegistrationRequest: {
+      name: string;
+    };
+    Assignment: {
+      id: number;
+      title: string;
+      status: components["schemas"]["TaskStatusEnum"];
+      /** Format: date-time */
+      heartbeat_at: string | null;
+    };
+    AttemptLinkRequest: {
+      sessionID: string;
+    };
+    CardInputRequest: {
+      id?: number;
+      title: string;
+      description: string;
+      column: string;
+      position?: number;
+      labels: string[];
+      checklist: components["schemas"]["ChecklistItemRequest"][];
+      instructions: string;
+    };
+    ChecklistItemRequest: {
+      text: string;
+      /** @default false */
+      done: boolean;
+    };
+    ClaimNextRequest: {
+      project?: string | null;
+    };
+    CommandRequest: {
+      worker: string;
+      action: components["schemas"]["ActionEnum"];
+      payload?: {
+        [key: string]: unknown;
+      };
+      sessionID?: string;
+      client_request_id?: string;
+    };
+    /**
+     * @description * `done` - done
+     *     * `error` - error
+     * @enum {string}
+     */
+    CommandResolutionEnum: "done" | "error";
+    DashboardAgent: {
+      name: string;
+      is_active: boolean;
+      /** Format: date-time */
+      last_seen: string | null;
+    };
+    DashboardEvent: {
+      id: number;
+      task_id: number;
+      title: string;
+      project: string;
+      readonly agent: string;
+      event_type: string;
+      message: string;
+      /** Format: date-time */
+      created_at: string;
+    };
+    DashboardState: {
+      /** Format: date-time */
+      server_time: string;
+      counts: components["schemas"]["StatusCounts"];
+      projects: components["schemas"]["StateProject"][];
+      agents: components["schemas"]["DashboardAgent"][];
+      tasks: components["schemas"]["Task"][];
+      events: components["schemas"]["DashboardEvent"][];
+      ready_count: number;
+      total_tasks: number;
+      displayed_tasks: number;
+      scope_project: string;
+      scope_total_tasks: number;
+    };
+    DependencyProgress: {
+      done: number;
+      total: number;
+    };
+    Detail: {
+      detail: string;
+    };
+    /**
+     * @description * `created` - Created
+     *     * `claimed` - Claimed
+     *     * `heartbeat` - Heartbeat
+     *     * `status_changed` - Status changed
+     *     * `released` - Released
+     *     * `note` - Note
+     *     * `execution.launched` - Execution launched
+     *     * `execution.linked` - Execution session linked
+     *     * `execution.done` - Execution outcome
+     * @enum {string}
+     */
+    EventTypeEnum:
+      | "created"
+      | "claimed"
+      | "heartbeat"
+      | "status_changed"
+      | "released"
+      | "note"
+      | "execution.launched"
+      | "execution.linked"
+      | "execution.done";
+    HeartbeatResult: {
+      ok: boolean;
+      /** Format: date-time */
+      heartbeat_at: string;
+    };
+    JobReportRequest: {
+      token: string;
+      status: components["schemas"]["PlanningJobReportStatusEnum"];
+      /** @default  */
+      summary: string;
+    };
+    /**
+     * @description * `code` - Code
+     *     * `design` - Design
+     *     * `content` - Content
+     *     * `other` - Other
+     * @enum {string}
+     */
+    KindEnum: "code" | "design" | "content" | "other";
+    LaunchRequest: {
+      worker: string;
+      directory?: string;
+      client_request_id?: string;
+    };
+    ModelChoiceRequest: {
+      providerID: string;
+      modelID: string;
+    };
+    NoteRequest: {
+      message: string;
+    };
+    Ok: {
+      ok: boolean;
+    };
+    /**
+     * @description * `settings` - settings
+     *     * `card` - card
+     *     * `enqueue` - enqueue
+     *     * `run` - run
+     *     * `play` - play
+     *     * `pause` - pause
+     *     * `stop` - stop
+     *     * `reorder` - reorder
+     *     * `remove` - remove
+     *     * `archive` - archive
+     * @enum {string}
+     */
+    OperationEnum:
+      | "settings"
+      | "card"
+      | "enqueue"
+      | "run"
+      | "play"
+      | "pause"
+      | "stop"
+      | "reorder"
+      | "remove"
+      | "archive";
+    PaginatedTaskList: {
+      count: number;
+      items: components["schemas"]["Task"][];
+    };
+    PatchedTaskRequest: {
+      title?: string;
+      description?: string;
+      project?: string;
+      priority?: number;
+      depends_on?: number[];
+    };
+    PlanSettingsRequest: {
+      worker: string;
+      directory: string;
+      model: components["schemas"]["ModelChoiceRequest"] | null;
+      context: string;
+      instructions: string;
+      templates: components["schemas"]["PromptTemplateRequest"][];
+      columns: string[];
+    };
+    /**
+     * @description * `heartbeat` - heartbeat
+     *     * `done` - done
+     *     * `blocked` - blocked
+     *     * `review` - review
+     * @enum {string}
+     */
+    PlanningJobReportStatusEnum: "heartbeat" | "done" | "blocked" | "review";
+    PlanningMutationRequest: {
+      revision: number;
+      operation: components["schemas"]["OperationEnum"];
+      settings?: components["schemas"]["PlanSettingsRequest"];
+      card?: components["schemas"]["CardInputRequest"];
+      card_id?: number;
+      job_id?: number;
+      job_ids?: number[];
+      instructions?: string;
+      template?: string;
+    };
+    ProjectCreated: {
+      slug: string;
+      name: string;
+      kind: string;
+      repo_url: string;
+      docs_path: string;
+      active_count: number;
+    };
+    ProjectInputRequest: {
+      slug: string;
+      name: string;
+      /** @default code */
+      kind: components["schemas"]["KindEnum"];
+      repo_url?: string;
+      /** @default  */
+      docs_path: string;
+    };
+    ProjectOverview: {
+      project: string;
+      name: string;
+      kind: string;
+      repo_url: string;
+      docs_path: string;
+      counts: {
+        [key: string]: number;
+      };
+      in_progress: unknown[];
+      blocked: unknown[];
+      ready_count: number;
+      waiting: components["schemas"]["Task"][];
+    };
+    PromptTemplateRequest: {
+      name: string;
+      text: string;
+    };
+    ReleaseRequest: {
+      reason?: string;
+    };
+    ResolveRequest: {
+      status: components["schemas"]["CommandResolutionEnum"];
+      result?: unknown;
+      error?: string;
+    };
+    SessionPage: {
+      count: number;
+      items: unknown[];
+    };
+    StateProject: {
+      slug: string;
+      name: string;
+      kind: string;
+      docs_path: string;
+      counts: components["schemas"]["StatusCounts"];
+      ready_count: number;
+    };
+    StatusCounts: {
+      pending: number;
+      in_progress: number;
+      blocked: number;
+      review: number;
+      done: number;
+      cancelled: number;
+    };
+    StatusUpdateRequest: {
+      status: components["schemas"]["TaskStatusUpdateEnum"];
+      reason?: string;
+      result_summary?: string;
+    };
+    Task: {
+      readonly id: number;
+      title: string;
+      description: string;
+      project: string;
+      readonly status: components["schemas"]["TaskStatusEnum"];
+      priority: number;
+      readonly claimed_by: string | null;
+      /** Format: date-time */
+      readonly claimed_at: string | null;
+      /** Format: date-time */
+      readonly heartbeat_at: string | null;
+      depends_on: number[];
+      readonly blocked_reason: string;
+      readonly result_summary: string;
+      readonly is_ready: boolean;
+      readonly dependency_progress: components["schemas"]["DependencyProgress"];
+      readonly created_by: string | null;
+      /** Format: date-time */
+      readonly created_at: string;
+      /** Format: date-time */
+      readonly updated_at: string;
+    };
+    /** @description Task detail as returned by retrieve, including execution attempts (#13). */
+    TaskDetailResponse: {
+      readonly id: number;
+      title: string;
+      description: string;
+      project: string;
+      readonly status: components["schemas"]["TaskStatusEnum"];
+      priority: number;
+      readonly claimed_by: string | null;
+      /** Format: date-time */
+      readonly claimed_at: string | null;
+      /** Format: date-time */
+      readonly heartbeat_at: string | null;
+      depends_on: number[];
+      readonly blocked_reason: string;
+      readonly result_summary: string;
+      readonly is_ready: boolean;
+      readonly dependency_progress: components["schemas"]["DependencyProgress"];
+      readonly created_by: string | null;
+      /** Format: date-time */
+      readonly created_at: string;
+      /** Format: date-time */
+      readonly updated_at: string;
+      readonly recent_events: components["schemas"]["TaskEvent"][];
+      readonly dependencies: components["schemas"]["Task"][];
+      readonly attempts: unknown[];
+    };
+    TaskEvent: {
+      readonly id: number;
+      event_type: components["schemas"]["EventTypeEnum"];
+      readonly agent: string;
+      message: string;
+      /** Format: date-time */
+      readonly created_at: string;
+    };
+    TaskEventPage: {
+      items: components["schemas"]["TaskEvent"][];
+      next_before: number | null;
+    };
+    TaskLaunch: {
+      attempt: unknown;
+      createCommand: unknown;
+    };
+    TaskRequest: {
+      title: string;
+      description?: string;
+      project: string;
+      priority?: number;
+      depends_on?: number[];
+    };
+    /**
+     * @description * `pending` - Pending
+     *     * `in_progress` - In progress
+     *     * `blocked` - Blocked
+     *     * `review` - Review
+     *     * `done` - Done
+     *     * `cancelled` - Cancelled
+     * @enum {string}
+     */
+    TaskStatusEnum:
+      "pending" | "in_progress" | "blocked" | "review" | "done" | "cancelled";
+    /**
+     * @description * `in_progress` - in_progress
+     *     * `blocked` - blocked
+     *     * `review` - review
+     *     * `done` - done
+     *     * `cancelled` - cancelled
+     * @enum {string}
+     */
+    TaskStatusUpdateEnum:
+      "in_progress" | "blocked" | "review" | "done" | "cancelled";
+    WorkerCommandPage: {
+      count: number;
+      items: unknown[];
+    };
+    WorkerPage: {
+      count: number;
+      items: unknown[];
+    };
+    WorkerSessionPage: {
+      count: number;
+      items: unknown[];
+    };
+    WorkspaceAgent: {
+      name: string;
+      is_active: boolean;
+      /** Format: date-time */
+      last_seen: string | null;
+      assignments: components["schemas"]["Assignment"][];
+    };
+    WorkspaceFilterError: {
+      detail: {
+        [key: string]: string;
+      };
+    };
+    WorkspaceProject: {
+      slug: string;
+      name: string;
+      kind: string;
+      docs_path: string;
+      active_count: number;
+    };
+    WorkspaceState: {
+      /** Format: date-time */
+      server_time: string;
+      counts: components["schemas"]["StatusCounts"];
+      total: number;
+      ready_count: number;
+      projects: components["schemas"]["WorkspaceProject"][];
+      agents: components["schemas"]["WorkspaceAgent"][];
+      events: components["schemas"]["DashboardEvent"][];
+    };
+  };
+  responses: never;
+  parameters: never;
+  requestBodies: never;
+  headers: never;
+  pathItems: never;
+}
+export type $defs = Record<string, never>;
+export interface operations {
+  agents_list: {
+    parameters: {
+      query?: {
+        /** @description Page size, 1-500 (default 100). */
+        limit?: number;
+        /** @description Number of items to skip. */
+        offset?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentCardPage"];
+        };
+      };
+    };
+  };
+  agents_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AgentRegistrationRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["AgentRegistrationRequest"];
+        "multipart/form-data": components["schemas"]["AgentRegistrationRequest"];
+      };
+    };
+    responses: {
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AgentCredentials"];
+        };
+      };
+    };
+  };
+  attempts_link_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AttemptLinkRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["AttemptLinkRequest"];
+        "multipart/form-data": components["schemas"]["AttemptLinkRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  commands_list: {
+    parameters: {
+      query?: {
+        /** @description Command action. */
+        action?: string;
+        /** @description Page size, 1-500 (default 100). */
+        limit?: number;
+        /** @description Number of items to skip. */
+        offset?: number;
+        /** @description Command status. */
+        status?: string;
+        /** @description Worker name. */
+        worker?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WorkerCommandPage"];
+        };
+      };
+    };
+  };
+  commands_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CommandRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["CommandRequest"];
+        "multipart/form-data": components["schemas"]["CommandRequest"];
+      };
+    };
+    responses: {
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  commands_retrieve: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  commands_resolve_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ResolveRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["ResolveRequest"];
+        "multipart/form-data": components["schemas"]["ResolveRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  dashboard_state: {
+    parameters: {
+      query?: {
+        /** @description Scope tasks and events to a slug. */
+        project?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DashboardState"];
+        };
+      };
+    };
+  };
+  dashboard_workspace: {
+    parameters: {
+      query?: {
+        /** @description Agent name, or __unclaimed__. */
+        claimed_by?: string;
+        /** @description Sort field, optionally prefixed with '-'. */
+        ordering?:
+          | "-claimed_by"
+          | "-priority"
+          | "-project"
+          | "-status"
+          | "-title"
+          | "-updated_at"
+          | "claimed_by"
+          | "priority"
+          | "project"
+          | "status"
+          | "title"
+          | "updated_at";
+        /** @description Project slug. */
+        project?: string;
+        /** @description Search title/description, or #id. */
+        q?: string;
+        /** @description true for ready tasks, false for not-ready tasks. */
+        ready?: "false" | "true";
+        /** @description Task status. */
+        status?:
+          | "blocked"
+          | "cancelled"
+          | "done"
+          | "in_progress"
+          | "pending"
+          | "review";
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WorkspaceState"];
+        };
+      };
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WorkspaceFilterError"];
+        };
+      };
+    };
+  };
+  overview_list: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectOverview"][];
+        };
+      };
+    };
+  };
+  planning_jobs_report_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["JobReportRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["JobReportRequest"];
+        "multipart/form-data": components["schemas"]["JobReportRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  projects_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProjectInputRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["ProjectInputRequest"];
+        "multipart/form-data": components["schemas"]["ProjectInputRequest"];
+      };
+    };
+    responses: {
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectCreated"];
+        };
+      };
+    };
+  };
+  projects_planning_retrieve: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        slug: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  projects_planning_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        slug: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["PlanningMutationRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["PlanningMutationRequest"];
+        "multipart/form-data": components["schemas"]["PlanningMutationRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  sessions_retrieve: {
+    parameters: {
+      query?: {
+        /** @description Only sessions in this worker directory. */
+        directory?: string;
+        /** @description Page size, 1-500 (default 100). */
+        limit?: number;
+        /** @description Number of items to skip. */
+        offset?: number;
+        /** @description recent for most recently updated first. */
+        ordering?: "recent";
+        /** @description Only sessions linked to this project id. */
+        project?: string;
+        /** @description Only sessions with this status. */
+        status?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SessionPage"];
+        };
+      };
+    };
+  };
+  tasks_list: {
+    parameters: {
+      query?: {
+        /** @description Agent name, or __unclaimed__. */
+        claimed_by?: string;
+        /** @description Page size, 1-500 (default 100). */
+        limit?: number;
+        /** @description Number of items to skip. */
+        offset?: number;
+        /** @description Sort field, optionally prefixed with '-'. */
+        ordering?:
+          | "-claimed_by"
+          | "-priority"
+          | "-project"
+          | "-status"
+          | "-title"
+          | "-updated_at"
+          | "claimed_by"
+          | "priority"
+          | "project"
+          | "status"
+          | "title"
+          | "updated_at";
+        /** @description Project slug. */
+        project?: string;
+        /** @description Search title/description, or #id. */
+        q?: string;
+        /** @description true for ready tasks, false for not-ready tasks. */
+        ready?: "false" | "true";
+        /** @description Task status. */
+        status?:
+          | "blocked"
+          | "cancelled"
+          | "done"
+          | "in_progress"
+          | "pending"
+          | "review";
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PaginatedTaskList"];
+        };
+      };
+    };
+  };
+  tasks_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TaskRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["TaskRequest"];
+        "multipart/form-data": components["schemas"]["TaskRequest"];
+      };
+    };
+    responses: {
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Task"];
+        };
+      };
+    };
+  };
+  tasks_retrieve: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskDetailResponse"];
+        };
+      };
+    };
+  };
+  tasks_partial_update: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["PatchedTaskRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["PatchedTaskRequest"];
+        "multipart/form-data": components["schemas"]["PatchedTaskRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Task"];
+        };
+      };
+    };
+  };
+  tasks_claim_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Task"];
+        };
+      };
+    };
+  };
+  tasks_events_retrieve: {
+    parameters: {
+      query?: {
+        /** @description Return events older than this event ID. */
+        before?: number;
+      };
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskEventPage"];
+        };
+      };
+    };
+  };
+  tasks_heartbeat_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HeartbeatResult"];
+        };
+      };
+    };
+  };
+  tasks_launch_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["LaunchRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["LaunchRequest"];
+        "multipart/form-data": components["schemas"]["LaunchRequest"];
+      };
+    };
+    responses: {
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskLaunch"];
+        };
+      };
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskLaunch"];
+        };
+      };
+    };
+  };
+  tasks_notes_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["NoteRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["NoteRequest"];
+        "multipart/form-data": components["schemas"]["NoteRequest"];
+      };
+    };
+    responses: {
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Ok"];
+        };
+      };
+    };
+  };
+  tasks_release_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["ReleaseRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["ReleaseRequest"];
+        "multipart/form-data": components["schemas"]["ReleaseRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Task"];
+        };
+      };
+    };
+  };
+  tasks_status_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["StatusUpdateRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["StatusUpdateRequest"];
+        "multipart/form-data": components["schemas"]["StatusUpdateRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Task"];
+        };
+      };
+    };
+  };
+  tasks_next_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["ClaimNextRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["ClaimNextRequest"];
+        "multipart/form-data": components["schemas"]["ClaimNextRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Task"];
+        };
+      };
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Detail"];
+        };
+      };
+    };
+  };
+  worker_sync_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": {
+          [key: string]: unknown;
+        };
+        "application/x-www-form-urlencoded": {
+          [key: string]: unknown;
+        };
+        "multipart/form-data": {
+          [key: string]: unknown;
+        };
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  workers_list: {
+    parameters: {
+      query?: {
+        /** @description Page size, 1-500 (default 100). */
+        limit?: number;
+        /** @description Number of items to skip. */
+        offset?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WorkerPage"];
+        };
+      };
+    };
+  };
+  workers_retrieve: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Worker name */
+        name: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  workers_events_retrieve: {
+    parameters: {
+      query?: {
+        /** @description Return events after this cursor. */
+        after?: string;
+        /** @description Maximum number of events. */
+        limit?: number;
+      };
+      header?: never;
+      path: {
+        /** @description Worker name */
+        name: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  workers_sessions_list: {
+    parameters: {
+      query?: {
+        /** @description Only sessions in this worker directory. */
+        directory?: string;
+        /** @description Page size, 1-500 (default 100). */
+        limit?: number;
+        /** @description Number of items to skip. */
+        offset?: number;
+        /** @description Only sessions linked to this project id. */
+        project?: string;
+        /** @description Only sessions with this status. */
+        status?: string;
+      };
+      header?: never;
+      path: {
+        /** @description Worker name */
+        name: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WorkerSessionPage"];
+        };
+      };
+    };
+  };
+  workers_sessions_retrieve: {
+    parameters: {
+      query?: {
+        /** @description true for a compact detail. */
+        compact?: string;
+      };
+      header?: never;
+      path: {
+        /** @description Worker name */
+        name: string;
+        /** @description Remote session ID */
+        sid: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  workers_sessions_messages_retrieve: {
+    parameters: {
+      query?: {
+        /** @description Return messages after this cursor. */
+        after?: string;
+        /** @description Return messages before this cursor. */
+        before?: string;
+        /** @description true for the most recent messages. */
+        latest?: "true";
+        /** @description Maximum number of messages. */
+        limit?: number;
+      };
+      header?: never;
+      path: {
+        /** @description Worker name */
+        name: string;
+        /** @description Remote session ID */
+        sid: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+}

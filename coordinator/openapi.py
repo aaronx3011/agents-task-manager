@@ -5,6 +5,7 @@ request is handled. Payloads assembled by coordinator/services.py read models ar
 documented as free-form JSON objects until they get dedicated serializers.
 """
 
+from drf_spectacular.drainage import set_override
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, inline_serializer
@@ -25,6 +26,24 @@ def only_versioned_endpoints(endpoints, **kwargs):
     that alias is intentionally left out of the published contract.
     """
     return [endpoint for endpoint in endpoints if endpoint[0].startswith(API_V1_PREFIX)]
+
+
+def responses_include_every_field(result, generator, request, public):
+    """Mark every response property required.
+
+    DRF serializers always render each readable field, but drf-spectacular leaves
+    fields that have a model default (priority, description...) optional, which
+    makes generated clients treat them as possibly missing. Request components
+    (COMPONENT_SPLIT_REQUEST) keep their own required lists.
+    """
+    for name, component in result.get("components", {}).get("schemas", {}).items():
+        properties = component.get("properties")
+        if name.endswith("Request") or not properties:
+            continue
+        component["required"] = sorted(
+            field for field, spec in properties.items() if not spec.get("writeOnly")
+        )
+    return result
 
 
 class AgentKeyScheme(OpenApiAuthenticationExtension):
@@ -56,13 +75,31 @@ SESSION_FILTER_PARAMS = [
 
 
 def paginated(name, item):
-    """The {count, items} envelope produced by coordinator.pagination.TaskPagination."""
-    return inline_serializer(
+    """The {count, items} envelope produced by coordinator.pagination.TaskPagination.
+
+    many=False stops drf-spectacular from wrapping this envelope in a second
+    paginated envelope on list actions.
+    """
+    page = inline_serializer(
         name,
         {"count": serializers.IntegerField(), "items": serializers.ListField(child=item)},
     )
+    set_override(page, "many", False)
+    return page
 
 
+AGENT_CARD_FIELDS = {
+    "id": serializers.IntegerField(),
+    "name": serializers.CharField(),
+    "is_active": serializers.BooleanField(),
+    "last_seen": serializers.DateTimeField(allow_null=True),
+    "created_at": serializers.DateTimeField(),
+}
+AGENT_CARD = inline_serializer("AgentCard", AGENT_CARD_FIELDS)
+AGENT_CREDENTIALS = inline_serializer(
+    "AgentCredentials",
+    {**AGENT_CARD_FIELDS, "api_key": serializers.CharField(help_text="Shown once.")},
+)
 OK_RESPONSE = inline_serializer("Ok", {"ok": serializers.BooleanField()})
 HEARTBEAT_RESPONSE = inline_serializer(
     "HeartbeatResult",

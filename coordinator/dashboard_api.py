@@ -78,7 +78,7 @@ class DashboardAgentSerializer(serializers.Serializer):
 class AssignmentSerializer(serializers.Serializer):
     id = serializers.IntegerField(source="pk")
     title = serializers.CharField()
-    status = serializers.CharField()
+    status = serializers.ChoiceField(choices=Task.Status.choices)
     heartbeat_at = serializers.DateTimeField(allow_null=True)
 
 

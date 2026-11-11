@@ -1,0 +1,3489 @@
+{
+    "openapi": "3.0.3",
+    "info": {
+        "title": "Agent Task Coordinator API",
+        "version": "1.0.0",
+        "description": "Versioned HTTP contract shared by the web dashboard, mobile clients, MCP and bridges."
+    },
+    "paths": {
+        "/api/v1/agents": {
+            "get": {
+                "operationId": "agents_list",
+                "description": "Staff configuration surface; agent keys never grant provisioning rights.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Page size, 1-500 (default 100)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "offset",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Number of items to skip."
+                    }
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AgentCardPage"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "agents_create",
+                "description": "Staff configuration surface; agent keys never grant provisioning rights.",
+                "tags": [
+                    "agents"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AgentRegistrationRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AgentRegistrationRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AgentRegistrationRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AgentCredentials"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/attempts/{id}/link": {
+            "post": {
+                "operationId": "attempts_link_create",
+                "description": "Explicit authorized attempt↔session link after ownership checks (#13).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "attempts"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AttemptLinkRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AttemptLinkRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AttemptLinkRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/commands": {
+            "get": {
+                "operationId": "commands_list",
+                "description": "Durable command queue APIs (issue #12): staff any worker; agents own worker.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "action",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Command action."
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Page size, 1-500 (default 100)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "offset",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Number of items to skip."
+                    },
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Command status."
+                    },
+                    {
+                        "in": "query",
+                        "name": "worker",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Worker name."
+                    }
+                ],
+                "tags": [
+                    "commands"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkerCommandPage"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "commands_create",
+                "description": "Durable command queue APIs (issue #12): staff any worker; agents own worker.",
+                "tags": [
+                    "commands"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CommandRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CommandRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CommandRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/commands/{id}": {
+            "get": {
+                "operationId": "commands_retrieve",
+                "description": "Durable command queue APIs (issue #12): staff any worker; agents own worker.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^\\d+$"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "commands"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/commands/{id}/resolve": {
+            "post": {
+                "operationId": "commands_resolve_create",
+                "description": "Explicit staff reconciliation for uncertain or pending commands (#12).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^\\d+$"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "commands"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResolveRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResolveRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResolveRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/dashboard/state": {
+            "get": {
+                "operationId": "dashboard_state",
+                "summary": "Dashboard snapshot: counts, projects, agents, recent tasks and events",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "project",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Scope tasks and events to a slug."
+                    }
+                ],
+                "tags": [
+                    "dashboard"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DashboardState"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/dashboard/workspace": {
+            "get": {
+                "operationId": "dashboard_workspace",
+                "summary": "Workspace totals, agent assignments and events for a task filter",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "claimed_by",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Agent name, or __unclaimed__."
+                    },
+                    {
+                        "in": "query",
+                        "name": "ordering",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "-claimed_by",
+                                "-priority",
+                                "-project",
+                                "-status",
+                                "-title",
+                                "-updated_at",
+                                "claimed_by",
+                                "priority",
+                                "project",
+                                "status",
+                                "title",
+                                "updated_at"
+                            ]
+                        },
+                        "description": "Sort field, optionally prefixed with '-'."
+                    },
+                    {
+                        "in": "query",
+                        "name": "project",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Project slug."
+                    },
+                    {
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Search title/description, or #id."
+                    },
+                    {
+                        "in": "query",
+                        "name": "ready",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "false",
+                                "true"
+                            ]
+                        },
+                        "description": "true for ready tasks, false for not-ready tasks."
+                    },
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "blocked",
+                                "cancelled",
+                                "done",
+                                "in_progress",
+                                "pending",
+                                "review"
+                            ]
+                        },
+                        "description": "Task status."
+                    }
+                ],
+                "tags": [
+                    "dashboard"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkspaceState"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkspaceFilterError"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/overview": {
+            "get": {
+                "operationId": "overview_list",
+                "tags": [
+                    "overview"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/ProjectOverview"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/planning/jobs/{id}/report": {
+            "post": {
+                "operationId": "planning_jobs_report_create",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "planning"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/JobReportRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/JobReportRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/JobReportRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects": {
+            "post": {
+                "operationId": "projects_create",
+                "tags": [
+                    "projects"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectInputRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectInputRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectInputRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectCreated"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{slug}/planning": {
+            "get": {
+                "operationId": "projects_planning_retrieve",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "slug",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "projects_planning_create",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "slug",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PlanningMutationRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PlanningMutationRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PlanningMutationRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions": {
+            "get": {
+                "operationId": "sessions_retrieve",
+                "description": "Unified cross-worker session list (#15).\n\nWorkers stay isolated: the same remote ID on two workers remains two rows.\nAgents read only sessions of their bound worker; staff reads everything.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "directory",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Only sessions in this worker directory."
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Page size, 1-500 (default 100)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "offset",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Number of items to skip."
+                    },
+                    {
+                        "in": "query",
+                        "name": "ordering",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "recent"
+                            ]
+                        },
+                        "description": "recent for most recently updated first."
+                    },
+                    {
+                        "in": "query",
+                        "name": "project",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Only sessions linked to this project id."
+                    },
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Only sessions with this status."
+                    }
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SessionPage"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks": {
+            "get": {
+                "operationId": "tasks_list",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "claimed_by",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Agent name, or __unclaimed__."
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Page size, 1-500 (default 100)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "offset",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Number of items to skip."
+                    },
+                    {
+                        "in": "query",
+                        "name": "ordering",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "-claimed_by",
+                                "-priority",
+                                "-project",
+                                "-status",
+                                "-title",
+                                "-updated_at",
+                                "claimed_by",
+                                "priority",
+                                "project",
+                                "status",
+                                "title",
+                                "updated_at"
+                            ]
+                        },
+                        "description": "Sort field, optionally prefixed with '-'."
+                    },
+                    {
+                        "in": "query",
+                        "name": "project",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Project slug."
+                    },
+                    {
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Search title/description, or #id."
+                    },
+                    {
+                        "in": "query",
+                        "name": "ready",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "false",
+                                "true"
+                            ]
+                        },
+                        "description": "true for ready tasks, false for not-ready tasks."
+                    },
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "blocked",
+                                "cancelled",
+                                "done",
+                                "in_progress",
+                                "pending",
+                                "review"
+                            ]
+                        },
+                        "description": "Task status."
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedTaskList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "tasks_create",
+                "tags": [
+                    "tasks"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Task"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}": {
+            "get": {
+                "operationId": "tasks_retrieve",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^\\d+$"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskDetailResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "tasks_partial_update",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^\\d+$"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Task"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}/claim": {
+            "post": {
+                "operationId": "tasks_claim_create",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^\\d+$"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Task"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}/events": {
+            "get": {
+                "operationId": "tasks_events_retrieve",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "before",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Return events older than this event ID."
+                    },
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^\\d+$"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskEventPage"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}/heartbeat": {
+            "post": {
+                "operationId": "tasks_heartbeat_create",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^\\d+$"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HeartbeatResult"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}/launch": {
+            "post": {
+                "operationId": "tasks_launch_create",
+                "description": "Authorized remote launch (issue #13): atomic-claim-based, idempotent.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^\\d+$"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LaunchRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LaunchRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LaunchRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskLaunch"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskLaunch"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}/notes": {
+            "post": {
+                "operationId": "tasks_notes_create",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^\\d+$"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/NoteRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/NoteRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/NoteRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Ok"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}/release": {
+            "post": {
+                "operationId": "tasks_release_create",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^\\d+$"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReleaseRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReleaseRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReleaseRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Task"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}/status": {
+            "post": {
+                "operationId": "tasks_status_create",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^\\d+$"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StatusUpdateRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StatusUpdateRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StatusUpdateRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Task"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/next": {
+            "post": {
+                "operationId": "tasks_next_create",
+                "tags": [
+                    "tasks"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ClaimNextRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ClaimNextRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ClaimNextRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Task"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Detail"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/worker/sync": {
+            "post": {
+                "operationId": "worker_sync_create",
+                "description": "Outbound bridge sync (#11): one authenticated envelope per cycle.",
+                "tags": [
+                    "worker"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/workers": {
+            "get": {
+                "operationId": "workers_list",
+                "description": "Authenticated, credential-free worker registry reads (#10, #15).\n\nThe registry stays readable by every agent; session data is scoped to the\nbound agent (#15): worker-scoped identity extends the project/task rules.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Page size, 1-500 (default 100)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "offset",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Number of items to skip."
+                    }
+                ],
+                "tags": [
+                    "workers"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkerPage"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/workers/{name}": {
+            "get": {
+                "operationId": "workers_retrieve",
+                "description": "Authenticated, credential-free worker registry reads (#10, #15).\n\nThe registry stays readable by every agent; session data is scoped to the\nbound agent (#15): worker-scoped identity extends the project/task rules.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "name",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Worker name",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "workers"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/workers/{name}/events": {
+            "get": {
+                "operationId": "workers_events_retrieve",
+                "description": "Authenticated, credential-free worker registry reads (#10, #15).\n\nThe registry stays readable by every agent; session data is scoped to the\nbound agent (#15): worker-scoped identity extends the project/task rules.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "after",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Return events after this cursor."
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Maximum number of events."
+                    },
+                    {
+                        "in": "path",
+                        "name": "name",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Worker name",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "workers"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/workers/{name}/sessions": {
+            "get": {
+                "operationId": "workers_sessions_list",
+                "description": "Authenticated, credential-free worker registry reads (#10, #15).\n\nThe registry stays readable by every agent; session data is scoped to the\nbound agent (#15): worker-scoped identity extends the project/task rules.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "directory",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Only sessions in this worker directory."
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Page size, 1-500 (default 100)."
+                    },
+                    {
+                        "in": "path",
+                        "name": "name",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Worker name",
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "offset",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Number of items to skip."
+                    },
+                    {
+                        "in": "query",
+                        "name": "project",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Only sessions linked to this project id."
+                    },
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Only sessions with this status."
+                    }
+                ],
+                "tags": [
+                    "workers"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkerSessionPage"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/workers/{name}/sessions/{sid}": {
+            "get": {
+                "operationId": "workers_sessions_retrieve",
+                "description": "Authenticated, credential-free worker registry reads (#10, #15).\n\nThe registry stays readable by every agent; session data is scoped to the\nbound agent (#15): worker-scoped identity extends the project/task rules.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "compact",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "true for a compact detail."
+                    },
+                    {
+                        "in": "path",
+                        "name": "name",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Worker name",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "sid",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Remote session ID",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "workers"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/workers/{name}/sessions/{sid}/messages": {
+            "get": {
+                "operationId": "workers_sessions_messages_retrieve",
+                "description": "Authenticated, credential-free worker registry reads (#10, #15).\n\nThe registry stays readable by every agent; session data is scoped to the\nbound agent (#15): worker-scoped identity extends the project/task rules.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "after",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Return messages after this cursor."
+                    },
+                    {
+                        "in": "query",
+                        "name": "before",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Return messages before this cursor."
+                    },
+                    {
+                        "in": "query",
+                        "name": "latest",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "true"
+                            ]
+                        },
+                        "description": "true for the most recent messages."
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Maximum number of messages."
+                    },
+                    {
+                        "in": "path",
+                        "name": "name",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Worker name",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "sid",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Remote session ID",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "workers"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "ActionEnum": {
+                "enum": [
+                    "create",
+                    "prompt",
+                    "interrupt",
+                    "permission.reply",
+                    "question.reply",
+                    "question.reject"
+                ],
+                "type": "string",
+                "description": "* `create` - create\n* `prompt` - prompt\n* `interrupt` - interrupt\n* `permission.reply` - permission.reply\n* `question.reply` - question.reply\n* `question.reject` - question.reject"
+            },
+            "AgentCard": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "is_active": {
+                        "type": "boolean"
+                    },
+                    "last_seen": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "id",
+                    "is_active",
+                    "last_seen",
+                    "name"
+                ]
+            },
+            "AgentCardPage": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer"
+                    },
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AgentCard"
+                        }
+                    }
+                },
+                "required": [
+                    "count",
+                    "items"
+                ]
+            },
+            "AgentCredentials": {
+                "type": "object",
+                "properties": {
+                    "api_key": {
+                        "type": "string",
+                        "description": "Shown once."
+                    }
+                },
+                "required": [
+                    "api_key"
+                ]
+            },
+            "AgentRegistrationRequest": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                    }
+                },
+                "required": [
+                    "name"
+                ]
+            },
+            "Assignment": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/TaskStatusEnum"
+                    },
+                    "heartbeat_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "heartbeat_at",
+                    "id",
+                    "status",
+                    "title"
+                ]
+            },
+            "AttemptLinkRequest": {
+                "type": "object",
+                "properties": {
+                    "sessionID": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^.{1,128}$"
+                    }
+                },
+                "required": [
+                    "sessionID"
+                ]
+            },
+            "CardInputRequest": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 300
+                    },
+                    "description": {
+                        "type": "string",
+                        "maxLength": 12000
+                    },
+                    "column": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                    },
+                    "position": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "labels": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 50
+                        },
+                        "maxItems": 20
+                    },
+                    "checklist": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ChecklistItemRequest"
+                        }
+                    },
+                    "instructions": {
+                        "type": "string",
+                        "maxLength": 8000
+                    }
+                },
+                "required": [
+                    "checklist",
+                    "column",
+                    "description",
+                    "instructions",
+                    "labels",
+                    "title"
+                ]
+            },
+            "ChecklistItemRequest": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                    },
+                    "done": {
+                        "type": "boolean",
+                        "default": false
+                    }
+                },
+                "required": [
+                    "text"
+                ]
+            },
+            "ClaimNextRequest": {
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "minLength": 1,
+                        "nullable": true
+                    }
+                }
+            },
+            "CommandRequest": {
+                "type": "object",
+                "properties": {
+                    "worker": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "[A-Za-z0-9_.-]{1,100}"
+                    },
+                    "action": {
+                        "$ref": "#/components/schemas/ActionEnum"
+                    },
+                    "payload": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "sessionID": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^.{1,128}$"
+                    },
+                    "client_request_id": {
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "default": "",
+                                "pattern": "^.{1,64}$"
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "action",
+                    "worker"
+                ]
+            },
+            "CommandResolutionEnum": {
+                "enum": [
+                    "done",
+                    "error"
+                ],
+                "type": "string",
+                "description": "* `done` - done\n* `error` - error"
+            },
+            "DashboardAgent": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "is_active": {
+                        "type": "boolean"
+                    },
+                    "last_seen": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "is_active",
+                    "last_seen",
+                    "name"
+                ]
+            },
+            "DashboardEvent": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "task_id": {
+                        "type": "integer"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "project": {
+                        "type": "string"
+                    },
+                    "agent": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "event_type": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "agent",
+                    "created_at",
+                    "event_type",
+                    "id",
+                    "message",
+                    "project",
+                    "task_id",
+                    "title"
+                ]
+            },
+            "DashboardState": {
+                "type": "object",
+                "properties": {
+                    "server_time": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "counts": {
+                        "$ref": "#/components/schemas/StatusCounts"
+                    },
+                    "projects": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/StateProject"
+                        }
+                    },
+                    "agents": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/DashboardAgent"
+                        }
+                    },
+                    "tasks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Task"
+                        }
+                    },
+                    "events": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/DashboardEvent"
+                        }
+                    },
+                    "ready_count": {
+                        "type": "integer"
+                    },
+                    "total_tasks": {
+                        "type": "integer"
+                    },
+                    "displayed_tasks": {
+                        "type": "integer"
+                    },
+                    "scope_project": {
+                        "type": "string"
+                    },
+                    "scope_total_tasks": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "agents",
+                    "counts",
+                    "displayed_tasks",
+                    "events",
+                    "projects",
+                    "ready_count",
+                    "scope_project",
+                    "scope_total_tasks",
+                    "server_time",
+                    "tasks",
+                    "total_tasks"
+                ]
+            },
+            "DependencyProgress": {
+                "type": "object",
+                "properties": {
+                    "done": {
+                        "type": "integer"
+                    },
+                    "total": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "done",
+                    "total"
+                ]
+            },
+            "Detail": {
+                "type": "object",
+                "properties": {
+                    "detail": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "detail"
+                ]
+            },
+            "EventTypeEnum": {
+                "enum": [
+                    "created",
+                    "claimed",
+                    "heartbeat",
+                    "status_changed",
+                    "released",
+                    "note",
+                    "execution.launched",
+                    "execution.linked",
+                    "execution.done"
+                ],
+                "type": "string",
+                "description": "* `created` - Created\n* `claimed` - Claimed\n* `heartbeat` - Heartbeat\n* `status_changed` - Status changed\n* `released` - Released\n* `note` - Note\n* `execution.launched` - Execution launched\n* `execution.linked` - Execution session linked\n* `execution.done` - Execution outcome"
+            },
+            "HeartbeatResult": {
+                "type": "object",
+                "properties": {
+                    "ok": {
+                        "type": "boolean"
+                    },
+                    "heartbeat_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "heartbeat_at",
+                    "ok"
+                ]
+            },
+            "JobReportRequest": {
+                "type": "object",
+                "properties": {
+                    "token": {
+                        "type": "string",
+                        "minLength": 32,
+                        "maxLength": 100
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/PlanningJobReportStatusEnum"
+                    },
+                    "summary": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 10000
+                    }
+                },
+                "required": [
+                    "status",
+                    "token"
+                ]
+            },
+            "KindEnum": {
+                "enum": [
+                    "code",
+                    "design",
+                    "content",
+                    "other"
+                ],
+                "type": "string",
+                "description": "* `code` - Code\n* `design` - Design\n* `content` - Content\n* `other` - Other"
+            },
+            "LaunchRequest": {
+                "type": "object",
+                "properties": {
+                    "worker": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "[A-Za-z0-9_.-]{1,100}"
+                    },
+                    "directory": {
+                        "type": "string",
+                        "maxLength": 500
+                    },
+                    "client_request_id": {
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "default": "",
+                                "pattern": "^.{1,64}$"
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "worker"
+                ]
+            },
+            "ModelChoiceRequest": {
+                "type": "object",
+                "properties": {
+                    "providerID": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                    },
+                    "modelID": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                    }
+                },
+                "required": [
+                    "modelID",
+                    "providerID"
+                ]
+            },
+            "NoteRequest": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 20000
+                    }
+                },
+                "required": [
+                    "message"
+                ]
+            },
+            "Ok": {
+                "type": "object",
+                "properties": {
+                    "ok": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "ok"
+                ]
+            },
+            "OperationEnum": {
+                "enum": [
+                    "settings",
+                    "card",
+                    "enqueue",
+                    "run",
+                    "play",
+                    "pause",
+                    "stop",
+                    "reorder",
+                    "remove",
+                    "archive"
+                ],
+                "type": "string",
+                "description": "* `settings` - settings\n* `card` - card\n* `enqueue` - enqueue\n* `run` - run\n* `play` - play\n* `pause` - pause\n* `stop` - stop\n* `reorder` - reorder\n* `remove` - remove\n* `archive` - archive"
+            },
+            "PaginatedTaskList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "items"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer"
+                    },
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Task"
+                        }
+                    }
+                }
+            },
+            "PatchedTaskRequest": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 300
+                    },
+                    "description": {
+                        "type": "string",
+                        "maxLength": 50000
+                    },
+                    "project": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "priority": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": -2147483648
+                    },
+                    "depends_on": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                }
+            },
+            "PlanSettingsRequest": {
+                "type": "object",
+                "properties": {
+                    "worker": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "directory": {
+                        "type": "string",
+                        "maxLength": 500
+                    },
+                    "model": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ModelChoiceRequest"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "context": {
+                        "type": "string",
+                        "maxLength": 8000
+                    },
+                    "instructions": {
+                        "type": "string",
+                        "maxLength": 8000
+                    },
+                    "templates": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PromptTemplateRequest"
+                        }
+                    },
+                    "columns": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100
+                        },
+                        "maxItems": 20,
+                        "minItems": 1
+                    }
+                },
+                "required": [
+                    "columns",
+                    "context",
+                    "directory",
+                    "instructions",
+                    "model",
+                    "templates",
+                    "worker"
+                ]
+            },
+            "PlanningJobReportStatusEnum": {
+                "enum": [
+                    "heartbeat",
+                    "done",
+                    "blocked",
+                    "review"
+                ],
+                "type": "string",
+                "description": "* `heartbeat` - heartbeat\n* `done` - done\n* `blocked` - blocked\n* `review` - review"
+            },
+            "PlanningMutationRequest": {
+                "type": "object",
+                "properties": {
+                    "revision": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "operation": {
+                        "$ref": "#/components/schemas/OperationEnum"
+                    },
+                    "settings": {
+                        "$ref": "#/components/schemas/PlanSettingsRequest"
+                    },
+                    "card": {
+                        "$ref": "#/components/schemas/CardInputRequest"
+                    },
+                    "card_id": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "job_id": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "job_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "maxItems": 100
+                    },
+                    "instructions": {
+                        "type": "string",
+                        "maxLength": 8000
+                    },
+                    "template": {
+                        "type": "string",
+                        "maxLength": 8000
+                    }
+                },
+                "required": [
+                    "operation",
+                    "revision"
+                ]
+            },
+            "ProjectCreated": {
+                "type": "object",
+                "properties": {
+                    "slug": {
+                        "type": "string",
+                        "pattern": "^[-a-zA-Z0-9_]+$"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "repo_url": {
+                        "type": "string"
+                    },
+                    "docs_path": {
+                        "type": "string"
+                    },
+                    "active_count": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "active_count",
+                    "docs_path",
+                    "kind",
+                    "name",
+                    "repo_url",
+                    "slug"
+                ]
+            },
+            "ProjectInputRequest": {
+                "type": "object",
+                "properties": {
+                    "slug": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 50,
+                        "pattern": "^[-a-zA-Z0-9_]+$"
+                    },
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                    },
+                    "kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/KindEnum"
+                            }
+                        ],
+                        "default": "code"
+                    },
+                    "repo_url": {
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "format": "uri",
+                                "default": "",
+                                "maxLength": 200
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
+                    },
+                    "docs_path": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 500
+                    }
+                },
+                "required": [
+                    "name",
+                    "slug"
+                ]
+            },
+            "ProjectOverview": {
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "pattern": "^[-a-zA-Z0-9_]+$"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "repo_url": {
+                        "type": "string"
+                    },
+                    "docs_path": {
+                        "type": "string"
+                    },
+                    "counts": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "integer"
+                        }
+                    },
+                    "in_progress": {
+                        "type": "array",
+                        "items": {}
+                    },
+                    "blocked": {
+                        "type": "array",
+                        "items": {}
+                    },
+                    "ready_count": {
+                        "type": "integer"
+                    },
+                    "waiting": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Task"
+                        }
+                    }
+                },
+                "required": [
+                    "blocked",
+                    "counts",
+                    "docs_path",
+                    "in_progress",
+                    "kind",
+                    "name",
+                    "project",
+                    "ready_count",
+                    "repo_url",
+                    "waiting"
+                ]
+            },
+            "PromptTemplateRequest": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                    },
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 8000
+                    }
+                },
+                "required": [
+                    "name",
+                    "text"
+                ]
+            },
+            "ReleaseRequest": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "maxLength": 20000
+                    }
+                }
+            },
+            "ResolveRequest": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "$ref": "#/components/schemas/CommandResolutionEnum"
+                    },
+                    "result": {},
+                    "error": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "status"
+                ]
+            },
+            "SessionPage": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer"
+                    },
+                    "items": {
+                        "type": "array",
+                        "items": {}
+                    }
+                },
+                "required": [
+                    "count",
+                    "items"
+                ]
+            },
+            "StateProject": {
+                "type": "object",
+                "properties": {
+                    "slug": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "docs_path": {
+                        "type": "string"
+                    },
+                    "counts": {
+                        "$ref": "#/components/schemas/StatusCounts"
+                    },
+                    "ready_count": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "counts",
+                    "docs_path",
+                    "kind",
+                    "name",
+                    "ready_count",
+                    "slug"
+                ]
+            },
+            "StatusCounts": {
+                "type": "object",
+                "properties": {
+                    "pending": {
+                        "type": "integer"
+                    },
+                    "in_progress": {
+                        "type": "integer"
+                    },
+                    "blocked": {
+                        "type": "integer"
+                    },
+                    "review": {
+                        "type": "integer"
+                    },
+                    "done": {
+                        "type": "integer"
+                    },
+                    "cancelled": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "blocked",
+                    "cancelled",
+                    "done",
+                    "in_progress",
+                    "pending",
+                    "review"
+                ]
+            },
+            "StatusUpdateRequest": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "$ref": "#/components/schemas/TaskStatusUpdateEnum"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "maxLength": 20000
+                    },
+                    "result_summary": {
+                        "type": "string",
+                        "maxLength": 50000
+                    }
+                },
+                "required": [
+                    "status"
+                ]
+            },
+            "Task": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 300
+                    },
+                    "description": {
+                        "type": "string",
+                        "maxLength": 50000
+                    },
+                    "project": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TaskStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "priority": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": -2147483648
+                    },
+                    "claimed_by": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "claimed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "heartbeat_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "depends_on": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    },
+                    "blocked_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "result_summary": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "is_ready": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "dependency_progress": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DependencyProgress"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "created_by": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "blocked_reason",
+                    "claimed_at",
+                    "claimed_by",
+                    "created_at",
+                    "created_by",
+                    "dependency_progress",
+                    "depends_on",
+                    "description",
+                    "heartbeat_at",
+                    "id",
+                    "is_ready",
+                    "priority",
+                    "project",
+                    "result_summary",
+                    "status",
+                    "title",
+                    "updated_at"
+                ]
+            },
+            "TaskDetailResponse": {
+                "type": "object",
+                "description": "Task detail as returned by retrieve, including execution attempts (#13).",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 300
+                    },
+                    "description": {
+                        "type": "string",
+                        "maxLength": 50000
+                    },
+                    "project": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TaskStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "priority": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": -2147483648
+                    },
+                    "claimed_by": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "claimed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "heartbeat_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "depends_on": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    },
+                    "blocked_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "result_summary": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "is_ready": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "dependency_progress": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DependencyProgress"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "created_by": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "recent_events": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskEvent"
+                        },
+                        "readOnly": true
+                    },
+                    "dependencies": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Task"
+                        },
+                        "readOnly": true
+                    },
+                    "attempts": {
+                        "type": "array",
+                        "items": {},
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "attempts",
+                    "blocked_reason",
+                    "claimed_at",
+                    "claimed_by",
+                    "created_at",
+                    "created_by",
+                    "dependencies",
+                    "dependency_progress",
+                    "depends_on",
+                    "description",
+                    "heartbeat_at",
+                    "id",
+                    "is_ready",
+                    "priority",
+                    "project",
+                    "recent_events",
+                    "result_summary",
+                    "status",
+                    "title",
+                    "updated_at"
+                ]
+            },
+            "TaskEvent": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "event_type": {
+                        "$ref": "#/components/schemas/EventTypeEnum"
+                    },
+                    "agent": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "agent",
+                    "created_at",
+                    "event_type",
+                    "id",
+                    "message"
+                ]
+            },
+            "TaskEventPage": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskEvent"
+                        }
+                    },
+                    "next_before": {
+                        "type": "integer",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "items",
+                    "next_before"
+                ]
+            },
+            "TaskLaunch": {
+                "type": "object",
+                "properties": {
+                    "attempt": {},
+                    "createCommand": {}
+                },
+                "required": [
+                    "attempt",
+                    "createCommand"
+                ]
+            },
+            "TaskRequest": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 300
+                    },
+                    "description": {
+                        "type": "string",
+                        "maxLength": 50000
+                    },
+                    "project": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "priority": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": -2147483648
+                    },
+                    "depends_on": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "required": [
+                    "project",
+                    "title"
+                ]
+            },
+            "TaskStatusEnum": {
+                "enum": [
+                    "pending",
+                    "in_progress",
+                    "blocked",
+                    "review",
+                    "done",
+                    "cancelled"
+                ],
+                "type": "string",
+                "description": "* `pending` - Pending\n* `in_progress` - In progress\n* `blocked` - Blocked\n* `review` - Review\n* `done` - Done\n* `cancelled` - Cancelled"
+            },
+            "TaskStatusUpdateEnum": {
+                "enum": [
+                    "in_progress",
+                    "blocked",
+                    "review",
+                    "done",
+                    "cancelled"
+                ],
+                "type": "string",
+                "description": "* `in_progress` - in_progress\n* `blocked` - blocked\n* `review` - review\n* `done` - done\n* `cancelled` - cancelled"
+            },
+            "WorkerCommandPage": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer"
+                    },
+                    "items": {
+                        "type": "array",
+                        "items": {}
+                    }
+                },
+                "required": [
+                    "count",
+                    "items"
+                ]
+            },
+            "WorkerPage": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer"
+                    },
+                    "items": {
+                        "type": "array",
+                        "items": {}
+                    }
+                },
+                "required": [
+                    "count",
+                    "items"
+                ]
+            },
+            "WorkerSessionPage": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer"
+                    },
+                    "items": {
+                        "type": "array",
+                        "items": {}
+                    }
+                },
+                "required": [
+                    "count",
+                    "items"
+                ]
+            },
+            "WorkspaceAgent": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "is_active": {
+                        "type": "boolean"
+                    },
+                    "last_seen": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "assignments": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Assignment"
+                        }
+                    }
+                },
+                "required": [
+                    "assignments",
+                    "is_active",
+                    "last_seen",
+                    "name"
+                ]
+            },
+            "WorkspaceFilterError": {
+                "type": "object",
+                "properties": {
+                    "detail": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "required": [
+                    "detail"
+                ]
+            },
+            "WorkspaceProject": {
+                "type": "object",
+                "properties": {
+                    "slug": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "docs_path": {
+                        "type": "string"
+                    },
+                    "active_count": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "active_count",
+                    "docs_path",
+                    "kind",
+                    "name",
+                    "slug"
+                ]
+            },
+            "WorkspaceState": {
+                "type": "object",
+                "properties": {
+                    "server_time": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "counts": {
+                        "$ref": "#/components/schemas/StatusCounts"
+                    },
+                    "total": {
+                        "type": "integer"
+                    },
+                    "ready_count": {
+                        "type": "integer"
+                    },
+                    "projects": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/WorkspaceProject"
+                        }
+                    },
+                    "agents": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/WorkspaceAgent"
+                        }
+                    },
+                    "events": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/DashboardEvent"
+                        }
+                    }
+                },
+                "required": [
+                    "agents",
+                    "counts",
+                    "events",
+                    "projects",
+                    "ready_count",
+                    "server_time",
+                    "total"
+                ]
+            }
+        },
+        "securitySchemes": {
+            "agentKey": {
+                "type": "http",
+                "scheme": "bearer",
+                "description": "Agent API key: `Authorization: Bearer <key>`."
+            },
+            "cookieAuth": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": "sessionid"
+            }
+        }
+    }
+}

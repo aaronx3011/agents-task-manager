@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, KeyRound, RefreshCw, UserPlus, Users } from "lucide-react";
-import { get, post } from "./api";
+import { post } from "./api";
+import { api, unwrap } from "./api-client";
 import { Age, Empty, ErrorState, Loading } from "./ui";
-import type { Page } from "./types";
 import "./configuration.css";
 
 interface RegisteredAgent {
@@ -125,7 +125,11 @@ export default function Configuration() {
   const agents = useQuery({
     queryKey: ["configuration", "agents", offset],
     queryFn: () =>
-      get<Page<RegisteredAgent>>(`/api/agents?limit=50&offset=${offset}`),
+      unwrap(
+        api.GET("/api/v1/agents", {
+          params: { query: { limit: 50, offset } },
+        }),
+      ),
     refetchInterval: 15000,
   });
   async function register(event: React.FormEvent) {

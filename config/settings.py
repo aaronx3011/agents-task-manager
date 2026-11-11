@@ -176,6 +176,10 @@ SPECTACULAR_SETTINGS = {
     "SERVE_PERMISSIONS": ["coordinator.auth.IsAgentOrStaff"],
     # Only the versioned mount is documented; /api/ stays as an undocumented alias.
     "PREPROCESSING_HOOKS": ["coordinator.openapi.only_versioned_endpoints"],
+    "POSTPROCESSING_HOOKS": [
+        "drf_spectacular.hooks.postprocess_schema_enums",
+        "coordinator.openapi.responses_include_every_field",
+    ],
     "SCHEMA_PATH_PREFIX": r"/api/v1",
     "COMPONENT_SPLIT_REQUEST": True,
     # Several request/response "status" fields use different choice sets.

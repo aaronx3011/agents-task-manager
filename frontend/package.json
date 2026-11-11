@@ -8,12 +8,15 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "lint": "eslint .",
-    "format:check": "prettier --check src vite.config.ts eslint.config.js index.html"
+    "format:check": "prettier --check src vite.config.ts eslint.config.js index.html",
+    "api:generate": "node scripts/api-client.mjs",
+    "api:check": "node scripts/api-client.mjs --check"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.6",
     "@tanstack/react-query": "^5.66.0",
     "lucide-react": "^0.468.0",
+    "openapi-fetch": "^0.13.8",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
@@ -28,6 +31,7 @@
     "eslint": "^9.25.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "globals": "^16.0.0",
+    "openapi-typescript": "^7.13.0",
     "prettier": "^3.9.10",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.8.0",
