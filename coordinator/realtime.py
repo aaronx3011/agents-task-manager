@@ -12,6 +12,8 @@ from django.conf import settings
 from django.contrib.auth import get_user
 from django.core.cache import cache
 
+from accounts.services import role_of
+
 from .live import resolve_subscription, session_group, snapshot_key, worker_group
 
 logger = logging.getLogger(__name__)
@@ -81,10 +83,7 @@ class DashboardConsumer(AsyncJsonWebsocketConsumer):
         store = import_module(settings.SESSION_ENGINE).SessionStore(session_key=session.session_key)
         current = get_user(SimpleNamespace(session=store))
         return bool(
-            current.is_authenticated
-            and current.pk == user.pk
-            and current.is_active
-            and current.is_staff
+            current.is_authenticated and current.pk == user.pk and role_of(current) is not None
         )
 
     async def connect(self):

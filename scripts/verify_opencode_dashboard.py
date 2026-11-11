@@ -245,7 +245,13 @@ def run(directory, screenshots, assets_only=False):
     call_command("migrate", verbosity=0)
     call_command("collectstatic", verbosity=0, interactive=False)
     password = secrets.token_urlsafe(24)
-    get_user_model().objects.create_user("dashboard-verifier", password=password, is_staff=True)
+    verifier = get_user_model().objects.create_user(
+        "dashboard-verifier", password=password, is_staff=True
+    )
+    # The walkthrough registers agents, which is an owner action (#43).
+    from accounts.services import set_role
+
+    set_role(verifier, "owner", actor="verify_opencode_dashboard")
     project = Project.objects.create(slug="browser-check", name="Browser checks")
     services.create_task(None, project, "Existing task UI remains available")
     keys = {}

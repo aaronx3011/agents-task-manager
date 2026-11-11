@@ -9,7 +9,7 @@
         "/api/v1/agents": {
             "get": {
                 "operationId": "agents_list",
-                "description": "Staff configuration surface; agent keys never grant provisioning rights.",
+                "description": "Owner configuration surface; agent keys never grant provisioning rights.",
                 "parameters": [
                     {
                         "in": "query",
@@ -54,7 +54,7 @@
             },
             "post": {
                 "operationId": "agents_create",
-                "description": "Staff configuration surface; agent keys never grant provisioning rights.",
+                "description": "Owner configuration surface; agent keys never grant provisioning rights.",
                 "tags": [
                     "agents"
                 ],
@@ -163,7 +163,7 @@
         "/api/v1/commands": {
             "get": {
                 "operationId": "commands_list",
-                "description": "Durable command queue APIs (issue #12): staff any worker; agents own worker.",
+                "description": "Durable command queue APIs (issue #12): members any worker; agents own worker.",
                 "parameters": [
                     {
                         "in": "query",
@@ -232,7 +232,7 @@
             },
             "post": {
                 "operationId": "commands_create",
-                "description": "Durable command queue APIs (issue #12): staff any worker; agents own worker.",
+                "description": "Durable command queue APIs (issue #12): members any worker; agents own worker.",
                 "tags": [
                     "commands"
                 ],
@@ -282,7 +282,7 @@
         "/api/v1/commands/{id}": {
             "get": {
                 "operationId": "commands_retrieve",
-                "description": "Durable command queue APIs (issue #12): staff any worker; agents own worker.",
+                "description": "Durable command queue APIs (issue #12): members any worker; agents own worker.",
                 "parameters": [
                     {
                         "in": "path",
@@ -323,7 +323,7 @@
         "/api/v1/commands/{id}/resolve": {
             "post": {
                 "operationId": "commands_resolve_create",
-                "description": "Explicit staff reconciliation for uncertain or pending commands (#12).",
+                "description": "Explicit member reconciliation for uncertain or pending commands (#12).",
                 "parameters": [
                     {
                         "in": "path",
@@ -772,7 +772,7 @@
         "/api/v1/sessions": {
             "get": {
                 "operationId": "sessions_retrieve",
-                "description": "Unified cross-worker session list (#15).\n\nWorkers stay isolated: the same remote ID on two workers remains two rows.\nAgents read only sessions of their bound worker; staff reads everything.",
+                "description": "Unified cross-worker session list (#15).\n\nWorkers stay isolated: the same remote ID on two workers remains two rows.\nAgents read only sessions of their bound worker; humans read everything.",
                 "parameters": [
                     {
                         "in": "query",

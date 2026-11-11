@@ -5,12 +5,11 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action, api_view
 from rest_framework.exceptions import PermissionDenied, ValidationError
-from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 
 from . import services
 from . import sync as sync_module
-from .auth import get_agent, staff_name
+from .auth import IsMember, IsOwner, get_agent, human_actor
 from .models import (
     Agent,
     Project,
@@ -60,9 +59,9 @@ from .serializers import (
     create=extend_schema(request=AgentRegistrationSerializer, responses={201: AGENT_CREDENTIALS}),
 )
 class AgentRegistrationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
-    """Staff configuration surface; agent keys never grant provisioning rights."""
+    """Owner configuration surface; agent keys never grant provisioning rights."""
 
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsOwner]
     http_method_names = ["get", "post", "head", "options"]
     serializer_class = AgentRegistrationSerializer
     queryset = Agent.objects.order_by("name", "pk")
@@ -258,7 +257,7 @@ class AttemptLinkSerializer(serializers.Serializer):
     resolve=extend_schema(request=ResolveSerializer, responses=READ_MODEL),
 )
 class CommandViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
-    """Durable command queue APIs (issue #12): staff any worker; agents own worker."""
+    """Durable command queue APIs (issue #12): members any worker; agents own worker."""
 
     http_method_names = ["get", "post", "head", "options"]
     lookup_value_regex = r"\d+"
@@ -285,14 +284,14 @@ class CommandViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
     def get_permissions(self):
         base = super().get_permissions()
         if self.action == "resolve":
-            return base + [IsAdminUser()]
+            return base + [IsMember()]
         return base
 
     def create(self, request, *args, **kwargs):
         agent = self._agent()
-        staff_label = staff_name(request)
-        if not agent and not staff_label:
-            raise PermissionDenied("Authenticate as staff or a worker-bound agent")
+        human_label = human_actor(request)
+        if not agent and not human_label:
+            raise PermissionDenied("Authenticate as a member or a worker-bound agent")
         serializer = CommandSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = dict(serializer.validated_data)
@@ -300,7 +299,7 @@ class CommandViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         session_id = data.pop("sessionID", "") or ""
         command, created = services.enqueue_worker_command(
             agent,
-            staff_label,
+            human_label,
             worker,
             data["action"],
             data.get("payload") or {},
@@ -331,7 +330,7 @@ class CommandViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
 
     @action(detail=True, methods=["post"])
     def resolve(self, request, pk=None):
-        """Explicit staff reconciliation for uncertain or pending commands (#12)."""
+        """Explicit member reconciliation for uncertain or pending commands (#12)."""
         command = self.get_object()
         serializer = ResolveSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -409,7 +408,7 @@ class TaskViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gen
         return Response(TaskSerializer(fresh_task(task.pk)).data, status=response_status)
 
     def actor(self):
-        return {"agent": get_agent(self.request), "human_actor": staff_name(self.request)}
+        return {"agent": get_agent(self.request), "human_actor": human_actor(self.request)}
 
     def require_agent(self):
         agent = get_agent(self.request)
@@ -475,16 +474,16 @@ class TaskViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gen
     def launch(self, request, pk=None):
         """Authorized remote launch (issue #13): atomic-claim-based, idempotent."""
         agent = get_agent(request)
-        staff_label = staff_name(request)
-        if not agent and not staff_label:
-            raise PermissionDenied("Authenticate as staff or the task-owning agent")
+        human_label = human_actor(request)
+        if not agent and not human_label:
+            raise PermissionDenied("Authenticate as a member or the task-owning agent")
         serializer = LaunchSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         worker = Worker.objects.filter(name=data["worker"]).first()
         attempt, command, created = services.launch_task_execution(
             agent,
-            staff_label,
+            human_label,
             pk,
             worker,
             directory=data.get("directory") or "",
@@ -517,14 +516,14 @@ class TaskViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gen
 def attempt_link(request, pk):
     """Explicit authorized attempt↔session link after ownership checks (#13)."""
     agent = get_agent(request)
-    staff_label = staff_name(request)
-    if not agent and not staff_label:
-        raise PermissionDenied("Authenticate as staff or the attempt owner")
+    human_label = human_actor(request)
+    if not agent and not human_label:
+        raise PermissionDenied("Authenticate as a member or the attempt owner")
     attempt = TaskExecutionAttempt.objects.select_related("task", "worker").filter(pk=pk).first()
     if attempt is None:
         raise services.TaskError("Unknown attempt", 404)
     if agent and attempt.owner_id != agent.pk and attempt.task.claimed_by_id != agent.pk:
-        raise PermissionDenied("Only the attempt owner or staff links sessions")
+        raise PermissionDenied("Only the attempt owner or a member links sessions")
     serializer = AttemptLinkSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     remote = serializer.validated_data["sessionID"]
@@ -568,7 +567,7 @@ def sessions_read(request):
     """Unified cross-worker session list (#15).
 
     Workers stay isolated: the same remote ID on two workers remains two rows.
-    Agents read only sessions of their bound worker; staff reads everything.
+    Agents read only sessions of their bound worker; humans read everything.
     """
     agent = get_agent(request)
     sessions = WorkerSession.objects.select_related("parent", "worker")

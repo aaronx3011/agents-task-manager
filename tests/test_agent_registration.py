@@ -15,7 +15,8 @@ pytestmark = pytest.mark.django_db
 @pytest.fixture
 def registration_staff(django_user_model):
     client = Client(enforce_csrf_checks=True)
-    user = django_user_model.objects.create_user("registrar", is_staff=True)
+    # Registering agents is an owner action (#43).
+    user = django_user_model.objects.create_user("registrar", is_staff=True, is_superuser=True)
     client.force_login(user)
     client.get("/dashboard/")
     return client
@@ -148,7 +149,10 @@ def test_registration_notification_never_contains_the_raw_key(
 def test_concurrent_registration_returns_one_key_without_replacing_the_winner(django_user_model):
     if connection.vendor != "postgresql":
         pytest.skip("Concurrent registration requires PostgreSQL")
-    user = django_user_model.objects.create_user("concurrent-registrar", is_staff=True)
+    # Agent registration is owner-only (#43).
+    user = django_user_model.objects.create_user(
+        "concurrent-registrar", is_staff=True, is_superuser=True
+    )
     clients = [Client(), Client()]
     for client in clients:
         client.force_login(user)

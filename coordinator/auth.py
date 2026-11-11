@@ -1,5 +1,8 @@
 from rest_framework import authentication, exceptions, permissions
 
+from accounts.models import ROLE_RANK, Role
+from accounts.services import role_of
+
 from .models import Agent
 from .services import retry_sqlite
 
@@ -31,20 +34,61 @@ def get_agent(request):
     return request.auth if isinstance(request.auth, Agent) else None
 
 
-def staff_name(request):
+def human_role(request):
+    """Role of the human behind a session request; None for agents and anonymous users."""
     if get_agent(request):
         return None
-    user = request.user
-    return user.get_username() if user and user.is_authenticated and user.is_staff else None
+    return role_of(getattr(request, "user", None))
 
 
-class IsAgentOrStaff(permissions.BasePermission):
+def human_actor(request):
+    """Username recorded as the human actor of a mutation (any role)."""
+    return request.user.get_username() if human_role(request) else None
+
+
+def human_has_role(request, minimum):
+    role = human_role(request)
+    return role is not None and ROLE_RANK[Role(role)] >= ROLE_RANK[Role(minimum)]
+
+
+class IsAgentOrRole(permissions.BasePermission):
+    """Default API policy (#43).
+
+    Agents keep their per-endpoint rules. Humans: viewers read, members write.
+    """
+
     def has_permission(self, request, view):
-        return bool(get_agent(request) or staff_name(request))
+        if get_agent(request):
+            return True
+        if request.method in permissions.SAFE_METHODS:
+            return human_has_role(request, Role.VIEWER)
+        return human_has_role(request, Role.MEMBER)
 
 
-class IsStaffUser(permissions.BasePermission):
-    """Staff session only; agent keys are refused (dashboard read models)."""
+class HumanRolePermission(permissions.BasePermission):
+    """A signed-in human with at least `minimum`; agent keys are refused."""
+
+    minimum = Role.VIEWER
 
     def has_permission(self, request, view):
-        return bool(staff_name(request))
+        return human_has_role(request, self.minimum)
+
+
+class IsViewer(HumanRolePermission):
+    minimum = Role.VIEWER
+
+
+class IsMember(HumanRolePermission):
+    minimum = Role.MEMBER
+
+
+class IsOwner(HumanRolePermission):
+    minimum = Role.OWNER
+
+
+class ViewerReadsMemberWrites(permissions.BasePermission):
+    """Human-only endpoints: viewers read, members write; agent keys are refused."""
+
+    def has_permission(self, request, view):
+        minimum = Role.VIEWER if request.method in permissions.SAFE_METHODS else Role.MEMBER
+        return human_has_role(request, minimum)

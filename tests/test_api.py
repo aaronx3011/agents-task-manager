@@ -267,10 +267,20 @@ def test_staff_session_can_override_with_csrf_and_is_audited(
 
 
 @pytest.mark.django_db
-def test_nonstaff_session_and_malformed_bearer_are_denied(client, django_user_model):
+def test_viewer_session_reads_only_and_malformed_bearer_is_denied(
+    client, django_user_model, project
+):
+    # A plain account is a viewer (#43): it reads but never mutates.
     user = django_user_model.objects.create_user("ordinary")
     client.force_login(user)
-    assert client.get("/api/tasks").status_code == 403
+    assert client.get("/api/tasks").status_code == 200
+    created = client.post(
+        "/api/tasks", {"title": "x", "project": "coordinator"}, content_type="application/json"
+    )
+    assert created.status_code == 403
+    user.is_active = False
+    user.save()
+    assert client.get("/api/tasks").status_code in {401, 403}
     assert Client(HTTP_AUTHORIZATION="Bearer").get("/api/tasks").status_code == 401
     assert Client(HTTP_AUTHORIZATION="Bearer x extra").get("/api/tasks").status_code == 401
 

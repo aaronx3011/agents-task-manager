@@ -10,11 +10,8 @@ export async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
     headers: { Accept: "application/json" },
     signal,
   });
-  if (
-    response.redirected ||
-    response.status === 401 ||
-    response.status === 403
-  ) {
+  // 401 means signed out; 403 is a role restriction and keeps its server message.
+  if (response.redirected || response.status === 401) {
     throw new ApiError(401, SESSION_EXPIRED);
   }
   if (!response.ok) {
