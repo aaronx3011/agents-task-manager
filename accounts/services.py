@@ -1,6 +1,7 @@
 """Account services. Every write goes through here so its audit row commits with it."""
 
 import hashlib
+import hmac
 import secrets
 from datetime import timedelta
 
@@ -19,6 +20,7 @@ from .models import (
     Role,
     RoleChange,
     UserProfile,
+    UserToken,
     role_for_flags,
 )
 
@@ -232,6 +234,7 @@ def set_password(user, password, actor_user=None, actor=""):
         user = get_user_model().objects.select_for_update().get(pk=user.pk)
         user.set_password(_validated_password(user, password))
         user.save(update_fields=["password"])
+        revoke_user_tokens(user)  # A reset means the old credentials are not trusted.
         record(
             AccountEvent.Type.PASSWORD_SET,
             actor_user=actor_user,
@@ -262,5 +265,72 @@ def change_own_password(user, current_password, new_password):
 
 
 def revoke_user_tokens(user):
-    """Hook for per-device tokens (#48); a no-op until that model exists."""
-    return 0
+    """Revoke every live device token of a user (deactivation, owner password reset)."""
+    return UserToken.objects.filter(user=user, revoked_at__isnull=True).update(
+        revoked_at=timezone.now()
+    )
+
+
+# --- Per-device tokens (#48) -------------------------------------------------------
+
+TOKEN_TOUCH_SECONDS = 60
+
+
+def authenticate_token(raw):
+    """The live token for a raw key, or None. Updates last_used_at at most once a minute."""
+    if not raw or not 32 <= len(raw) <= 128:
+        return None
+    digest = hash_token(raw)
+    for token in UserToken.objects.select_related("user").filter(
+        key_prefix=raw[:8], revoked_at__isnull=True
+    ):
+        if hmac.compare_digest(token.key_hash, digest):
+            if not token.user.is_active:
+                return None
+            now = timezone.now()
+            if not token.last_used_at or (now - token.last_used_at).total_seconds() > (
+                TOKEN_TOUCH_SECONDS
+            ):
+                UserToken.objects.filter(pk=token.pk).update(last_used_at=now)
+                token.last_used_at = now
+            return token
+    return None
+
+
+@retry_sqlite
+def issue_token(user, name):
+    """Return (token, raw_key). The raw key exists only in this return value."""
+    name = (name or "").strip()[:100] or "device"
+    raw = secrets.token_urlsafe(32)
+    with transaction.atomic():
+        token = UserToken.objects.create(
+            user=user, name=name, key_prefix=raw[:8], key_hash=hash_token(raw)
+        )
+        record(
+            AccountEvent.Type.TOKEN_CREATED,
+            actor_user=user,
+            subject_user=user,
+            message=f"Token {token.pk} ({token.key_prefix}…) for {name}",
+        )
+    return token, raw
+
+
+@retry_sqlite
+def revoke_token(token_id, actor_user):
+    """Revoke your own token; owners may revoke anyone's."""
+    with transaction.atomic():
+        token = UserToken.objects.select_for_update().filter(pk=token_id).first()
+        if token is None or (
+            token.user_id != actor_user.pk and not has_role(actor_user, Role.OWNER)
+        ):
+            raise AccountError("Token not found", 404)
+        if token.revoked_at is None:
+            token.revoked_at = timezone.now()
+            token.save(update_fields=["revoked_at"])
+            record(
+                AccountEvent.Type.TOKEN_REVOKED,
+                actor_user=actor_user,
+                subject_user=token.user,
+                message=f"Token {token.pk} ({token.key_prefix}…) {token.name}",
+            )
+    return token

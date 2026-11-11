@@ -17,7 +17,7 @@ from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import ensure_csrf_cookie
-from drf_spectacular.utils import extend_schema, inline_serializer
+from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import permissions, serializers, status
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.response import Response
@@ -26,7 +26,7 @@ from rest_framework.views import APIView
 
 from coordinator.auth import IsOwner, IsViewer
 
-from .models import Invite, Role
+from .models import Invite, Role, UserToken
 from .services import (
     INVITE_DEFAULT_HOURS,
     INVITE_MAX_HOURS,
@@ -34,7 +34,10 @@ from .services import (
     accept_invite,
     change_own_password,
     create_invite,
+    has_role,
+    issue_token,
     revoke_invite,
+    revoke_token,
     role_of,
     set_active,
     set_password,
@@ -434,3 +437,108 @@ class OwnPasswordView(APIView):
             return account_error(exc)
         update_session_auth_hash(request, user)  # Keep this session; others end.
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# --- Per-device tokens (#48) -------------------------------------------------------
+
+
+class TokenSerializer(serializers.Serializer):
+    id = serializers.IntegerField(source="pk")
+    name = serializers.CharField()
+    key_prefix = serializers.CharField()
+    username = serializers.CharField(source="user.get_username")
+    created_at = serializers.DateTimeField()
+    last_used_at = serializers.DateTimeField(allow_null=True)
+    revoked_at = serializers.DateTimeField(allow_null=True)
+    current = serializers.SerializerMethodField()
+
+    def get_current(self, token) -> bool:
+        request = self.context.get("request")
+        return bool(request and getattr(request, "auth", None) == token)
+
+
+class IssuedTokenSerializer(TokenSerializer):
+    token = serializers.CharField(help_text="Shown once; send as `Authorization: Token <key>`.")
+    user = MeSerializer()
+
+
+class TokenRequest(LoginSerializer):
+    name = serializers.CharField(max_length=100, help_text="Device label, e.g. 'Ana's iPhone'.")
+
+
+@method_decorator(never_cache, name="dispatch")
+class TokenListView(APIView):
+    """Issue (public, credentials in the body) and list (signed in) device tokens."""
+
+    throttle_classes = [LoginThrottle]
+
+    def issuing(self):
+        request = getattr(self, "request", None)
+        return request is not None and request.method == "POST"
+
+    def get_authenticators(self):
+        # Issuing needs no session, so no session CSRF; listing accepts any human auth.
+        return [] if self.issuing() else super().get_authenticators()
+
+    def get_permissions(self):
+        return [permissions.AllowAny()] if self.issuing() else [IsViewer()]
+
+    def get_throttles(self):
+        return super().get_throttles() if self.issuing() else []
+
+    @extend_schema(
+        operation_id="auth_tokens_list",
+        summary="Your device tokens (owners: ?all=true for everyone's)",
+        parameters=[
+            OpenApiParameter("all", bool, description="Owners only: include every user's tokens")
+        ],
+        responses=TokenSerializer(many=True),
+    )
+    def get(self, request):
+        tokens = UserToken.objects.select_related("user")
+        everyone = request.query_params.get("all") == "true" and has_role(request.user, Role.OWNER)
+        if not everyone:
+            tokens = tokens.filter(user=request.user)
+        return Response(TokenSerializer(tokens[:500], many=True, context={"request": request}).data)
+
+    @extend_schema(
+        operation_id="auth_tokens_create",
+        summary="Sign in from a device and receive a token (shown once)",
+        request=TokenRequest,
+        responses={201: IssuedTokenSerializer, 400: LOGIN_ERROR, 429: LOGIN_ERROR},
+        auth=[],
+    )
+    def post(self, request):
+        serializer = TokenRequest(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        user = authenticate(request, username=data["username"], password=data["password"])
+        if user is None or role_of(user) is None:
+            return Response({"detail": INVALID_LOGIN}, status=status.HTTP_400_BAD_REQUEST)
+        token, raw = issue_token(user, data["name"])
+        payload = {**TokenSerializer(token).data, "token": raw, "user": me_payload(user)}
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+
+@method_decorator(never_cache, name="dispatch")
+class TokenRevokeView(APIView):
+    permission_classes = [IsViewer]
+
+    @extend_schema(
+        operation_id="auth_tokens_revoke",
+        summary="Revoke one of your tokens ('current' for this device); owners revoke any",
+        request=None,
+        responses={200: TokenSerializer, 404: LOGIN_ERROR},
+    )
+    def post(self, request, pk):
+        if pk == "current":
+            if not isinstance(request.auth, UserToken):
+                return Response({"detail": "Not signed in with a device token"}, status=400)
+            pk = str(request.auth.pk)
+        if not pk.isdigit():
+            return account_error(AccountError("Token not found", 404))
+        try:
+            token = revoke_token(int(pk), request.user)
+        except AccountError as exc:
+            return account_error(exc)
+        return Response(TokenSerializer(token, context={"request": request}).data)

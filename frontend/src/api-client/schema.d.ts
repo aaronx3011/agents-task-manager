@@ -120,6 +120,47 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/auth/tokens": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Your device tokens (owners: ?all=true for everyone's)
+     * @description Issue (public, credentials in the body) and list (signed in) device tokens.
+     */
+    get: operations["auth_tokens_list"];
+    put?: never;
+    /**
+     * Sign in from a device and receive a token (shown once)
+     * @description Issue (public, credentials in the body) and list (signed in) device tokens.
+     */
+    post: operations["auth_tokens_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/auth/tokens/{id}/revoke": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Revoke one of your tokens ('current' for this device); owners revoke any */
+    post: operations["auth_tokens_revoke"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/commands": {
     parameters: {
       query?: never;
@@ -930,6 +971,22 @@ export interface components {
     InviteTokenInputRequest: {
       token: string;
     };
+    IssuedToken: {
+      id: number;
+      name: string;
+      key_prefix: string;
+      username: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      last_used_at: string | null;
+      /** Format: date-time */
+      revoked_at: string | null;
+      readonly current: boolean;
+      /** @description Shown once; send as `Authorization: Token <key>`. */
+      token: string;
+      user: components["schemas"]["Me"];
+    };
     JobReportRequest: {
       token: string;
       status: components["schemas"]["PlanningJobReportStatusEnum"];
@@ -1217,6 +1274,25 @@ export interface components {
      */
     TaskStatusUpdateEnum:
       "in_progress" | "blocked" | "review" | "done" | "cancelled";
+    Token: {
+      id: number;
+      name: string;
+      key_prefix: string;
+      username: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      last_used_at: string | null;
+      /** Format: date-time */
+      revoked_at: string | null;
+      readonly current: boolean;
+    };
+    TokenRequestRequest: {
+      username: string;
+      password: string;
+      /** @description Device label, e.g. 'Ana's iPhone'. */
+      name: string;
+    };
     User: {
       id: number;
       username: string;
@@ -1486,6 +1562,98 @@ export interface operations {
         content?: never;
       };
       400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LoginError"];
+        };
+      };
+    };
+  };
+  auth_tokens_list: {
+    parameters: {
+      query?: {
+        /** @description Owners only: include every user's tokens */
+        all?: boolean;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Token"][];
+        };
+      };
+    };
+  };
+  auth_tokens_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TokenRequestRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["TokenRequestRequest"];
+        "multipart/form-data": components["schemas"]["TokenRequestRequest"];
+      };
+    };
+    responses: {
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["IssuedToken"];
+        };
+      };
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LoginError"];
+        };
+      };
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LoginError"];
+        };
+      };
+    };
+  };
+  auth_tokens_revoke: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Token"];
+        };
+      };
+      404: {
         headers: {
           [name: string]: unknown;
         };
