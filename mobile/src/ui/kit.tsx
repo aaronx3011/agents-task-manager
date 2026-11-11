@@ -475,7 +475,8 @@ export function Sheet({
             {
               borderColor: palette.line,
               backgroundColor: palette.panel,
-              paddingTop: Platform.OS === "android" ? insets.top + 12 : 14,
+              // The modal already starts below the status bar on Android.
+              paddingTop: 14,
             },
           ]}
         >
