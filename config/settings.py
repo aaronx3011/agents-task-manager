@@ -164,7 +164,10 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "coordinator.pagination.TaskPagination",
     "PAGE_SIZE": 100,
     # Login attempts per client address + username (accounts.api.LoginThrottle).
-    "DEFAULT_THROTTLE_RATES": {"login": os.environ.get("LOGIN_THROTTLE_RATE", "10/min")},
+    "DEFAULT_THROTTLE_RATES": {
+        "login": os.environ.get("LOGIN_THROTTLE_RATE", "10/min"),
+        "invite": os.environ.get("INVITE_THROTTLE_RATE", "20/min"),
+    },
     # Behind the trusted reverse proxy only the last X-Forwarded-For hop is used;
     # otherwise REMOTE_ADDR, so clients cannot spoof their throttle identity.
     "NUM_PROXIES": 1 if env_bool("DJANGO_TRUST_PROXY") else 0,

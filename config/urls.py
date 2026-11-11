@@ -4,6 +4,7 @@ from django.urls import include, path
 from django.views.generic import RedirectView
 from drf_spectacular.views import SpectacularAPIView
 
+from accounts.urls import invite_urlpatterns
 from coordinator.dashboard import dashboard, dashboard_state, workspace_state
 
 urlpatterns = [
@@ -17,6 +18,7 @@ urlpatterns = [
     # for MCP and bridges and resolves to the same views.
     path("api/v1/schema", SpectacularAPIView.as_view(), name="openapi-schema"),
     path("api/v1/auth/", include("accounts.urls")),
+    path("api/v1/", include((invite_urlpatterns, "invites"))),
     path("api/v1/", include(("coordinator.urls", "coordinator"), namespace="v1")),
     path("api/", include("coordinator.urls")),
     path("api-auth/", include("rest_framework.urls")),

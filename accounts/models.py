@@ -54,3 +54,69 @@ class RoleChange(models.Model):
 
     def __str__(self):
         return f"{self.user_id}: {self.old_role or '∅'} → {self.new_role} by {self.actor}"
+
+
+class AccountEvent(models.Model):
+    """Append-only audit of account actions: invites, user management, tokens."""
+
+    class Type(models.TextChoices):
+        INVITE_CREATED = "invite.created", "Invite created"
+        INVITE_REVOKED = "invite.revoked", "Invite revoked"
+        INVITE_ACCEPTED = "invite.accepted", "Invite accepted"
+
+    event_type = models.CharField(max_length=40, choices=Type.choices)
+    # The human who acted (None for anonymous invite acceptance) and their label.
+    actor_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    actor = models.CharField(max_length=150)
+    subject_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    message = models.CharField(max_length=300, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+
+    def __str__(self):
+        return f"{self.event_type} by {self.actor}"
+
+
+class Invite(models.Model):
+    """Single-use invite link. Only the SHA-256 of the token is stored."""
+
+    role = models.CharField(max_length=16, choices=Role.choices, default=Role.MEMBER)
+    token_hash = models.CharField(max_length=64, unique=True, editable=False)
+    # Non-secret prefix so owners can tell links apart in the list.
+    token_prefix = models.CharField(max_length=8, editable=False)
+    note = models.CharField(max_length=200, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    used_by = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="accepted_invite",
+    )
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+
+    def status(self, now):
+        if self.used_at:
+            return "used"
+        if self.revoked_at:
+            return "revoked"
+        if self.expires_at <= now:
+            return "expired"
+        return "pending"
+
+    def __str__(self):
+        return f"{self.token_prefix}… ({self.role})"

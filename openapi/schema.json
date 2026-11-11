@@ -688,6 +688,255 @@
                 }
             }
         },
+        "/api/v1/invites": {
+            "get": {
+                "operationId": "invites_list",
+                "tags": [
+                    "invites"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/Invite"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "invites_create",
+                "summary": "Create a single-use invite link (returned once)",
+                "tags": [
+                    "invites"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/InviteInputRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/InviteInputRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/InviteInputRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CreatedInvite"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/invites/{id}/revoke": {
+            "post": {
+                "operationId": "invites_revoke",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "invites"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Invite"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/invites/accept": {
+            "post": {
+                "operationId": "invites_accept",
+                "summary": "Accept an invite: create the account and start a session",
+                "tags": [
+                    "invites"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AcceptInviteInputRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AcceptInviteInputRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AcceptInviteInputRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Me"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LoginError"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LoginError"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LoginError"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/invites/check": {
+            "post": {
+                "operationId": "invites_check",
+                "summary": "Preview a pending invite before accepting (requires X-CSRFToken)",
+                "tags": [
+                    "invites"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/InviteTokenInputRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/InviteTokenInputRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/InviteTokenInputRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/InvitePreview"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LoginError"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/overview": {
             "get": {
                 "operationId": "overview_list",
@@ -2116,6 +2365,45 @@
     },
     "components": {
         "schemas": {
+            "AcceptInviteInputRequest": {
+                "type": "object",
+                "properties": {
+                    "token": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                    },
+                    "username": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 150
+                    },
+                    "password": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "minLength": 1,
+                        "maxLength": 4096
+                    },
+                    "email": {
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "format": "email",
+                                "default": ""
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "password",
+                    "token",
+                    "username"
+                ]
+            },
             "ActionEnum": {
                 "enum": [
                     "create",
@@ -2367,6 +2655,78 @@
                 "type": "string",
                 "description": "* `done` - done\n* `error` - error"
             },
+            "CreatedInvite": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "role": {
+                        "$ref": "#/components/schemas/RoleEnum"
+                    },
+                    "token_prefix": {
+                        "type": "string"
+                    },
+                    "note": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "created_by": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "used_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "used_by": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "revoked_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "token": {
+                        "type": "string",
+                        "description": "Shown once; only its hash is stored."
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "Share this link manually. Shown once."
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "created_by",
+                    "expires_at",
+                    "id",
+                    "note",
+                    "revoked_at",
+                    "role",
+                    "status",
+                    "token",
+                    "token_prefix",
+                    "url",
+                    "used_at",
+                    "used_by"
+                ]
+            },
             "CsrfToken": {
                 "type": "object",
                 "properties": {
@@ -2559,6 +2919,121 @@
                 "required": [
                     "heartbeat_at",
                     "ok"
+                ]
+            },
+            "Invite": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "role": {
+                        "$ref": "#/components/schemas/RoleEnum"
+                    },
+                    "token_prefix": {
+                        "type": "string"
+                    },
+                    "note": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "created_by": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "used_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "used_by": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "revoked_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "created_by",
+                    "expires_at",
+                    "id",
+                    "note",
+                    "revoked_at",
+                    "role",
+                    "status",
+                    "token_prefix",
+                    "used_at",
+                    "used_by"
+                ]
+            },
+            "InviteInputRequest": {
+                "type": "object",
+                "properties": {
+                    "role": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleEnum"
+                            }
+                        ],
+                        "default": "member"
+                    },
+                    "expires_in_hours": {
+                        "type": "integer",
+                        "maximum": 720,
+                        "minimum": 1,
+                        "default": 72
+                    },
+                    "note": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 200
+                    }
+                }
+            },
+            "InvitePreview": {
+                "type": "object",
+                "properties": {
+                    "role": {
+                        "$ref": "#/components/schemas/RoleEnum"
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "expires_at",
+                    "role"
+                ]
+            },
+            "InviteTokenInputRequest": {
+                "type": "object",
+                "properties": {
+                    "token": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                    }
+                },
+                "required": [
+                    "token"
                 ]
             },
             "JobReportRequest": {

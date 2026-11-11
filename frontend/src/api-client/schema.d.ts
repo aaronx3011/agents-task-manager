@@ -189,6 +189,73 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/invites": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["invites_list"];
+    put?: never;
+    /** Create a single-use invite link (returned once) */
+    post: operations["invites_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/invites/{id}/revoke": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["invites_revoke"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/invites/accept": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Accept an invite: create the account and start a session */
+    post: operations["invites_accept"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/invites/check": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Preview a pending invite before accepting (requires X-CSRFToken) */
+    post: operations["invites_check"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/overview": {
     parameters: {
       query?: never;
@@ -589,6 +656,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    AcceptInviteInputRequest: {
+      token: string;
+      username: string;
+      password: string;
+      email?: string;
+    };
     /**
      * @description * `create` - create
      *     * `prompt` - prompt
@@ -668,6 +741,27 @@ export interface components {
      * @enum {string}
      */
     CommandResolutionEnum: "done" | "error";
+    CreatedInvite: {
+      id: number;
+      role: components["schemas"]["RoleEnum"];
+      token_prefix: string;
+      note: string;
+      readonly status: string;
+      readonly created_by: string | null;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      expires_at: string;
+      /** Format: date-time */
+      used_at: string | null;
+      readonly used_by: string | null;
+      /** Format: date-time */
+      revoked_at: string | null;
+      /** @description Shown once; only its hash is stored. */
+      token: string;
+      /** @description Share this link manually. Shown once. */
+      url: string;
+    };
     CsrfToken: {
       csrfToken: string;
     };
@@ -735,6 +829,39 @@ export interface components {
       ok: boolean;
       /** Format: date-time */
       heartbeat_at: string;
+    };
+    Invite: {
+      id: number;
+      role: components["schemas"]["RoleEnum"];
+      token_prefix: string;
+      note: string;
+      readonly status: string;
+      readonly created_by: string | null;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      expires_at: string;
+      /** Format: date-time */
+      used_at: string | null;
+      readonly used_by: string | null;
+      /** Format: date-time */
+      revoked_at: string | null;
+    };
+    InviteInputRequest: {
+      /** @default member */
+      role: components["schemas"]["RoleEnum"];
+      /** @default 72 */
+      expires_in_hours: number;
+      /** @default  */
+      note: string;
+    };
+    InvitePreview: {
+      role: components["schemas"]["RoleEnum"];
+      /** Format: date-time */
+      expires_at: string;
+    };
+    InviteTokenInputRequest: {
+      token: string;
     };
     JobReportRequest: {
       token: string;
@@ -1430,6 +1557,153 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["WorkspaceFilterError"];
+        };
+      };
+    };
+  };
+  invites_list: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Invite"][];
+        };
+      };
+    };
+  };
+  invites_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["InviteInputRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["InviteInputRequest"];
+        "multipart/form-data": components["schemas"]["InviteInputRequest"];
+      };
+    };
+    responses: {
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CreatedInvite"];
+        };
+      };
+    };
+  };
+  invites_revoke: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Invite"];
+        };
+      };
+    };
+  };
+  invites_accept: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AcceptInviteInputRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["AcceptInviteInputRequest"];
+        "multipart/form-data": components["schemas"]["AcceptInviteInputRequest"];
+      };
+    };
+    responses: {
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Me"];
+        };
+      };
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LoginError"];
+        };
+      };
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LoginError"];
+        };
+      };
+      410: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LoginError"];
+        };
+      };
+    };
+  };
+  invites_check: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["InviteTokenInputRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["InviteTokenInputRequest"];
+        "multipart/form-data": components["schemas"]["InviteTokenInputRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["InvitePreview"];
+        };
+      };
+      410: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LoginError"];
         };
       };
     };
