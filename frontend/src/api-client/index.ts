@@ -62,7 +62,8 @@ export async function unwrap<T>(
   request: Promise<{ data?: T; error?: unknown; response: Response }>,
 ): Promise<T> {
   const { data, error, response } = await request;
-  if (response.redirected || response.status === 401 || response.status === 403)
+  // 401 means signed out; 403 is a role restriction and keeps its server message.
+  if (response.redirected || response.status === 401)
     throw new ApiError(401, SESSION_EXPIRED);
   if (!response.ok || data === undefined) {
     const detail =

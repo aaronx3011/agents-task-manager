@@ -2,7 +2,7 @@
 
 from django.db import transaction
 
-from coordinator.services import retry_sqlite
+from coordinator.dbretry import retry_sqlite
 
 from .models import ROLE_RANK, Role, RoleChange, UserProfile, role_for_flags
 

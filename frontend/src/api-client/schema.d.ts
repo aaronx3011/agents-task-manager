@@ -7,10 +7,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** @description Staff configuration surface; agent keys never grant provisioning rights. */
+    /** @description Owner configuration surface; agent keys never grant provisioning rights. */
     get: operations["agents_list"];
     put?: never;
-    /** @description Staff configuration surface; agent keys never grant provisioning rights. */
+    /** @description Owner configuration surface; agent keys never grant provisioning rights. */
     post: operations["agents_create"];
     delete?: never;
     options?: never;
@@ -42,10 +42,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** @description Durable command queue APIs (issue #12): staff any worker; agents own worker. */
+    /** @description Durable command queue APIs (issue #12): members any worker; agents own worker. */
     get: operations["commands_list"];
     put?: never;
-    /** @description Durable command queue APIs (issue #12): staff any worker; agents own worker. */
+    /** @description Durable command queue APIs (issue #12): members any worker; agents own worker. */
     post: operations["commands_create"];
     delete?: never;
     options?: never;
@@ -60,7 +60,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** @description Durable command queue APIs (issue #12): staff any worker; agents own worker. */
+    /** @description Durable command queue APIs (issue #12): members any worker; agents own worker. */
     get: operations["commands_retrieve"];
     put?: never;
     post?: never;
@@ -79,7 +79,7 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** @description Explicit staff reconciliation for uncertain or pending commands (#12). */
+    /** @description Explicit member reconciliation for uncertain or pending commands (#12). */
     post: operations["commands_resolve_create"];
     delete?: never;
     options?: never;
@@ -196,7 +196,7 @@ export interface paths {
      * @description Unified cross-worker session list (#15).
      *
      *     Workers stay isolated: the same remote ID on two workers remains two rows.
-     *     Agents read only sessions of their bound worker; staff reads everything.
+     *     Agents read only sessions of their bound worker; humans read everything.
      */
     get: operations["sessions_retrieve"];
     put?: never;

@@ -15,7 +15,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .auth import IsStaffUser
+from .auth import IsViewer
 from .models import Agent, Project, Task, TaskEvent
 from .openapi import PAGINATION_PARAMS, TASK_LIST_PARAMS
 from .queries import filter_tasks, task_queryset
@@ -202,7 +202,7 @@ def workspace_state(params):
 
 @method_decorator(never_cache, name="dispatch")
 class DashboardStateView(APIView):
-    permission_classes = [IsStaffUser]
+    permission_classes = [IsViewer]
 
     @extend_schema(
         operation_id="dashboard_state",
@@ -219,7 +219,7 @@ class DashboardStateView(APIView):
 
 @method_decorator(never_cache, name="dispatch")
 class WorkspaceStateView(APIView):
-    permission_classes = [IsStaffUser]
+    permission_classes = [IsViewer]
 
     @extend_schema(
         operation_id="dashboard_workspace",

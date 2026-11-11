@@ -15,7 +15,8 @@ pytestmark = pytest.mark.django_db
 @pytest.fixture
 def registration_staff(django_user_model):
     client = Client(enforce_csrf_checks=True)
-    user = django_user_model.objects.create_user("registrar", is_staff=True)
+    # Registering agents is an owner action (#43).
+    user = django_user_model.objects.create_user("registrar", is_staff=True, is_superuser=True)
     client.force_login(user)
     client.get("/dashboard/")
     return client

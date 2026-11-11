@@ -158,7 +158,7 @@ REST_FRAMEWORK = {
         "coordinator.auth.AgentKeyAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
-    "DEFAULT_PERMISSION_CLASSES": ["coordinator.auth.IsAgentOrStaff"],
+    "DEFAULT_PERMISSION_CLASSES": ["coordinator.auth.IsAgentOrRole"],
     "EXCEPTION_HANDLER": "coordinator.exceptions.exception_handler",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_PAGINATION_CLASS": "coordinator.pagination.TaskPagination",
@@ -173,7 +173,7 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
     # Same audience as the API itself; offline generation uses `manage.py spectacular`.
-    "SERVE_PERMISSIONS": ["coordinator.auth.IsAgentOrStaff"],
+    "SERVE_PERMISSIONS": ["coordinator.auth.IsAgentOrRole"],
     # Only the versioned mount is documented; /api/ stays as an undocumented alias.
     "PREPROCESSING_HOOKS": ["coordinator.openapi.only_versioned_endpoints"],
     "POSTPROCESSING_HOOKS": [

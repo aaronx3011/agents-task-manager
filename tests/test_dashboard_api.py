@@ -74,12 +74,16 @@ def test_workspace_payload_shape(staff, board):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("path", [STATE, WORKSPACE])
-def test_versioned_dashboard_is_staff_only(path, api_client, django_user_model):
+def test_versioned_dashboard_is_for_signed_in_humans(path, api_client, django_user_model):
     assert Client().get(path).status_code in {401, 403}
     assert api_client.get(path).status_code == 403
-    member = Client()
-    member.force_login(django_user_model.objects.create_user("member"))
-    assert member.get(path).status_code == 403
+    viewer = Client()
+    user = django_user_model.objects.create_user("viewer")
+    viewer.force_login(user)
+    assert viewer.get(path).status_code == 200
+    user.is_active = False
+    user.save()
+    assert viewer.get(path).status_code in {401, 403}
 
 
 @pytest.mark.django_db

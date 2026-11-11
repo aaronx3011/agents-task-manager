@@ -53,8 +53,8 @@ def test_dashboard_and_snapshot_require_staff_and_do_not_expose_keys(
 ):
     assert client.get("/dashboard/").status_code == 302
     assert api_client.get("/dashboard/state/").status_code == 302
-    user = django_user_model.objects.create_user("nonstaff")
-    client.force_login(user)
+    inactive = django_user_model.objects.create_user("inactive", is_active=False)
+    client.force_login(inactive)
     assert client.get("/dashboard/").status_code == 302
     task = create(api_client, title="<script>untrusted task title</script>")
     post(api_client, f"tasks/{task['id']}/claim")
@@ -73,9 +73,9 @@ def test_dashboard_and_snapshot_require_staff_and_do_not_expose_keys(
 
 
 @pytest.mark.django_db(transaction=True)
-def test_socket_rejects_anonymous_nonstaff_and_untrusted_origin(staff_client, django_user_model):
+def test_socket_rejects_anonymous_inactive_and_untrusted_origin(staff_client, django_user_model):
     ordinary = Client()
-    ordinary.force_login(django_user_model.objects.create_user("ordinary-socket"))
+    ordinary.force_login(django_user_model.objects.create_user("inactive-socket", is_active=False))
 
     async def verify():
         for client, origin in [
@@ -134,10 +134,8 @@ def test_socket_delivers_committed_changes_and_remains_silent_on_rollback(
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("revocation", ["logout", "expire", "password", "demote"])
-def test_socket_closes_when_staff_session_is_invalidated(
-    staff_client, django_user_model, revocation
-):
+@pytest.mark.parametrize("revocation", ["logout", "expire", "password", "deactivate"])
+def test_socket_closes_when_session_is_invalidated(staff_client, django_user_model, revocation):
     def invalidate():
         if revocation == "logout":
             staff_client.logout()
@@ -152,7 +150,7 @@ def test_socket_closes_when_staff_session_is_invalidated(
             if revocation == "password":
                 user.set_password("changed-test-password")
             else:
-                user.is_staff = False
+                user.is_active = False
             user.save()
 
     async def verify():
