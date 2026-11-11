@@ -1,0 +1,120 @@
+.auth-screen {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px 16px;
+  background: var(--bg);
+}
+.auth-card {
+  width: min(400px, 100%);
+  padding: 28px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+  font-weight: 650;
+}
+.auth-card h1 {
+  margin: 0 0 6px;
+  font-size: 1.4rem;
+}
+.auth-lead {
+  margin: 0 0 20px;
+  color: var(--secondary);
+  line-height: 1.5;
+}
+.auth-form {
+  display: grid;
+  gap: 14px;
+}
+.auth-form label,
+.auth-dialog label {
+  display: grid;
+  gap: 6px;
+  color: var(--secondary);
+  font-size: 0.9rem;
+}
+.auth-form input,
+.auth-dialog input,
+.users-table select {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+}
+.auth-error {
+  margin: 0;
+  color: var(--amber);
+}
+.auth-notice {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--secondary);
+  background: var(--accent-soft);
+}
+.role-fieldset {
+  display: contents;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.users-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+.users-table th,
+.users-table td {
+  padding: 10px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: middle;
+}
+.users-table th {
+  color: var(--muted);
+  font-weight: 550;
+}
+.users-table .row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.users-scroll {
+  overflow-x: auto;
+}
+.auth-dialog {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised);
+}
+.user-menu-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.users-layout {
+  display: grid;
+  gap: 20px;
+  max-width: 1100px;
+}
+.users-table select {
+  width: auto;
+  min-width: 110px;
+  padding: 6px 8px;
+}

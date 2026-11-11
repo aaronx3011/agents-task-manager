@@ -51,11 +51,15 @@ def test_dashboard_and_snapshot_require_staff_and_do_not_expose_keys(
     project,
     django_user_model,
 ):
-    assert client.get("/dashboard/").status_code == 302
+    # The SPA shell is public and data-free; data endpoints still require a role (#49).
+    shell = client.get("/dashboard/")
+    assert shell.status_code == 200 and "no-store" in shell.headers["Cache-Control"]
+    assert client.get("/dashboard/state/").status_code == 302
     assert api_client.get("/dashboard/state/").status_code == 302
     inactive = django_user_model.objects.create_user("inactive", is_active=False)
     client.force_login(inactive)
-    assert client.get("/dashboard/").status_code == 302
+    assert client.get("/dashboard/state/").status_code == 302
+    assert client.get("/invite").status_code == 200
     task = create(api_client, title="<script>untrusted task title</script>")
     post(api_client, f"tasks/{task['id']}/claim")
     dashboard = staff_client.get("/dashboard/")

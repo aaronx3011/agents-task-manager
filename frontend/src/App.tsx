@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   ArrowDownWideNarrow,
@@ -19,6 +19,8 @@ import {
   Command,
   Layers3,
   LayoutGrid,
+  LogOut,
+  UserCog,
   List,
   Moon,
   PanelRightClose,
@@ -37,6 +39,7 @@ import {
 import { ApiError } from "./api";
 import { api, unwrap } from "./api-client";
 import { workspaceQuery } from "./workspace-query";
+import { ROLE_LABELS, useAccess, useSignOut } from "./auth";
 import { Board } from "./Board";
 import { useLiveUpdates } from "./live";
 import { useLocationState } from "./location";
@@ -63,6 +66,12 @@ const OpenCodes = lazy(() => import("./OpenCodes"));
 const Configuration = lazy(() => import("./Configuration"));
 const ActivityPage = lazy(() => import("./ActivityPage"));
 const Planning = lazy(() => import("./Planning"));
+const UsersPage = lazy(() =>
+  import("./Users").then((module) => ({ default: module.UsersPage })),
+);
+const AccountPage = lazy(() =>
+  import("./Users").then((module) => ({ default: module.AccountPage })),
+);
 
 function preference(key: string, fallback: string) {
   try {
@@ -205,6 +214,9 @@ export default function App() {
   const [trail, setTrail] = useState<string[]>([]);
   const trigger = useRef<HTMLElement | null>(null);
   const root = document.getElementById("root")!;
+  const { me, canWrite, canManage } = useAccess();
+  const signOut = useSignOut();
+  const queryClient = useQueryClient();
   const { filters } = location;
   const workspace = useQuery({
     queryKey: ["workspace", filters],
@@ -288,6 +300,10 @@ export default function App() {
   const expired =
     connection === "expired" ||
     (workspace.error instanceof ApiError && workspace.error.status === 401);
+  useEffect(() => {
+    // A 401 means the session ended: re-check it so the gate shows sign-in.
+    if (expired) void queryClient.invalidateQueries({ queryKey: ["me"] });
+  }, [expired, queryClient]);
   const connectionLabel = expired
     ? "Session expired"
     : workspace.isError
@@ -371,18 +387,20 @@ export default function App() {
           </button>
           <div className="nav-caption project-caption">
             PROJECTS<span>{data?.projects.length || 0}</span>
-            <button
-              className="icon-button"
-              aria-label="Create project"
-              onClick={() =>
-                navigate(
-                  { section: "planning", new_project: "true", task: null },
-                  true,
-                )
-              }
-            >
-              <Plus size={14} />
-            </button>
+            {canWrite && (
+              <button
+                className="icon-button"
+                aria-label="Create project"
+                onClick={() =>
+                  navigate(
+                    { section: "planning", new_project: "true", task: null },
+                    true,
+                  )
+                }
+              >
+                <Plus size={14} />
+              </button>
+            )}
           </div>
           <div className="project-navigation">
             {data?.projects.map((item) => (
@@ -402,15 +420,28 @@ export default function App() {
             ))}
           </div>
           <div className="sidebar-bottom">
-            <button
-              className={`nav-link ${location.section === "configuration" ? "active" : ""}`}
-              onClick={() =>
-                navigate({ section: "configuration", task: null }, true)
-              }
-            >
-              <Settings size={16} />
-              Configuration
-            </button>
+            {canManage && (
+              <>
+                <button
+                  className={`nav-link ${location.section === "users" ? "active" : ""}`}
+                  onClick={() =>
+                    navigate({ section: "users", task: null }, true)
+                  }
+                >
+                  <UserCog size={16} />
+                  Users &amp; invites
+                </button>
+                <button
+                  className={`nav-link ${location.section === "configuration" ? "active" : ""}`}
+                  onClick={() =>
+                    navigate({ section: "configuration", task: null }, true)
+                  }
+                >
+                  <Settings size={16} />
+                  Configuration
+                </button>
+              </>
+            )}
             <a
               className="nav-link"
               href="https://github.com/aaronx3011/agents-task-manager/issues/3"
@@ -422,18 +453,37 @@ export default function App() {
               <ArrowUpRight size={13} />
             </a>
             <div className="user-bar">
-              <Avatar name={root.dataset.username || "Staff"} />
-              <div>
-                <strong>{root.dataset.username || "Staff"}</strong>
-                <span>Staff workspace</span>
-              </div>
-              <a
-                className="icon-button"
-                href="/admin/"
-                aria-label="Open Django admin"
+              <button
+                className="user-bar-identity"
+                aria-label="Account settings"
+                onClick={() =>
+                  navigate({ section: "account", task: null }, true)
+                }
               >
-                <ArrowUpRight size={15} />
-              </a>
+                <Avatar name={me.username} />
+                <div>
+                  <strong>{me.username}</strong>
+                  <span>{ROLE_LABELS[me.role]}</span>
+                </div>
+              </button>
+              <div className="user-menu-actions">
+                {me.is_superuser && (
+                  <a
+                    className="icon-button"
+                    href="/admin/"
+                    aria-label="Open Django admin"
+                  >
+                    <ArrowUpRight size={15} />
+                  </a>
+                )}
+                <button
+                  className="icon-button"
+                  aria-label="Sign out"
+                  onClick={() => void signOut()}
+                >
+                  <LogOut size={15} />
+                </button>
+              </div>
             </div>
           </div>
         </aside>
@@ -454,7 +504,11 @@ export default function App() {
                         ? "Activity"
                         : location.section === "configuration"
                           ? "Configuration"
-                          : project?.name || "All projects"}
+                          : location.section === "users"
+                            ? "Users & invites"
+                            : location.section === "account"
+                              ? "Account"
+                              : project?.name || "All projects"}
               </strong>
             </div>
             <div className="topbar-actions">
@@ -518,13 +572,31 @@ export default function App() {
             >
               Activity
             </button>
+            {canManage && (
+              <>
+                <button
+                  aria-pressed={location.section === "users"}
+                  onClick={() =>
+                    navigate({ section: "users", task: null }, true)
+                  }
+                >
+                  Users
+                </button>
+                <button
+                  aria-pressed={location.section === "configuration"}
+                  onClick={() =>
+                    navigate({ section: "configuration", task: null }, true)
+                  }
+                >
+                  Configuration
+                </button>
+              </>
+            )}
             <button
-              aria-pressed={location.section === "configuration"}
-              onClick={() =>
-                navigate({ section: "configuration", task: null }, true)
-              }
+              aria-pressed={location.section === "account"}
+              onClick={() => navigate({ section: "account", task: null }, true)}
             >
-              Configuration
+              Account
             </button>
           </div>
           {location.section === "planning" ? (
@@ -571,12 +643,23 @@ export default function App() {
                 }
               />
             </Suspense>
-          ) : location.section === "configuration" ? (
+          ) : location.section === "configuration" && canManage ? (
             <Suspense
               key="configuration"
               fallback={<Loading label="Opening configuration…" />}
             >
               <Configuration />
+            </Suspense>
+          ) : location.section === "users" && canManage ? (
+            <Suspense key="users" fallback={<Loading label="Opening users…" />}>
+              <UsersPage />
+            </Suspense>
+          ) : location.section === "account" ? (
+            <Suspense
+              key="account"
+              fallback={<Loading label="Opening account…" />}
+            >
+              <AccountPage />
             </Suspense>
           ) : (
             <>

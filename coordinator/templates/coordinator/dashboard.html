@@ -16,8 +16,8 @@
   {% endif %}
 </head>
 <body>
-  <div id="root" data-username="{{ request.user.username }}" data-demo="{{ demo|yesno:'true,false' }}"></div>
+  <div id="root" data-demo="{{ demo|yesno:'true,false' }}"></div>
   {% if not assets %}<p role="alert">Dashboard assets are not built. Run the frontend build before starting the dashboard.</p>{% endif %}
-  <noscript>Enable JavaScript to view the live workspace. Task management is also available in <a href="/admin/">Django Admin</a>.</noscript>
+  <noscript>Enable JavaScript to sign in and view the live workspace.</noscript>
 </body>
 </html>

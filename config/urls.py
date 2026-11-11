@@ -10,6 +10,8 @@ from coordinator.dashboard import dashboard, dashboard_state, workspace_state
 urlpatterns = [
     path("", RedirectView.as_view(pattern_name="dashboard", permanent=False)),
     path("dashboard/", dashboard, name="dashboard"),
+    # Invite links are /invite#<token>; the SPA reads the fragment (#46, #49).
+    path("invite", dashboard, name="invite"),
     path("dashboard/state/", dashboard_state, name="dashboard-state"),
     path("dashboard/workspace/", workspace_state, name="workspace-state"),
     path("healthz", lambda request: JsonResponse({"status": "ok"})),

@@ -102,7 +102,9 @@ export interface LocationState {
     | "sessions"
     | "activity"
     | "configuration"
-    | "planning";
+    | "planning"
+    | "users"
+    | "account";
   worker: string;
   session: string;
   filters: Filters;
