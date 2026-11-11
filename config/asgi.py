@@ -12,6 +12,7 @@ def build_application():
     from channels.security.websocket import AllowedHostsOriginValidator
     from django.urls import path
 
+    from accounts.realtime import TicketOrOriginValidator
     from coordinator.live import WorkerLiveConsumer
     from coordinator.realtime import DashboardConsumer
 
@@ -24,8 +25,9 @@ def build_application():
                     path("ws/worker/", WorkerLiveConsumer.as_asgi()),
                     path(
                         "ws/dashboard/",
-                        AllowedHostsOriginValidator(
-                            AuthMiddlewareStack(DashboardConsumer.as_asgi())
+                        TicketOrOriginValidator(
+                            AuthMiddlewareStack(DashboardConsumer.as_asgi()),
+                            AllowedHostsOriginValidator,
                         ),
                     ),
                 ]

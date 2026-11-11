@@ -27,6 +27,7 @@ from rest_framework.views import APIView
 from coordinator.auth import IsOwner, IsViewer
 
 from .models import Invite, Role, UserToken
+from .realtime import SUBPROTOCOL, TICKET_PREFIX, TICKET_SECONDS, issue_ticket
 from .services import (
     INVITE_DEFAULT_HOURS,
     INVITE_MAX_HOURS,
@@ -542,3 +543,36 @@ class TokenRevokeView(APIView):
         except AccountError as exc:
             return account_error(exc)
         return Response(TokenSerializer(token, context={"request": request}).data)
+
+
+# --- Realtime tickets (#51) --------------------------------------------------------
+
+TICKET_RESPONSE = inline_serializer(
+    "RealtimeTicket",
+    {
+        "ticket": serializers.CharField(),
+        "expires_in": serializers.IntegerField(),
+        "subprotocols": serializers.ListField(child=serializers.CharField()),
+    },
+)
+
+
+@method_decorator(never_cache, name="dispatch")
+class RealtimeTicketView(APIView):
+    permission_classes = [IsViewer]
+
+    @extend_schema(
+        operation_id="realtime_ticket",
+        summary="Single-use ticket for /ws/dashboard/ (send as WebSocket subprotocols)",
+        request=None,
+        responses=TICKET_RESPONSE,
+    )
+    def post(self, request):
+        ticket = issue_ticket(request.user, request.auth)
+        return Response(
+            {
+                "ticket": ticket,
+                "expires_in": TICKET_SECONDS,
+                "subprotocols": [SUBPROTOCOL, f"{TICKET_PREFIX}{ticket}"],
+            }
+        )

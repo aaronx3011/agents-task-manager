@@ -12,6 +12,12 @@ from django.conf import settings
 from django.contrib.auth import get_user
 from django.core.cache import cache
 
+from accounts.realtime import (
+    SUBPROTOCOL,
+    redeem_ticket,
+    ticket_from_subprotocols,
+    ticket_holder_allowed,
+)
 from accounts.services import role_of
 
 from .live import resolve_subscription, session_group, snapshot_key, worker_group
@@ -71,8 +77,14 @@ def dispatch_notification(
 
 
 class DashboardConsumer(AsyncJsonWebsocketConsumer):
+    """Browsers authenticate with their session; mobile apps with a ticket (#51)."""
+
+    ticket_claims = None
+
     @database_sync_to_async
     def authorized(self):
+        if self.ticket_claims is not None:
+            return ticket_holder_allowed(self.ticket_claims)
         user = self.scope.get("user")
         if not user or not user.is_authenticated:
             return False
@@ -88,11 +100,18 @@ class DashboardConsumer(AsyncJsonWebsocketConsumer):
 
     async def connect(self):
         self.subscription = None
+        ticket = ticket_from_subprotocols(self.scope.get("subprotocols"))
+        if ticket is not None:
+            self.ticket_claims = await database_sync_to_async(redeem_ticket)(ticket)
+            if self.ticket_claims is None:
+                await self.close(code=4403)
+                return
         if not await self.authorized():
             await self.close(code=4403)
             return
         await self.channel_layer.group_add(GROUP, self.channel_name)
-        await self.accept()
+        # Echo only the protocol name; the ticket itself is never sent back.
+        await self.accept(SUBPROTOCOL if ticket is not None else None)
         await self.send_json({"type": "connected"})
 
     async def disconnect(self, close_code):

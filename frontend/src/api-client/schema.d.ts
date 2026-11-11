@@ -378,6 +378,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/realtime/ticket": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Single-use ticket for /ws/dashboard/ (send as WebSocket subprotocols) */
+    post: operations["realtime_ticket"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/sessions": {
     parameters: {
       query?: never;
@@ -1139,6 +1156,11 @@ export interface components {
     PromptTemplateRequest: {
       name: string;
       text: string;
+    };
+    RealtimeTicket: {
+      ticket: string;
+      expires_in: number;
+      subprotocols: string[];
     };
     ReleaseRequest: {
       reason?: string;
@@ -2120,6 +2142,25 @@ export interface operations {
           "application/json": {
             [key: string]: unknown;
           };
+        };
+      };
+    };
+  };
+  realtime_ticket: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RealtimeTicket"];
         };
       };
     };

@@ -130,32 +130,19 @@ def test_logout_invalidates_the_session(member):
 
 
 @pytest.mark.django_db
-def test_login_attempts_are_throttled_per_address_and_username(member, settings):
-    settings.REST_FRAMEWORK = {
-        **settings.REST_FRAMEWORK,
-        "DEFAULT_THROTTLE_RATES": {"login": "3/min"},
-    }
-    from rest_framework.settings import api_settings
+def test_login_attempts_are_throttled_per_address_and_username(member, monkeypatch):
+    from accounts.api import LoginThrottle
 
-    api_settings.reload()
-    try:
-        from accounts.api import LoginThrottle
-
-        LoginThrottle.THROTTLE_RATES = api_settings.DEFAULT_THROTTLE_RATES
-        client, token = browser()
-        statuses = [login(client, token, password="wrong").status_code for _ in range(4)]
-        assert statuses == [400, 400, 400, 429]
-        assert login(client, token).status_code == 429  # correct password still waits
-        other, other_token = browser()
-        assert login(other, other_token, username="someone-else").status_code == 400
-    finally:
-        settings.REST_FRAMEWORK = {
-            key: value
-            for key, value in settings.REST_FRAMEWORK.items()
-            if key != "DEFAULT_THROTTLE_RATES"
-        }
-        api_settings.reload()
-        LoginThrottle.THROTTLE_RATES = api_settings.DEFAULT_THROTTLE_RATES
+    # Patch the class attribute only; monkeypatch restores it for later tests.
+    monkeypatch.setattr(
+        LoginThrottle, "THROTTLE_RATES", {**LoginThrottle.THROTTLE_RATES, "login": "3/min"}
+    )
+    client, token = browser()
+    statuses = [login(client, token, password="wrong").status_code for _ in range(4)]
+    assert statuses == [400, 400, 400, 429]
+    assert login(client, token).status_code == 429  # correct password still waits
+    other, other_token = browser()
+    assert login(other, other_token, username="someone-else").status_code == 400
 
 
 @pytest.mark.django_db
