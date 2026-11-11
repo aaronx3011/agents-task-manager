@@ -17,8 +17,8 @@ from .frontend import dashboard_assets
 def role_required(view):
     """Any role may open the dashboard; anonymous users go to the login page.
 
-    Replaces staff_member_required (#43). Login still uses the admin login form
-    until the session API and SPA login screen land (#45, #49).
+    Replaces staff_member_required (#43) for the legacy JSON aliases, which go
+    away with the SPA split (#50).
     """
 
     @wraps(view)
@@ -33,9 +33,10 @@ def role_required(view):
 
 
 @never_cache
-@role_required
 @ensure_csrf_cookie
 def dashboard(request):
+    """The SPA shell. It holds no data: the app signs in through /api/v1/auth (#49)
+    and every data endpoint checks the session or token itself."""
     return render(
         request,
         "coordinator/dashboard.html",

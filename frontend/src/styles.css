@@ -356,7 +356,19 @@ button {
   margin-top: 3px;
   color: var(--muted);
 }
-.user-bar > a {
+.user-bar-identity {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.user-bar .user-menu-actions {
   margin-left: auto;
 }
 .avatar {

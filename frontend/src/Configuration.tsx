@@ -17,7 +17,7 @@ interface Credentials extends RegisteredAgent {
   api_key: string;
 }
 
-function CopyButton({ label, value }: { label: string; value: string }) {
+export function CopyButton({ label, value }: { label: string; value: string }) {
   const [feedback, setFeedback] = useState("");
   return (
     <div className="config-copy">
