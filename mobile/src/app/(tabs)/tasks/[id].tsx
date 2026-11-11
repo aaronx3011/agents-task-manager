@@ -20,6 +20,7 @@ import {
   Property,
   Row,
   Screen,
+  usePullRefresh,
 } from "@/ui/kit";
 import { age, dateTime, overdue, words } from "@/ui/format";
 import { Markdown } from "@/ui/markdown";
@@ -93,8 +94,9 @@ export default function TaskScreen() {
       unwrap(api!.GET("/api/v1/tasks/{id}", { params: { path: { id: String(numeric) } } })),
   });
   const data = task.data;
+  const pull = usePullRefresh(() => task.refetch());
   return (
-    <Screen refreshing={task.isRefetching} onRefresh={() => void task.refetch()}>
+    <Screen refreshing={pull.refreshing} onRefresh={pull.onRefresh}>
       <Stack.Screen options={{ title: `Task #${id}` }} />
       {!data ? (
         task.error ? (

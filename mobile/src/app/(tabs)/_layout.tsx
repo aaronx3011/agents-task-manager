@@ -4,6 +4,7 @@ import { Redirect, Tabs } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { unwrap } from "@/api/client";
 import { useSession } from "@/auth/session";
+import { SessionLibraryProvider } from "@/sessions/library";
 import { usePalette } from "@/ui/theme";
 
 function Glyph({ symbol, color }: { symbol: string; color: ColorValue }) {
@@ -23,47 +24,52 @@ export default function TabsLayout() {
   if (ready && !user) return <Redirect href="/login" />;
   const waiting = pending.data?.items.length ?? 0;
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: palette.accent,
-        tabBarInactiveTintColor: palette.muted,
-        tabBarStyle: { backgroundColor: palette.panel, borderTopColor: palette.line },
-      }}
-    >
-      <Tabs.Screen
-        name="tasks"
-        options={{ title: "Tasks", tabBarIcon: ({ color }) => <Glyph symbol="☑" color={color} /> }}
-      />
-      <Tabs.Screen
-        name="planning"
-        options={{
-          title: "Planning",
-          tabBarIcon: ({ color }) => <Glyph symbol="▦" color={color} />,
+    <SessionLibraryProvider>
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarActiveTintColor: palette.accent,
+          tabBarInactiveTintColor: palette.muted,
+          tabBarStyle: { backgroundColor: palette.panel, borderTopColor: palette.line },
         }}
-      />
-      <Tabs.Screen
-        name="sessions"
-        options={{
-          title: "Sessions",
-          tabBarIcon: ({ color }) => <Glyph symbol="◉" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="activity"
-        options={{
-          title: "Activity",
-          tabBarIcon: ({ color }) => <Glyph symbol="≋" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="more"
-        options={{
-          title: "More",
-          tabBarIcon: ({ color }) => <Glyph symbol="⋯" color={color} />,
-          tabBarBadge: waiting ? waiting : undefined,
-        }}
-      />
-    </Tabs>
+      >
+        <Tabs.Screen
+          name="tasks"
+          options={{
+            title: "Tasks",
+            tabBarIcon: ({ color }) => <Glyph symbol="☑" color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="planning"
+          options={{
+            title: "Planning",
+            tabBarIcon: ({ color }) => <Glyph symbol="▦" color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="sessions"
+          options={{
+            title: "Sessions",
+            tabBarIcon: ({ color }) => <Glyph symbol="◉" color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="activity"
+          options={{
+            title: "Activity",
+            tabBarIcon: ({ color }) => <Glyph symbol="≋" color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="more"
+          options={{
+            title: "More",
+            tabBarIcon: ({ color }) => <Glyph symbol="⋯" color={color} />,
+            tabBarBadge: waiting ? waiting : undefined,
+          }}
+        />
+      </Tabs>
+    </SessionLibraryProvider>
   );
 }

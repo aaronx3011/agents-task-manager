@@ -19,6 +19,7 @@ import {
   Loading,
   Row,
   styles,
+  usePullRefresh,
 } from "@/ui/kit";
 import { STATUS_LABELS, usePalette } from "@/ui/theme";
 
@@ -82,6 +83,7 @@ export default function Tasks() {
     void workspace.refetch();
     void tasks.refetch();
   };
+  const pull = usePullRefresh(() => Promise.all([workspace.refetch(), tasks.refetch()]));
 
   const header = (
     <View style={{ gap: 12, marginBottom: 4 }}>
@@ -182,8 +184,8 @@ export default function Tasks() {
         keyExtractor={(task) => String(task.id)}
         contentContainerStyle={{ padding: 16, gap: 10 }}
         keyboardShouldPersistTaps="handled"
-        refreshing={tasks.isRefetching && !tasks.isFetchingNextPage}
-        onRefresh={refresh}
+        refreshing={pull.refreshing}
+        onRefresh={pull.onRefresh}
         onEndReached={() => tasks.hasNextPage && void tasks.fetchNextPage()}
         onEndReachedThreshold={0.4}
         ListHeaderComponent={header}
