@@ -19,6 +19,7 @@ export default function RootLayout() {
         <Stack.Screen name="login" options={{ title: "Sign in", headerShown: false }} />
         <Stack.Screen name="tasks/index" options={{ title: "Tasks" }} />
         <Stack.Screen name="tasks/[id]" options={{ title: "Task" }} />
+        <Stack.Screen name="approvals" options={{ title: "Approvals" }} />
       </Stack>
     </SessionProvider>
   );

@@ -247,6 +247,30 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/interactions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Unresolved permission and question requests across workers (#55)
+     * @description Pending approvals for the mobile and web inboxes.
+     *
+     *     Humans see every worker's requests; agent keys only their bound worker's.
+     *     Answer with POST /api/v1/commands (permission.reply, question.reply,
+     *     question.reject), which requires a member.
+     */
+    get: operations["interactions_list"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/invites": {
     parameters: {
       query?: never;
@@ -1030,14 +1054,6 @@ export interface components {
       /** @default  */
       summary: string;
     };
-    /**
-     * @description * `code` - Code
-     *     * `design` - Design
-     *     * `content` - Content
-     *     * `other` - Other
-     * @enum {string}
-     */
-    KindEnum: "code" | "design" | "content" | "other";
     LaunchRequest: {
       worker: string;
       directory?: string;
@@ -1118,6 +1134,32 @@ export interface components {
       role?: components["schemas"]["RoleEnum"];
       is_active?: boolean;
     };
+    PendingInteractionCard: {
+      /** @description Request ID; send it back as payload.requestID. */
+      id: string;
+      kind: components["schemas"]["PendingInteractionCardKindEnum"];
+      worker: string;
+      sessionID: string | null;
+      sessionTitle: string | null;
+      lastSeenAt: string | null;
+      replyDispatched: boolean;
+      replyCommandId: string | null;
+      type: string | null;
+      title: string | null;
+      description: string | null;
+      patterns: string[];
+      questions: unknown[];
+    };
+    /**
+     * @description * `permission` - permission
+     *     * `question` - question
+     * @enum {string}
+     */
+    PendingInteractionCardKindEnum: "permission" | "question";
+    PendingInteractionPage: {
+      count: number;
+      items: components["schemas"]["PendingInteractionCard"][];
+    };
     PlanSettingsRequest: {
       worker: string;
       directory: string;
@@ -1154,11 +1196,19 @@ export interface components {
       docs_path: string;
       active_count: number;
     };
+    /**
+     * @description * `code` - Code
+     *     * `design` - Design
+     *     * `content` - Content
+     *     * `other` - Other
+     * @enum {string}
+     */
+    ProjectInputKindEnum: "code" | "design" | "content" | "other";
     ProjectInputRequest: {
       slug: string;
       name: string;
       /** @default code */
-      kind: components["schemas"]["KindEnum"];
+      kind: components["schemas"]["ProjectInputKindEnum"];
       repo_url?: string;
       /** @default  */
       docs_path: string;
@@ -1894,6 +1944,25 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["WorkspaceFilterError"];
+        };
+      };
+    };
+  };
+  interactions_list: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PendingInteractionPage"];
         };
       };
     };
