@@ -321,8 +321,12 @@ class CommandViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         query = self.get_queryset()
         for name in ["status", "action"]:
             value = request.query_params.get(name)
-            if value:
-                query = query.filter(status=value)
+            if not value:
+                continue
+            choices = dict(WorkerCommand._meta.get_field(name).choices)
+            if value not in choices:
+                raise ValidationError({name: f"Must be one of: {', '.join(choices)}"})
+            query = query.filter(**{name: value})
         if request.query_params.get("worker"):
             query = query.filter(worker__name=request.query_params["worker"])
         page = self.paginate_queryset(query)

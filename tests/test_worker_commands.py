@@ -368,6 +368,31 @@ class TestResolveAndReads:
         mine = api_client.get("/api/commands")
         assert {row["id"] for row in mine.json()["items"]} == {card["id"]}
 
+    def test_list_filters_by_action_and_status(
+        self, staff_client, api_client, online_worker, session
+    ):
+        prompt = post_command(api_client, command_payload()).json()
+        interrupt = post_command(api_client, command_payload(action="interrupt", payload={})).json()
+        WorkerCommand.objects.filter(pk=interrupt["id"]).update(status="done")
+
+        def ids(query):
+            response = staff_client.get(f"/api/commands?{query}")
+            assert response.status_code == 200, response.content
+            return {row["id"] for row in response.json()["items"]}
+
+        assert ids("action=prompt") == {prompt["id"]}
+        assert ids("action=interrupt") == {interrupt["id"]}
+        assert ids("status=queued") == {prompt["id"]}
+        assert ids("status=done") == {interrupt["id"]}
+        assert ids("action=interrupt&status=done") == {interrupt["id"]}
+        assert ids("action=prompt&status=done") == set()
+
+    @pytest.mark.parametrize("query", ["action=bogus", "status=bogus"])
+    def test_list_rejects_unknown_filter_values(self, staff_client, query):
+        response = staff_client.get(f"/api/commands?{query}")
+        assert response.status_code == 400
+        assert query.split("=")[0] in response.json()
+
     def test_agents_read_scoped_to_own_worker(self, agent_clients, online_worker, session):
         beta = agent_clients[1]
         beta_worker = services.provision_worker("worker-b", Agent.objects.get(name="beta"))
