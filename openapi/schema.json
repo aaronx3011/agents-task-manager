@@ -160,6 +160,159 @@
                 }
             }
         },
+        "/api/v1/auth/csrf": {
+            "get": {
+                "operationId": "auth_csrf",
+                "summary": "Set the csrftoken cookie and return the token for the X-CSRFToken header",
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CsrfToken"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/login": {
+            "post": {
+                "operationId": "auth_login",
+                "summary": "Start a browser session (requires X-CSRFToken)",
+                "tags": [
+                    "auth"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LoginRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LoginRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LoginRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Me"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LoginError"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LoginError"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LoginError"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/logout": {
+            "post": {
+                "operationId": "auth_logout",
+                "summary": "End the browser session (requires X-CSRFToken)",
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/me": {
+            "get": {
+                "operationId": "auth_me",
+                "summary": "The signed-in user",
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Me"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/commands": {
             "get": {
                 "operationId": "commands_list",
@@ -2214,6 +2367,17 @@
                 "type": "string",
                 "description": "* `done` - done\n* `error` - error"
             },
+            "CsrfToken": {
+                "type": "object",
+                "properties": {
+                    "csrfToken": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "csrfToken"
+                ]
+            },
             "DashboardAgent": {
                 "type": "object",
                 "properties": {
@@ -2457,6 +2621,65 @@
                 },
                 "required": [
                     "worker"
+                ]
+            },
+            "LoginError": {
+                "type": "object",
+                "properties": {
+                    "detail": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "detail"
+                ]
+            },
+            "LoginRequest": {
+                "type": "object",
+                "properties": {
+                    "username": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 150
+                    },
+                    "password": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "minLength": 1,
+                        "maxLength": 4096
+                    }
+                },
+                "required": [
+                    "password",
+                    "username"
+                ]
+            },
+            "Me": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "username": {
+                        "type": "string"
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email"
+                    },
+                    "role": {
+                        "$ref": "#/components/schemas/RoleEnum"
+                    },
+                    "is_superuser": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "email",
+                    "id",
+                    "is_superuser",
+                    "role",
+                    "username"
                 ]
             },
             "ModelChoiceRequest": {
@@ -2852,6 +3075,15 @@
                 "required": [
                     "status"
                 ]
+            },
+            "RoleEnum": {
+                "enum": [
+                    "owner",
+                    "member",
+                    "viewer"
+                ],
+                "type": "string",
+                "description": "* `owner` - Owner\n* `member` - Member\n* `viewer` - Viewer"
             },
             "SessionPage": {
                 "type": "object",

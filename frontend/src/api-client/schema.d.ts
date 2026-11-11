@@ -35,6 +35,74 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/auth/csrf": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Set the csrftoken cookie and return the token for the X-CSRFToken header */
+    get: operations["auth_csrf"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/auth/login": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Start a browser session (requires X-CSRFToken) */
+    post: operations["auth_login"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/auth/logout": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** End the browser session (requires X-CSRFToken) */
+    post: operations["auth_logout"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/auth/me": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The signed-in user */
+    get: operations["auth_me"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/commands": {
     parameters: {
       query?: never;
@@ -600,6 +668,9 @@ export interface components {
      * @enum {string}
      */
     CommandResolutionEnum: "done" | "error";
+    CsrfToken: {
+      csrfToken: string;
+    };
     DashboardAgent: {
       name: string;
       is_active: boolean;
@@ -683,6 +754,21 @@ export interface components {
       worker: string;
       directory?: string;
       client_request_id?: string;
+    };
+    LoginError: {
+      detail: string;
+    };
+    LoginRequest: {
+      username: string;
+      password: string;
+    };
+    Me: {
+      id: number;
+      username: string;
+      /** Format: email */
+      email: string;
+      role: components["schemas"]["RoleEnum"];
+      is_superuser: boolean;
     };
     ModelChoiceRequest: {
       providerID: string;
@@ -800,6 +886,13 @@ export interface components {
       result?: unknown;
       error?: string;
     };
+    /**
+     * @description * `owner` - Owner
+     *     * `member` - Member
+     *     * `viewer` - Viewer
+     * @enum {string}
+     */
+    RoleEnum: "owner" | "member" | "viewer";
     SessionPage: {
       count: number;
       items: unknown[];
@@ -1043,6 +1136,111 @@ export interface operations {
           "application/json": {
             [key: string]: unknown;
           };
+        };
+      };
+    };
+  };
+  auth_csrf: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CsrfToken"];
+        };
+      };
+    };
+  };
+  auth_login: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["LoginRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["LoginRequest"];
+        "multipart/form-data": components["schemas"]["LoginRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Me"];
+        };
+      };
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LoginError"];
+        };
+      };
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LoginError"];
+        };
+      };
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LoginError"];
+        };
+      };
+    };
+  };
+  auth_logout: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No response body */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  auth_me: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Me"];
         };
       };
     };
