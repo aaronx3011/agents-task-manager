@@ -1,25 +1,56 @@
 # Agent Ops mobile app
 
-Expo / React Native client for the coordinator (#54). It signs in with a
-per-device token (`POST /api/v1/auth/tokens`), keeps it in the platform
-keychain via `expo-secure-store`, and shows a read-only, paginated task list
-with task details. Signing out revokes the token on the server; owners and the
-user can also revoke it from **Account → Mobile devices** in the web app.
+Expo / React Native client for the coordinator with the same features and
+owner/member/viewer rules as the web app (epic #83). It signs in with a
+per-device token (`POST /api/v1/auth/tokens`) kept in the platform keychain via
+`expo-secure-store`. Signing out revokes the token on the server; you can also
+revoke devices from **Account** in either app.
 
-## Run in the iOS simulator
+| Tab | What it does |
+| --- | --- |
+| Tasks | Board by status or sortable list, search, project/agent/status/ready filters, agent strip, task detail with Markdown and a paged activity timeline |
+| Planning | Projects, new project, board cards (labels, checklist, instructions), run/queue, queue order and completion, project settings, play/pause/stop |
+| Sessions | Session library (pinned and recent, kept on the device), workers and their health, new sessions, live chat with prompts, interrupt, permission and question replies |
+| Activity | Recent worker commands and task activity |
+| More | Approvals, Account (password, devices), and for owners Users & invites and agent Configuration |
+
+Live updates come from `/ws/dashboard/` with a one-time ticket
+(`POST /api/v1/realtime/ticket`); the device token never goes over the socket.
+
+## Run it
 
 ```sh
 # Terminal 1: the API (from the repository root)
-uv run uvicorn config.asgi:application --port 8000
+uv run uvicorn config.asgi:application --host 0.0.0.0 --port 8000
 
-# Terminal 2: the app
+# Terminal 2: the app (iOS simulator)
 npm ci --prefix mobile
 EXPO_PUBLIC_API_URL=http://localhost:8000 npm run ios --prefix mobile
 ```
 
-The sign-in screen lets you change the server address; the simulator reaches
-the host at `localhost`. Use an account created with `create_owner` or an
-invite link.
+### Android emulator
+
+The emulator reaches the host at `10.0.2.2`, so allow that host and point the
+app at it:
+
+```sh
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,10.0.2.2 uv run uvicorn config.asgi:application --host 0.0.0.0 --port 8000
+EXPO_PUBLIC_API_URL=http://10.0.2.2:8000 npm run android --prefix mobile
+```
+
+Expo Go (SDK 58) runs the app without a native build. The sign-in screen lets
+you change the server address at any time. Use an account created with
+`create_owner` or an invite link.
+
+## Code layout
+
+- `src/app/` — Expo Router screens: `(tabs)/` holds one Stack per tab.
+- `src/api/` — the typed client and `schema.d.ts` (generated, see below);
+  `types.ts` covers endpoints the OpenAPI schema leaves untyped.
+- `src/live/` — the app-wide live connection and focused-session streaming.
+- `src/auth/` — session (token, server) and role access.
+- `src/tasks/`, `src/sessions/`, `src/planning/` — data hooks and parts per area.
+- `src/ui/` — shared kit, Markdown renderer, formatting and theme.
 
 ## API types
 

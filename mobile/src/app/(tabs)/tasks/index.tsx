@@ -122,7 +122,10 @@ export default function Tasks() {
             : undefined
         }
       />
-      {workspace.error ? <ErrorState error={workspace.error} retry={refresh} /> : null}
+      {/* One "cannot reach the server" is enough when both requests fail. */}
+      {workspace.error && !tasks.error ? (
+        <ErrorState error={workspace.error} retry={refresh} />
+      ) : null}
       {data?.agents.length ? (
         <View style={{ gap: 6 }}>
           <Row style={{ justifyContent: "space-between" }}>
