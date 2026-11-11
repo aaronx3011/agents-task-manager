@@ -17,3 +17,4 @@ frontend/*.tsbuildinfo
 frontend/dist/
 .DS_Store
 deploy/*/.env
+deploy/*/backups/
