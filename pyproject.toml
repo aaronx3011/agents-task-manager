@@ -16,6 +16,7 @@ dependencies = [
   "channels>=4.3,<5",
   "channels-redis>=4.3,<5",
   "uvicorn[standard]>=0.35,<1",
+  "drf-spectacular>=0.28,<1",
 ]
 
 [dependency-groups]

@@ -1,3 +1,5 @@
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema_field, inline_serializer
 from rest_framework import serializers
 
 from .models import Project, Task, TaskEvent
@@ -5,6 +7,12 @@ from .models import Project, Task, TaskEvent
 
 class AgentRegistrationSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=100, trim_whitespace=True)
+
+
+DEPENDENCY_PROGRESS = inline_serializer(
+    "DependencyProgress",
+    {"done": serializers.IntegerField(), "total": serializers.IntegerField()},
+)
 
 
 class TaskEventSerializer(serializers.ModelSerializer):
@@ -58,6 +66,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "result_summary",
         ]
 
+    @extend_schema_field(OpenApiTypes.BOOL)
     def get_is_ready(self, obj):
         return (
             obj.status == Task.Status.PENDING
@@ -70,6 +79,7 @@ class TaskSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("At most 500 dependencies are allowed")
         return value
 
+    @extend_schema_field(DEPENDENCY_PROGRESS)
     def get_dependency_progress(self, obj):
         dependencies = list(obj.depends_on.all())
         return {
@@ -85,9 +95,11 @@ class TaskDetailSerializer(TaskSerializer):
     class Meta(TaskSerializer.Meta):
         fields = TaskSerializer.Meta.fields + ["recent_events", "dependencies"]
 
+    @extend_schema_field(TaskEventSerializer(many=True))
     def get_recent_events(self, obj):
         return TaskEventSerializer(obj.events.select_related("agent")[:20], many=True).data
 
+    @extend_schema_field(TaskSerializer(many=True))
     def get_dependencies(self, obj):
         return TaskSerializer(obj.depends_on.all(), many=True).data
 

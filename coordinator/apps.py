@@ -6,4 +6,4 @@ class CoordinatorConfig(AppConfig):
     name = "coordinator"
 
     def ready(self):
-        from . import signals  # noqa: F401
+        from . import openapi, signals  # noqa: F401  (openapi registers schema extensions)
