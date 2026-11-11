@@ -28,7 +28,11 @@ jobs:
       - run: npm run format:check --prefix frontend
       - run: npm run build --prefix frontend
       - name: Install production-static browser test dependencies
-        run: uv run --with playwright python -m playwright install --with-deps chromium
+        # The runner image already has Chromium's system libraries; when the apt
+        # mirrors are unreachable, install just the browser instead of failing.
+        run: |
+          uv run --with playwright python -m playwright install --with-deps chromium \
+            || uv run --with playwright python -m playwright install chromium
       - name: Verify collected frontend module graph in a browser
         run: uv run --with playwright python scripts/verify_opencode_dashboard.py --assets-only
       - run: node --test --test-timeout=30000 bridge/bridge.test.mjs frontend/tests/session-live.test.mjs
