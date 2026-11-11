@@ -118,6 +118,13 @@ def test_admin_role_edits_are_audited_and_keep_an_owner():
     assert client.get("/admin/accounts/rolechange/add/").status_code == 403
 
 
+def migrate_to_latest():
+    # Later transactional tests need every table, including newer migrations.
+    executor = MigrationExecutor(connection)
+    executor.loader.build_graph()
+    executor.migrate(executor.loader.graph.leaf_nodes())
+
+
 @pytest.mark.django_db(transaction=True)
 def test_backfill_migration_maps_staff_flags_to_roles():
     executor = MigrationExecutor(connection)
@@ -138,3 +145,4 @@ def test_backfill_migration_maps_staff_flags_to_roles():
     roles = dict(UserProfile.objects.values_list("user__username", "role"))
     assert roles == {"root": "owner", "staff": "member", "plain": "viewer"}
     assert set(RoleChange.objects.values_list("actor", flat=True)) == {"migration"}
+    migrate_to_latest()

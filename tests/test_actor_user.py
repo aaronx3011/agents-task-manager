@@ -200,3 +200,6 @@ def test_backfill_links_labels_that_match_users():
     linked = dict(TaskEvent.objects.values_list("pk", "actor_user_id"))
     assert linked[staff_event.pk] == ana.pk and linked[admin_event.pk] == ana.pk
     assert linked[ghost.pk] is None and linked[plain.pk] is None
+    executor = MigrationExecutor(connection)
+    executor.loader.build_graph()
+    executor.migrate(executor.loader.graph.leaf_nodes())
