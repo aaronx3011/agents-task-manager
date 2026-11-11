@@ -1,4 +1,4 @@
-// Generated from openapi/schema.json by `npm run api:generate`. Do not edit.
+// Generated from openapi/schema.json by `npm run api:generate --prefix frontend`. Do not edit.
 export interface paths {
   "/api/v1/agents": {
     parameters: {
