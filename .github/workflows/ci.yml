@@ -38,6 +38,20 @@ jobs:
       - run: uv run python manage.py makemigrations --check --dry-run
       - run: uv run python manage.py collectstatic --noinput
       - run: uv run pytest
+  mobile:
+    # Expo app (#54): typed against the same generated API types as the web app.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci --prefix mobile
+      - run: npm run typecheck --prefix mobile
+      - run: npm run lint --prefix mobile
+      - run: npm run format:check --prefix mobile
   postgres:
     runs-on: ubuntu-latest
     services:
