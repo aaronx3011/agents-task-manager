@@ -89,4 +89,5 @@ def test_meta_is_public_and_data_free(settings):
 
     settings.COORDINATOR_DEMO = True
     response = PlainClient().get("/api/v1/meta")
-    assert response.status_code == 200 and response.json() == {"demo": True}
+    assert response.status_code == 200
+    assert response.json() == {"demo": True, "admin_url": "/admin/"}

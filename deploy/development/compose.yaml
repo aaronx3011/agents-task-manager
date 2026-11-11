@@ -17,6 +17,9 @@ x-web: &web
     DJANGO_TRUST_PROXY: "true"
     # TLS proxy in front of this host, then the Caddy front door.
     DJANGO_NUM_PROXIES: "2"
+    # Superuser-only operations console (#53); keep in sync with the front door.
+    DJANGO_ADMIN_ENABLED: ${DJANGO_ADMIN_ENABLED:-true}
+    DJANGO_ADMIN_PATH: ${DJANGO_ADMIN_PATH:-admin}
     WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
     WORKER_OFFLINE_SECONDS: ${WORKER_OFFLINE_SECONDS:-10}
     WORKER_SESSION_KEEP: ${WORKER_SESSION_KEEP:-500}
@@ -76,6 +79,8 @@ services:
     # SPA + same-origin proxy to Django (#50). Keeps host port 8000 so the TLS
     # proxy in front of this host needs no change.
     image: agents-task-manager-web:${IMAGE_TAG:-latest}
+    environment:
+      ADMIN_PATH: ${DJANGO_ADMIN_PATH:-admin}
     ports:
       - "8000:8080"
     restart: unless-stopped

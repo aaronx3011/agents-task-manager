@@ -12,7 +12,8 @@
 :8080 {
 	encode zstd gzip
 
-	@backend path /api /api/* /ws/* /admin /admin/* /static/* /healthz
+	# ADMIN_PATH must match DJANGO_ADMIN_PATH (#53).
+	@backend path /api /api/* /ws/* /{$ADMIN_PATH:admin} /{$ADMIN_PATH:admin}/* /static/* /healthz
 	handle @backend {
 		reverse_proxy {$API_UPSTREAM:web:8000}
 	}

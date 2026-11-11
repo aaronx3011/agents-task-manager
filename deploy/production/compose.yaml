@@ -27,6 +27,9 @@ x-web: &web
     DJANGO_TRUST_PROXY: "true"
     # HTTPS reverse proxy, then the Caddy front door.
     DJANGO_NUM_PROXIES: "2"
+    # Superuser-only operations console (#53); keep in sync with the front door.
+    DJANGO_ADMIN_ENABLED: ${DJANGO_ADMIN_ENABLED:-true}
+    DJANGO_ADMIN_PATH: ${DJANGO_ADMIN_PATH:-admin}
     WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
     WORKER_OFFLINE_SECONDS: ${WORKER_OFFLINE_SECONDS:-10}
     WORKER_SESSION_KEEP: ${WORKER_SESSION_KEEP:-500}
@@ -83,6 +86,8 @@ services:
     # SPA + same-origin proxy to Django (#50); the HTTPS proxy reaches it on
     # the shared network at front:8080.
     image: agents-task-manager-web:${IMAGE_TAG:-latest}
+    environment:
+      ADMIN_PATH: ${DJANGO_ADMIN_PATH:-admin}
     restart: unless-stopped
     depends_on:
       web:

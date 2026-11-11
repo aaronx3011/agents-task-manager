@@ -153,6 +153,12 @@ if env_bool("DJANGO_TRUST_PROXY"):
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 
+# Django admin is a superuser-only operations console (#53). Role owners manage
+# people from the SPA. Set DJANGO_ADMIN_ENABLED=false to remove it, or move it with
+# DJANGO_ADMIN_PATH (e.g. "ops-7f3a/"); the Caddy front door reads ADMIN_PATH.
+ADMIN_ENABLED = env_bool("DJANGO_ADMIN_ENABLED", True)
+ADMIN_PATH = os.environ.get("DJANGO_ADMIN_PATH", "admin/").strip("/") + "/"
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "coordinator.auth.AgentKeyAuthentication",

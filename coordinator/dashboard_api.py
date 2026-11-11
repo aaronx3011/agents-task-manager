@@ -248,8 +248,20 @@ class MetaView(APIView):
     @extend_schema(
         operation_id="meta",
         summary="Deployment facts for the SPA (no authentication)",
-        responses=inline_serializer("Meta", {"demo": serializers.BooleanField()}),
+        responses=inline_serializer(
+            "Meta",
+            {
+                "demo": serializers.BooleanField(),
+                "admin_url": serializers.CharField(allow_null=True),
+            },
+        ),
         auth=[],
     )
     def get(self, request):
-        return Response({"demo": bool(settings.COORDINATOR_DEMO)})
+        return Response(
+            {
+                "demo": bool(settings.COORDINATOR_DEMO),
+                # Where superusers find Django admin; null when it is disabled.
+                "admin_url": f"/{settings.ADMIN_PATH}" if settings.ADMIN_ENABLED else None,
+            }
+        )

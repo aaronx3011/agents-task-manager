@@ -1060,6 +1060,7 @@ export interface components {
     };
     Meta: {
       demo: boolean;
+      admin_url: string | null;
     };
     ModelChoiceRequest: {
       providerID: string;

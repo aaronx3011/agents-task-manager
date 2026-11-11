@@ -1,4 +1,6 @@
 from django.contrib import admin, messages
+from django.contrib.admin.forms import AdminAuthenticationForm
+from django.core.exceptions import ValidationError
 
 from .models import AccountEvent, Invite, RoleChange, UserProfile
 from .services import AccountError, set_role
@@ -65,3 +67,26 @@ class AccountEventAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+def superuser_only(request):
+    """Django admin is for superuser operations only (#53), not for role owners."""
+    return request.user.is_active and request.user.is_superuser
+
+
+class SuperuserAuthenticationForm(AdminAuthenticationForm):
+    """Refuse the admin login itself for anyone but active superusers."""
+
+    def confirm_login_allowed(self, user):
+        super().confirm_login_allowed(user)
+        if not user.is_superuser:
+            raise ValidationError(
+                self.error_messages["invalid_login"],
+                code="invalid_login",
+                params={"username": self.username_field.verbose_name},
+            )
+
+
+admin.site.has_permission = superuser_only
+admin.site.login_form = SuperuserAuthenticationForm
+admin.site.site_header = "Agent Ops · superuser operations"
