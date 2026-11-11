@@ -31,6 +31,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "drf_spectacular",
     "channels",
     "coordinator.apps.CoordinatorConfig",
 ]
@@ -158,6 +159,29 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PERMISSION_CLASSES": ["coordinator.auth.IsAgentOrStaff"],
     "EXCEPTION_HANDLER": "coordinator.exceptions.exception_handler",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_PAGINATION_CLASS": "coordinator.pagination.TaskPagination",
     "PAGE_SIZE": 100,
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Agent Task Coordinator API",
+    "DESCRIPTION": (
+        "Versioned HTTP contract shared by the web dashboard, mobile clients, MCP and bridges."
+    ),
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    # Same audience as the API itself; offline generation uses `manage.py spectacular`.
+    "SERVE_PERMISSIONS": ["coordinator.auth.IsAgentOrStaff"],
+    # Only the versioned mount is documented; /api/ stays as an undocumented alias.
+    "PREPROCESSING_HOOKS": ["coordinator.openapi.only_versioned_endpoints"],
+    "SCHEMA_PATH_PREFIX": r"/api/v1",
+    "COMPONENT_SPLIT_REQUEST": True,
+    # Several request/response "status" fields use different choice sets.
+    "ENUM_NAME_OVERRIDES": {
+        "TaskStatusEnum": "coordinator.models.Task.Status",
+        "TaskStatusUpdateEnum": ["in_progress", "blocked", "review", "done", "cancelled"],
+        "CommandResolutionEnum": ["done", "error"],
+        "PlanningJobReportStatusEnum": ["heartbeat", "done", "blocked", "review"],
+    },
 }

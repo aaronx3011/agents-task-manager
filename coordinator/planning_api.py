@@ -1,5 +1,6 @@
 """Staff planning HTTP boundary. Mutations live in services.py."""
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAdminUser
@@ -8,6 +9,7 @@ from rest_framework.response import Response
 from . import services
 from .auth import get_agent, staff_name
 from .models import Project, Worker
+from .openapi import PROJECT_CREATED, READ_MODEL
 
 
 class ProjectInput(serializers.Serializer):
@@ -18,6 +20,7 @@ class ProjectInput(serializers.Serializer):
     docs_path = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
 
 
+@extend_schema(request=ProjectInput, responses={201: PROJECT_CREATED})
 @api_view(["POST"])
 @permission_classes([IsAdminUser])
 def projects_create(request):
@@ -131,6 +134,8 @@ class PlanningMutation(serializers.Serializer):
         return data
 
 
+@extend_schema(methods=["GET"], responses=READ_MODEL)
+@extend_schema(methods=["POST"], request=PlanningMutation, responses=READ_MODEL)
 @api_view(["GET", "POST"])
 @permission_classes([IsAdminUser])
 def project_planning(request, slug):
@@ -150,6 +155,7 @@ class JobReport(serializers.Serializer):
     summary = serializers.CharField(max_length=10000, required=False, allow_blank=True, default="")
 
 
+@extend_schema(request=JobReport, responses=READ_MODEL)
 @api_view(["POST"])
 def planning_report(request, pk):
     agent = get_agent(request)
