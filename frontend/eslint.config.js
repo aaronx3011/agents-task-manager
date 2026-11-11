@@ -4,7 +4,7 @@ import tseslint from "typescript-eslint";
 import hooks from "eslint-plugin-react-hooks";
 
 export default tseslint.config(
-  { ignores: ["node_modules", "*.tsbuildinfo"] },
+  { ignores: ["node_modules", "dist", "*.tsbuildinfo"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

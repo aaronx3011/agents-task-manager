@@ -38,8 +38,8 @@ export function rememberSession(
   ];
 }
 
-export function useSessionLibrary() {
-  const username = document.getElementById("root")?.dataset.username || "staff";
+export function useSessionLibrary(username: string) {
+  // Saved sessions are per user on a shared browser.
   const storageKey = `agent-ops-sessions:${username}`;
   const [entries, setEntries] = useState<SavedSession[]>(() => {
     try {

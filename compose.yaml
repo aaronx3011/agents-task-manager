@@ -1,5 +1,7 @@
 x-app: &app
-  build: .
+  build:
+    context: .
+    target: api
   environment: &environment
     DJANGO_DEBUG: "false"
     DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env}
@@ -8,7 +10,9 @@ x-app: &app
     DATABASE_URL: postgresql://coordinator:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/coordinator
     DJANGO_SECURE_SSL_REDIRECT: ${DJANGO_SECURE_SSL_REDIRECT:-false}
     DJANGO_SECURE_COOKIES: ${DJANGO_SECURE_COOKIES:-false}
-    DJANGO_TRUST_PROXY: ${DJANGO_TRUST_PROXY:-false}
+    # The front service below is the one trusted proxy.
+    DJANGO_TRUST_PROXY: ${DJANGO_TRUST_PROXY:-true}
+    DJANGO_NUM_PROXIES: ${DJANGO_NUM_PROXIES:-1}
     REDIS_URL: redis://redis:6379/0
     WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
     WORKER_OFFLINE_SECONDS: ${WORKER_OFFLINE_SECONDS:-10}
@@ -52,13 +56,24 @@ services:
   web:
     <<: *app
     command: ["sh", "-c", "exec uvicorn config.asgi:application --host 0.0.0.0 --port 8000 --workers $${WEB_CONCURRENCY}"]
-    ports:
-      - "127.0.0.1:8000:8000"
+    expose:
+      - "8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3
+  front:
+    # SPA + same-origin proxy to Django (#50): http://localhost:8000
+    build:
+      context: .
+      target: web
+    ports:
+      - "127.0.0.1:8000:8080"
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
   reaper:
     <<: *app
     command: ["sh", "-c", "while true; do python manage.py release_stale_tasks --minutes ${TASK_CLAIM_TIMEOUT_MINUTES:-15} || exit 1; sleep ${TASK_REAPER_INTERVAL_SECONDS:-300}; done"]

@@ -169,9 +169,11 @@ REST_FRAMEWORK = {
         "login": os.environ.get("LOGIN_THROTTLE_RATE", "10/min"),
         "invite": os.environ.get("INVITE_THROTTLE_RATE", "20/min"),
     },
-    # Behind the trusted reverse proxy only the last X-Forwarded-For hop is used;
-    # otherwise REMOTE_ADDR, so clients cannot spoof their throttle identity.
-    "NUM_PROXIES": 1 if env_bool("DJANGO_TRUST_PROXY") else 0,
+    # Count of trusted proxies in front of Django (e.g. TLS proxy + Caddy = 2), so
+    # throttles key on the real client and clients cannot spoof X-Forwarded-For.
+    "NUM_PROXIES": int(
+        os.environ.get("DJANGO_NUM_PROXIES", "1" if env_bool("DJANGO_TRUST_PROXY") else "0")
+    ),
 }
 
 SPECTACULAR_SETTINGS = {

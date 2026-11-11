@@ -1189,6 +1189,28 @@
                 }
             }
         },
+        "/api/v1/meta": {
+            "get": {
+                "operationId": "meta",
+                "description": "Public, data-free facts the SPA needs before sign-in (#50).",
+                "summary": "Deployment facts for the SPA (no authentication)",
+                "tags": [
+                    "meta"
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Meta"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/overview": {
             "get": {
                 "operationId": "overview_list",
@@ -3758,6 +3780,17 @@
                     "is_superuser",
                     "role",
                     "username"
+                ]
+            },
+            "Meta": {
+                "type": "object",
+                "properties": {
+                    "demo": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "demo"
                 ]
             },
             "ModelChoiceRequest": {

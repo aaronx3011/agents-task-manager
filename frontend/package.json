@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "format:check": "prettier --check src vite.config.ts eslint.config.js index.html",
     "api:generate": "node scripts/api-client.mjs",
-    "api:check": "node scripts/api-client.mjs --check"
+    "api:check": "node scripts/api-client.mjs --check",
+    "preview": "vite preview"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.6",
@@ -25,6 +26,7 @@
   "devDependencies": {
     "@eslint/js": "^9.25.0",
     "@tailwindcss/vite": "^4.1.0",
+    "@types/node": "^24.19.2",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.5.0",

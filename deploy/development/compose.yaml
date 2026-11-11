@@ -15,6 +15,8 @@ x-web: &web
     DJANGO_SECURE_SSL_REDIRECT: "false"
     DJANGO_SECURE_COOKIES: "true"
     DJANGO_TRUST_PROXY: "true"
+    # TLS proxy in front of this host, then the Caddy front door.
+    DJANGO_NUM_PROXIES: "2"
     WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
     WORKER_OFFLINE_SECONDS: ${WORKER_OFFLINE_SECONDS:-10}
     WORKER_SESSION_KEEP: ${WORKER_SESSION_KEEP:-500}
@@ -62,13 +64,24 @@ services:
       - sh
       - -c
       - python manage.py migrate --noinput && exec uvicorn config.asgi:application --host 0.0.0.0 --port 8000 --workers $${WEB_CONCURRENCY}
-    ports:
-      - "8000:8000"
+    # Reached only through the front door below.
+    expose:
+      - "8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
       interval: 10s
       timeout: 5s
       retries: 12
+  front:
+    # SPA + same-origin proxy to Django (#50). Keeps host port 8000 so the TLS
+    # proxy in front of this host needs no change.
+    image: agents-task-manager-web:${IMAGE_TAG:-latest}
+    ports:
+      - "8000:8080"
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
   reaper:
     <<: *web
     command: ["sh", "-c", "while true; do python manage.py release_stale_tasks --minutes ${TASK_CLAIM_TIMEOUT_MINUTES:-15} || exit 1; sleep ${TASK_REAPER_INTERVAL_SECONDS:-300}; done"]

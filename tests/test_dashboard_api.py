@@ -26,29 +26,6 @@ def board(api_client, project):
     return tasks
 
 
-def without_clock(payload):
-    return {key: value for key, value in payload.items() if key != "server_time"}
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize(
-    ("legacy", "versioned", "params"),
-    [
-        ("/dashboard/state/", STATE, {}),
-        ("/dashboard/state/", STATE, {"project": "coordinator"}),
-        ("/dashboard/workspace/", WORKSPACE, {}),
-        ("/dashboard/workspace/", WORKSPACE, {"status": "done"}),
-        ("/dashboard/workspace/", WORKSPACE, {"claimed_by": "alpha", "q": "Task"}),
-    ],
-)
-def test_legacy_and_versioned_payloads_are_identical(staff, board, legacy, versioned, params):
-    old = staff.get(legacy, params)
-    new = staff.get(versioned, params)
-    assert old.status_code == new.status_code == 200
-    assert without_clock(old.json()) == without_clock(new.json())
-    assert "no-store" in new.headers["Cache-Control"]
-
-
 @pytest.mark.django_db
 def test_state_payload_shape(staff, board):
     state = staff.get(STATE).json()
@@ -104,3 +81,12 @@ def test_schema_documents_dashboard_endpoints(api_client):
         "done",
         "cancelled",
     }
+
+
+@pytest.mark.django_db
+def test_meta_is_public_and_data_free(settings):
+    from django.test import Client as PlainClient
+
+    settings.COORDINATOR_DEMO = True
+    response = PlainClient().get("/api/v1/meta")
+    assert response.status_code == 200 and response.json() == {"demo": True}

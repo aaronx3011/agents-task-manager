@@ -1,0 +1,41 @@
+# Same-origin front door (#50): the SPA as static files, everything else to Django.
+# TLS is terminated in front of this container for now; #52 moves TLS here.
+{
+	admin off
+	auto_https off
+	servers {
+		# Keep the client address and scheme set by the trusted proxy in front.
+		trusted_proxies static private_ranges
+	}
+}
+
+:8080 {
+	encode zstd gzip
+
+	@backend path /api /api/* /ws/* /admin /admin/* /static/* /healthz
+	handle @backend {
+		reverse_proxy {$API_UPSTREAM:web:8000}
+	}
+
+	# Hashed build assets never change.
+	handle /assets/* {
+		root * /srv
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# Every other path is a client-side route: serve the app shell, never cached.
+	handle {
+		root * /srv
+		header Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy same-origin
+		-Server
+	}
+}

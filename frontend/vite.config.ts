@@ -2,30 +2,34 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
-export default defineConfig(({ command }) => ({
+// The SPA is served on its own (Caddy in deployments, Vite here) and talks to
+// Django on the same origin through these proxied paths (#50).
+const api = process.env.ATM_API_ORIGIN || "http://localhost:8000";
+// Keep the browser's Host header (changeOrigin: false): Django's CSRF and
+// WebSocket Origin checks compare it with the page origin, as behind Caddy.
+const backend = { target: api, changeOrigin: false };
+const proxy = {
+  "/api": backend,
+  "/admin": backend,
+  "/static": backend,
+  "/healthz": backend,
+  "/ws": { ...backend, ws: true },
+};
+
+export default defineConfig({
   plugins: [react(), tailwindcss()],
-  base: command === "serve" ? "/" : "/static/coordinator/app/",
-  server: {
-    proxy: {
-      "/api": "http://localhost:8000",
-      "/admin": "http://localhost:8000",
-      "/dashboard/workspace": "http://localhost:8000",
-      "/static/admin": "http://localhost:8000",
-      "/static/rest_framework": "http://localhost:8000",
-      "/ws": { target: "http://localhost:8000", ws: true },
-    },
-  },
+  base: "/",
+  server: { proxy },
+  preview: { proxy },
   build: {
-    outDir: "../coordinator/static/coordinator/app",
+    outDir: "dist",
     emptyOutDir: true,
-    manifest: "manifest.json",
     rollupOptions: {
-      input: "src/main.tsx",
       output: {
-        entryFileNames: "app-[hash].js",
-        chunkFileNames: "chunks/[name]-[hash].js",
+        entryFileNames: "assets/app-[hash].js",
+        chunkFileNames: "assets/chunks/[name]-[hash].js",
         assetFileNames: "assets/[name]-[hash][extname]",
       },
     },
   },
-}));
+});

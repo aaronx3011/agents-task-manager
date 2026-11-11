@@ -2,7 +2,8 @@ name: Deploy
 
 # Ship the image, then docker up on the target host. That's it.
 # 1. Build the image once on the runner (10.8.0.6) tagged with the commit SHA.
-# 2. Stream it over SSH (docker save | docker load) to the target host.
+#    Two images: the Django API and the web front door (SPA + Caddy, #50).
+# 2. Stream them over SSH (docker save | docker load) to the target host.
 # 3. Sync the deploy files, bring the stack up, migrate, health check.
 # - development runs automatically on every push to main (or manual dispatch).
 # - production runs on manual dispatch only; the GitHub "production" environment
@@ -34,8 +35,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Build image
-        run: docker build --tag agents-task-manager:${{ github.sha }} .
+      - name: Build images
+        run: |
+          docker build --target api --tag agents-task-manager:${{ github.sha }} .
+          docker build --target web --tag agents-task-manager-web:${{ github.sha }} .
       - name: Prepare SSH key
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -43,8 +46,8 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           echo "Host 10.8.0.11
             StrictHostKeyChecking accept-new" > ~/.ssh/config
-      - name: Ship the image over SSH
-        run: docker save agents-task-manager:${{ github.sha }} | gzip | ssh -i ~/.ssh/deploy_key "${{ secrets.DEV_SSH_USER }}@${{ secrets.DEV_HOST }}" "gunzip | docker load"
+      - name: Ship the images over SSH
+        run: docker save agents-task-manager:${{ github.sha }} agents-task-manager-web:${{ github.sha }} | gzip | ssh -i ~/.ssh/deploy_key "${{ secrets.DEV_SSH_USER }}@${{ secrets.DEV_HOST }}" "gunzip | docker load"
       - name: Sync deploy files
         run: |
           rsync -az --delete -e "ssh -i ~/.ssh/deploy_key" \
@@ -81,15 +84,17 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Build image
-        run: docker build --tag agents-task-manager:${{ github.sha }} .
+      - name: Build images
+        run: |
+          docker build --target api --tag agents-task-manager:${{ github.sha }} .
+          docker build --target web --tag agents-task-manager-web:${{ github.sha }} .
       - name: Prepare SSH key
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           echo "${{ secrets.PROD_SSH_KEY }}" | base64 -d > ~/.ssh/prod_deploy_key
           chmod 600 ~/.ssh/prod_deploy_key
-      - name: Ship the image over SSH
-        run: docker save agents-task-manager:${{ github.sha }} | gzip | ssh -i ~/.ssh/prod_deploy_key "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_HOST }}" "gunzip | docker load"
+      - name: Ship the images over SSH
+        run: docker save agents-task-manager:${{ github.sha }} agents-task-manager-web:${{ github.sha }} | gzip | ssh -i ~/.ssh/prod_deploy_key "${{ secrets.PROD_SSH_USER }}@${{ secrets.PROD_HOST }}" "gunzip | docker load"
       - name: Sync deploy files
         run: |
           rsync -az --delete -e "ssh -i ~/.ssh/prod_deploy_key" \
