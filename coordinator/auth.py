@@ -41,3 +41,10 @@ def staff_name(request):
 class IsAgentOrStaff(permissions.BasePermission):
     def has_permission(self, request, view):
         return bool(get_agent(request) or staff_name(request))
+
+
+class IsStaffUser(permissions.BasePermission):
+    """Staff session only; agent keys are refused (dashboard read models)."""
+
+    def has_permission(self, request, view):
+        return bool(staff_name(request))
