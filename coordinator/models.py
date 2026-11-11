@@ -142,9 +142,9 @@ class Task(models.Model):
             and not self.depends_on.exclude(status=self.Status.DONE).exists()
         )
 
-    def log(self, event_type, agent=None, message=""):
+    def log(self, event_type, agent=None, message="", actor_user=None):
         return TaskEvent.objects.create(
-            task=self, agent=agent, event_type=event_type, message=message
+            task=self, agent=agent, event_type=event_type, message=message, actor_user=actor_user
         )
 
 
@@ -164,6 +164,10 @@ class TaskEvent(models.Model):
     agent = models.ForeignKey(Agent, null=True, blank=True, on_delete=models.PROTECT)
     event_type = models.CharField(max_length=20, choices=Type.choices)
     message = models.TextField(blank=True)
+    # Human who caused this (#44); the message keeps the historical text label.
+    actor_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
@@ -269,6 +273,10 @@ class WorkerCommand(models.Model):
         Agent, on_delete=models.PROTECT, null=True, blank=True, related_name="issued_commands"
     )
     actor_label = models.CharField(max_length=100, blank=True)
+    # Human who caused this (#44); the message keeps the historical text label.
+    actor_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     action = models.CharField(max_length=32, choices=ACTION_CHOICES)
     payload = models.JSONField(default=dict, blank=True)
     remote_session_id = models.CharField(max_length=128, blank=True)
@@ -581,6 +589,10 @@ class PlanningJob(models.Model):
     )
     detail = models.TextField(blank=True)
     actor = models.CharField(max_length=100)
+    # Human who caused this (#44); the message keeps the historical text label.
+    actor_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 

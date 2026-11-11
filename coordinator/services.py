@@ -114,6 +114,27 @@ def audit_message(message, human_actor=None):
     return f"Human staff {human_actor}: {message}" if human_actor is not None else message
 
 
+def human_user(username):
+    """The account behind a human actor label, resolved inside the caller's transaction (#44).
+
+    Labels come from request.user at request time, so a missing match only happens
+    for history written before accounts existed; the label is kept either way.
+    """
+    if not username:
+        return None
+    return apps.get_model(settings.AUTH_USER_MODEL).objects.filter(username=username).first()
+
+
+def log_human(task, event_type, agent, message, human_actor=None):
+    """Task event whose message carries the human label and whose FK names the user."""
+    return task.log(
+        event_type,
+        agent,
+        audit_message(message, human_actor),
+        actor_user=human_user(human_actor),
+    )
+
+
 def validate_status_details(status, reason, result_summary):
     if status == Task.Status.BLOCKED and not reason.strip():
         raise TaskError("A blocked task requires a reason", 400)
@@ -143,7 +164,7 @@ def create_task(
         created_by=agent,
     )
     task.depends_on.set(dependencies)
-    task.log(TaskEvent.Type.CREATED, agent, audit_message("Task created", human_actor))
+    log_human(task, TaskEvent.Type.CREATED, agent, "Task created", human_actor)
     return task
 
 
@@ -196,7 +217,7 @@ def heartbeat(agent, task_id, human_actor=None):
         raise TaskError("Only in-progress tasks accept heartbeats")
     task.heartbeat_at = timezone.now()
     task.save(update_fields=["heartbeat_at", "updated_at"])
-    task.log(TaskEvent.Type.HEARTBEAT, agent, audit_message("", human_actor))
+    log_human(task, TaskEvent.Type.HEARTBEAT, agent, "", human_actor)
     return task
 
 
@@ -231,20 +252,22 @@ def update_status(agent, task_id, status, reason="", result_summary="", human_ac
     elif status == Task.Status.IN_PROGRESS:
         task.heartbeat_at = timezone.now()
     task.save()
-    task.log(
+    log_human(
+        task,
         TaskEvent.Type.STATUS_CHANGED,
         agent,
-        audit_message(f"{previous} -> {status}: {reason or result_summary}", human_actor),
+        f"{previous} -> {status}: {reason or result_summary}",
+        human_actor,
     )
     return task
 
 
-def clear_claim(task, agent, reason):
+def clear_claim(task, agent, reason, actor_user=None):
     task.status = Task.Status.PENDING
     task.claimed_by = task.claimed_at = task.heartbeat_at = None
     task.blocked_reason = ""
     task.save()
-    task.log(TaskEvent.Type.RELEASED, agent, reason)
+    task.log(TaskEvent.Type.RELEASED, agent, reason, actor_user=actor_user)
     return task
 
 
@@ -253,7 +276,9 @@ def clear_claim(task, agent, reason):
 def release_task(agent, task_id, reason="", human_actor=None):
     task = get_locked(task_id)
     require_owner(task, agent, human_actor)
-    return clear_claim(task, agent, audit_message(reason, human_actor))
+    return clear_claim(
+        task, agent, audit_message(reason, human_actor), actor_user=human_user(human_actor)
+    )
 
 
 @retry_sqlite
@@ -263,7 +288,7 @@ def add_note(agent, task_id, message, human_actor=None):
     if task.claimed_by_id is not None:
         require_owner(task, agent, human_actor)
     task.save(update_fields=["updated_at"])
-    task.log(TaskEvent.Type.NOTE, agent, audit_message(message, human_actor))
+    log_human(task, TaskEvent.Type.NOTE, agent, message, human_actor)
     return task
 
 
@@ -322,10 +347,8 @@ def edit_task(agent, task_id, changes, human_actor=None):
         validate_dependencies(task.pk, dependencies)
         task.depends_on.set(dependencies)
     task.save()
-    task.log(
-        TaskEvent.Type.NOTE,
-        agent,
-        audit_message("Updated " + ", ".join(sorted(changes)), human_actor),
+    log_human(
+        task, TaskEvent.Type.NOTE, agent, "Updated " + ", ".join(sorted(changes)), human_actor
     )
     return task
 
@@ -374,6 +397,7 @@ def admin_save_task(instance, changed_fields, dependencies, username):
         event,
         message=f"Human admin {username}: "
         + ("created task" if creating else "updated " + ", ".join(changes)),
+        actor_user=human_user(username),
     )
     return task
 
@@ -732,9 +756,7 @@ def mutate_planning(project, actor, data):
         ).update(position=F("position") + 1)
         card.save()
         if card.task_id:
-            card.task.log(
-                TaskEvent.Type.NOTE, message=audit_message("Planning card updated", actor)
-            )
+            log_human(card.task, TaskEvent.Type.NOTE, None, "Planning card updated", actor)
     elif operation in {"enqueue", "run"}:
         card = plan.cards.filter(pk=data.get("card_id"), archived=False).first()
         if not card:
@@ -777,6 +799,7 @@ def mutate_planning(project, actor, data):
             )
             + 1,
             actor=actor,
+            actor_user=human_user(actor),
         )
         if operation == "run":
             plan.playing = True
@@ -1661,7 +1684,14 @@ def worker_command_card(command, detail=False):
 @retry_sqlite
 @transaction.atomic
 def enqueue_worker_command(
-    actor_agent, actor_label, worker, action, payload, remote_session_id="", client_request_id=""
+    actor_agent,
+    actor_label,
+    worker,
+    action,
+    payload,
+    remote_session_id="",
+    client_request_id="",
+    actor_user=None,
 ):
     """Durable, validated, idempotent command enqueue (issues #12).
 
@@ -1727,6 +1757,8 @@ def enqueue_worker_command(
         worker=worker,
         created_by=actor_agent,
         actor_label=actor_label or (actor_agent.name if actor_agent else ""),
+        # Direct human commands name their user; launches pass the launching human.
+        actor_user=actor_user or (human_user(actor_label) if actor_agent is None else None),
         action=action,
         payload=stored_payload,
         remote_session_id=remote_session_id,
@@ -2279,6 +2311,7 @@ def launch_task_execution(
             409,
         )
     create_request_id = client_request_id or f"task-{task.pk}-launch"
+    launcher = human_user(actor_label) if actor_agent is None else None
     payload = {"directory": directory}
     if title:
         payload["title"] = title
@@ -2292,6 +2325,7 @@ def launch_task_execution(
         payload,
         remote_session_id="",
         client_request_id=create_request_id,
+        actor_user=launcher,
     )
     attempt = TaskExecutionAttempt.objects.create(
         task=task,
@@ -2303,13 +2337,12 @@ def launch_task_execution(
         session=None,
         outcome=TaskExecutionAttempt.Outcome.PENDING,
     )
-    task.log(
+    log_human(
+        task,
         TaskEvent.Type.EXECUTION_LAUNCHED,
         owner,
-        audit_message(
-            f"Execution attempt {attempt.pk} on {worker.name} ({directory}); command {command.pk}",
-            actor_label if actor_agent is None else None,
-        ),
+        f"Execution attempt {attempt.pk} on {worker.name} ({directory}); command {command.pk}",
+        actor_label if actor_agent is None else None,
     )
     transaction.on_commit(
         lambda: dispatch_notification(
