@@ -108,6 +108,7 @@ export function Label({
   mono = false,
   style,
   numberOfLines,
+  selectable,
 }: {
   children: ReactNode;
   tone?: Tone;
@@ -116,10 +117,12 @@ export function Label({
   mono?: boolean;
   style?: StyleProp<TextStyle>;
   numberOfLines?: number;
+  selectable?: boolean;
 }) {
   const palette = usePalette();
   return (
     <Text
+      selectable={selectable}
       numberOfLines={numberOfLines}
       style={[
         {

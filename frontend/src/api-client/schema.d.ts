@@ -861,6 +861,13 @@ export interface components {
       items: components["schemas"]["AgentCard"][];
     };
     AgentCredentials: {
+      id: number;
+      name: string;
+      is_active: boolean;
+      /** Format: date-time */
+      last_seen: string | null;
+      /** Format: date-time */
+      created_at: string;
       /** @description Shown once. */
       api_key: string;
     };
