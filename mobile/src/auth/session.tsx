@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Platform } from "react-native";
 import Constants from "expo-constants";
 import * as SecureStore from "expo-secure-store";
+import { useQueryClient } from "@tanstack/react-query";
 import { createApi, unwrap } from "@/api/client";
 import type { Api, Schemas } from "@/api/client";
 
@@ -37,6 +38,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [server, setServer] = useState(DEFAULT_SERVER);
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  // Cached data belongs to one user: drop it whenever the signed-in user changes.
+  const client = useQueryClient();
 
   useEffect(() => {
     // The token lives in the platform keychain/keystore, never in plain storage.
@@ -60,26 +63,31 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       SecureStore.deleteItemAsync(TOKEN_KEY),
       SecureStore.deleteItemAsync(USER_KEY),
     ]);
+    client.clear();
     setToken(null);
     setUser(null);
-  }, []);
+  }, [client]);
 
-  const signIn = useCallback(async (address: string, username: string, password: string) => {
-    const base = address.trim().replace(/\/+$/, "");
-    const issued = await unwrap(
-      createApi(base).POST("/api/v1/auth/tokens", {
-        body: { username, password, name: deviceLabel() },
-      }),
-    );
-    await Promise.all([
-      SecureStore.setItemAsync(TOKEN_KEY, issued.token),
-      SecureStore.setItemAsync(SERVER_KEY, base),
-      SecureStore.setItemAsync(USER_KEY, JSON.stringify(issued.user)),
-    ]);
-    setServer(base);
-    setToken(issued.token);
-    setUser(issued.user);
-  }, []);
+  const signIn = useCallback(
+    async (address: string, username: string, password: string) => {
+      const base = address.trim().replace(/\/+$/, "");
+      const issued = await unwrap(
+        createApi(base).POST("/api/v1/auth/tokens", {
+          body: { username, password, name: deviceLabel() },
+        }),
+      );
+      await Promise.all([
+        SecureStore.setItemAsync(TOKEN_KEY, issued.token),
+        SecureStore.setItemAsync(SERVER_KEY, base),
+        SecureStore.setItemAsync(USER_KEY, JSON.stringify(issued.user)),
+      ]);
+      client.clear();
+      setServer(base);
+      setToken(issued.token);
+      setUser(issued.user);
+    },
+    [client],
+  );
 
   const signOut = useCallback(async () => {
     if (token) {

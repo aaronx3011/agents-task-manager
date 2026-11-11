@@ -22,7 +22,14 @@ export default function More() {
       title: "Approvals",
       detail: waiting ? `${waiting} waiting for an answer` : "Permission and question requests",
     },
+    { href: "/more/account", title: "Account", detail: "Password and signed-in devices" },
   ];
+  if (canManage)
+    destinations.push({
+      href: "/more/users",
+      title: "Users & invites",
+      detail: "Roles, access and single-use invite links",
+    });
   if (canManage)
     destinations.push({
       href: "/more/configuration",
