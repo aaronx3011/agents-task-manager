@@ -36,6 +36,19 @@ export function createApi(baseUrl: string, token?: string | null) {
 
 export type Api = ReturnType<typeof createApi>;
 
+/** The server's message: `detail`, or the first field error ("field: message"). */
+export function errorMessage(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const body = error as Record<string, unknown>;
+  if (typeof body.detail === "string") return body.detail;
+  for (const [field, value] of Object.entries(body)) {
+    const first = Array.isArray(value) ? value[0] : value;
+    if (typeof first === "string")
+      return field === "non_field_errors" ? first : `${field}: ${first}`;
+  }
+  return undefined;
+}
+
 /** Return the body or throw an ApiError with the server's message. */
 export async function unwrap<T>(
   request: Promise<{ data?: T; error?: unknown; response: Response }>,
@@ -48,13 +61,9 @@ export async function unwrap<T>(
   }
   const { data, error, response } = result;
   if (!response.ok || data === undefined) {
-    const detail =
-      error && typeof error === "object" && "detail" in error
-        ? (error as { detail: unknown }).detail
-        : undefined;
     throw new ApiError(
       response.status,
-      typeof detail === "string" ? detail : `Request failed (${response.status})`,
+      errorMessage(error) ?? `Request failed (${response.status})`,
     );
   }
   return data;

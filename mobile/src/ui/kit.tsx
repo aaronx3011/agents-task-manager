@@ -20,6 +20,25 @@ import { useLiveState } from "@/live/live";
 import { STATUS_LABELS, usePalette } from "@/ui/theme";
 import { errorText } from "@/ui/format";
 
+/**
+ * Pull-to-refresh state for a manual refresh only: background refetches
+ * (polling, live updates) must not show the spinner.
+ */
+export function usePullRefresh(refresh: () => Promise<unknown> | unknown) {
+  const [refreshing, setRefreshing] = useState(false);
+  return {
+    refreshing,
+    onRefresh: async () => {
+      setRefreshing(true);
+      try {
+        await refresh();
+      } finally {
+        setRefreshing(false);
+      }
+    },
+  };
+}
+
 export function Screen({
   children,
   refreshing,
@@ -458,6 +477,9 @@ export function Sheet({
 }) {
   const palette = usePalette();
   const insets = useSafeAreaInsets();
+  // Mount the native modal only while open: hidden modals (and pickers nested
+  // inside a sheet) otherwise stay attached and stall Android's UI thread.
+  if (!visible) return null;
   return (
     <Modal
       visible={visible}

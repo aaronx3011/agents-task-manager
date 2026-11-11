@@ -14,7 +14,7 @@ import { unwrap } from "@/api/client";
 import type { Schemas } from "@/api/client";
 import { useSession } from "@/auth/session";
 import { useAccess } from "@/auth/access";
-import { LiveStatus } from "@/ui/kit";
+import { LiveStatus, usePullRefresh } from "@/ui/kit";
 import { requestId } from "@/ui/format";
 import { usePalette } from "@/ui/theme";
 import type { Palette } from "@/ui/theme";
@@ -205,6 +205,7 @@ export default function Approvals() {
     queryFn: () => unwrap(api!.GET("/api/v1/interactions")),
   });
   const items = query.data?.items ?? null;
+  const pull = usePullRefresh(() => query.refetch());
   const load = () => client.invalidateQueries({ queryKey: ["interactions"] });
 
   async function answer(item: Interaction, action: ReplyAction, payload: Record<string, unknown>) {
@@ -244,9 +245,9 @@ export default function Approvals() {
         contentContainerStyle={{ padding: 16, gap: 12 }}
         refreshControl={
           <RefreshControl
-            refreshing={query.isRefetching}
+            refreshing={pull.refreshing}
             tintColor={palette.accent}
-            onRefresh={() => void query.refetch()}
+            onRefresh={pull.onRefresh}
           />
         }
         ListHeaderComponent={
