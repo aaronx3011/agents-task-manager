@@ -92,9 +92,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     if (token) {
       // Revoke on the server so a copied token stops working too.
-      await createApi(server, token)
-        .POST("/api/v1/auth/tokens/{id}/revoke", { params: { path: { id: "current" } } })
-        .catch(() => undefined);
+      // Best effort, bounded: an unreachable server must not keep you signed in.
+      await Promise.race([
+        createApi(server, token)
+          .POST("/api/v1/auth/tokens/{id}/revoke", { params: { path: { id: "current" } } })
+          .catch(() => undefined),
+        new Promise((resolve) => setTimeout(resolve, 4000)),
+      ]);
     }
     await forget();
   }, [forget, server, token]);
