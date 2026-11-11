@@ -45,6 +45,13 @@ def has_role(user, minimum):
     return role is not None and ROLE_RANK[Role(role)] >= ROLE_RANK[Role(minimum)]
 
 
+def ensure_another_active_owner(user):
+    """Refuse a change that would leave no active owner (locks the owner rows)."""
+    owners = UserProfile.objects.select_for_update().filter(role=Role.OWNER, user__is_active=True)
+    if not owners.exclude(user=user).exists():
+        raise AccountError("Cannot remove the last active owner", 409)
+
+
 @retry_sqlite
 def set_role(user, role, actor, reason=""):
     """Assign a role, auditing the change. Refuses to leave the system without an owner."""
@@ -58,10 +65,8 @@ def set_role(user, role, actor, reason=""):
         old_role = profile.role if profile else ""
         if old_role == role:
             return profile
-        if old_role == Role.OWNER:
-            others = UserProfile.objects.select_for_update().filter(role=Role.OWNER)
-            if not others.exclude(pk=profile.pk).exists():
-                raise AccountError("Cannot remove the last owner", 409)
+        if old_role == Role.OWNER and user.is_active:
+            ensure_another_active_owner(user)
         if profile is None:
             profile = UserProfile.objects.create(user=user, role=role)
         else:
@@ -184,3 +189,78 @@ def accept_invite(raw, username, password, email=""):
             message=f"Invite {invite.pk} ({invite.token_prefix}…) as {invite.role}",
         )
     return user
+
+
+# --- User management (#47) ---------------------------------------------------------
+
+
+def _validated_password(user, password):
+    try:
+        validate_password(password, user)
+    except ValidationError as exc:
+        raise AccountError(" ".join(exc.messages)) from exc
+    return password
+
+
+@retry_sqlite
+def set_active(user, active, actor_user):
+    """Deactivate or reactivate an account; never leaves the system without an owner."""
+    with transaction.atomic():
+        user = get_user_model().objects.select_for_update().get(pk=user.pk)
+        if user.is_active == bool(active):
+            return user
+        if not active and role_of(user) == Role.OWNER:
+            ensure_another_active_owner(user)
+        user.is_active = bool(active)
+        user.save(update_fields=["is_active"])
+        if not active:
+            # Device tokens (#48) are revoked with the account where they exist.
+            revoke_user_tokens(user)
+        record(
+            AccountEvent.Type.USER_REACTIVATED if active else AccountEvent.Type.USER_DEACTIVATED,
+            actor_user=actor_user,
+            subject_user=user,
+            message=user.get_username(),
+        )
+    return user
+
+
+@retry_sqlite
+def set_password(user, password, actor_user=None, actor=""):
+    """Owner or recovery-command password reset. Existing sessions stop working."""
+    with transaction.atomic():
+        user = get_user_model().objects.select_for_update().get(pk=user.pk)
+        user.set_password(_validated_password(user, password))
+        user.save(update_fields=["password"])
+        record(
+            AccountEvent.Type.PASSWORD_SET,
+            actor_user=actor_user,
+            actor=actor,
+            subject_user=user,
+            message=user.get_username(),
+        )
+    return user
+
+
+@retry_sqlite
+def change_own_password(user, current_password, new_password):
+    with transaction.atomic():
+        user = get_user_model().objects.select_for_update().get(pk=user.pk)
+        if not user.check_password(current_password):
+            raise AccountError("Current password is incorrect")
+        if current_password == new_password:
+            raise AccountError("Choose a different password")
+        user.set_password(_validated_password(user, new_password))
+        user.save(update_fields=["password"])
+        record(
+            AccountEvent.Type.PASSWORD_CHANGED,
+            actor_user=user,
+            subject_user=user,
+            message=user.get_username(),
+        )
+    return user
+
+
+def revoke_user_tokens(user):
+    """Hook for per-device tokens (#48); a no-op until that model exists."""
+    return 0

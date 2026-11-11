@@ -63,6 +63,10 @@ class AccountEvent(models.Model):
         INVITE_CREATED = "invite.created", "Invite created"
         INVITE_REVOKED = "invite.revoked", "Invite revoked"
         INVITE_ACCEPTED = "invite.accepted", "Invite accepted"
+        USER_DEACTIVATED = "user.deactivated", "User deactivated"
+        USER_REACTIVATED = "user.reactivated", "User reactivated"
+        PASSWORD_SET = "password.set", "Password set for user"
+        PASSWORD_CHANGED = "password.changed", "Own password changed"
 
     event_type = models.CharField(max_length=40, choices=Type.choices)
     # The human who acted (None for anonymous invite acceptance) and their label.

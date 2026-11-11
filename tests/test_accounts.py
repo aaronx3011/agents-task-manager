@@ -113,7 +113,7 @@ def test_admin_role_edits_are_audited_and_keep_an_owner():
     response = client.post(
         f"/admin/accounts/userprofile/{root.profile.pk}/change/", {"role": "viewer"}, follow=True
     )
-    assert "Cannot remove the last owner" in response.content.decode()
+    assert "Cannot remove the last active owner" in response.content.decode()
     assert UserProfile.objects.get(user=root).role == Role.OWNER
     assert client.get("/admin/accounts/rolechange/add/").status_code == 403
 
