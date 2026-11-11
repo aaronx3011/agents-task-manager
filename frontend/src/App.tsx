@@ -198,7 +198,8 @@ function AgentChip({
   );
 }
 export default function App() {
-  const sessionLibrary = useSessionLibrary();
+  const { me, canWrite, canManage } = useAccess();
+  const sessionLibrary = useSessionLibrary(me.username);
   const { location, navigate } = useLocationState();
   const { connection, highlighted } = useLiveUpdates();
   const [theme, setTheme] = useState(() =>
@@ -213,8 +214,11 @@ export default function App() {
   const [agentsOpen, setAgentsOpen] = useState(true);
   const [trail, setTrail] = useState<string[]>([]);
   const trigger = useRef<HTMLElement | null>(null);
-  const root = document.getElementById("root")!;
-  const { me, canWrite, canManage } = useAccess();
+  const meta = useQuery({
+    queryKey: ["meta"],
+    queryFn: () => unwrap(api.GET("/api/v1/meta")),
+    staleTime: Infinity,
+  });
   const signOut = useSignOut();
   const queryClient = useQueryClient();
   const { filters } = location;
@@ -317,11 +321,7 @@ export default function App() {
     <ClockProvider serverTime={data?.server_time}>
       <div className={`app-shell density-${density}`}>
         <aside className="sidebar">
-          <a
-            className="brand"
-            href="/dashboard/"
-            aria-label="Agent Ops workspace"
-          >
+          <a className="brand" href="/" aria-label="Agent Ops workspace">
             <span className="brand-mark">
               <Command size={20} />
             </span>
@@ -673,7 +673,7 @@ export default function App() {
                   <p>A clear picture of the work. As it happens.</p>
                 </div>
                 <div className="heading-right">
-                  {root.dataset.demo === "true" && (
+                  {meta.data?.demo && (
                     <span className="demo-label">
                       <Radio size={13} />
                       LIVE MCP DEMO

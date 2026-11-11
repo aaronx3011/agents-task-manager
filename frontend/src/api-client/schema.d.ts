@@ -314,6 +314,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/meta": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Deployment facts for the SPA (no authentication)
+     * @description Public, data-free facts the SPA needs before sign-in (#50).
+     */
+    get: operations["meta"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/overview": {
     parameters: {
       query?: never;
@@ -1037,6 +1057,9 @@ export interface components {
       email: string;
       role: components["schemas"]["RoleEnum"];
       is_superuser: boolean;
+    };
+    Meta: {
+      demo: boolean;
     };
     ModelChoiceRequest: {
       providerID: string;
@@ -2017,6 +2040,25 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["LoginError"];
+        };
+      };
+    };
+  };
+  meta: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Meta"];
         };
       };
     };

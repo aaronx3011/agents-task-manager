@@ -134,7 +134,7 @@ the existing acknowledged sync; the socket wakes that sync immediately.
 ## Project planning and execution queues
 
 Open **Planning** in the sidebar/mobile navigation, or
-`/dashboard/?section=planning&project=PROJECT_SLUG`.
+`/?section=planning&project=PROJECT_SLUG`.
 
 Create projects directly with **New project** in Planning or the **+** beside
 Projects in the sidebar. Enter a name, suggested/editable unique slug, kind and
@@ -196,7 +196,9 @@ in `coordinator/services.py`; focused regression tests: `tests/test_planning.py`
 | Read models and synchronization | `coordinator/queries.py`, `coordinator/sync.py`, `coordinator/live.py` |
 | HTTP boundaries | `coordinator/urls.py`, `coordinator/views.py`, `coordinator/serializers.py` |
 | Agent authentication | `coordinator/auth.py` |
-| Dashboard and invalidation | `coordinator/dashboard.py`, `coordinator/realtime.py`, `config/asgi.py` |
+| Dashboard reads and invalidation | `coordinator/dashboard_api.py`, `coordinator/realtime.py`, `config/asgi.py` |
+| Accounts, invites and device tokens | `accounts/` |
+| SPA front door | `deploy/web/Caddyfile`, `Dockerfile` (`web` target) |
 | Frontend tooling | `frontend/package.json` |
 | Agent registration | `frontend/src/Configuration.tsx`, `coordinator/views.py`, `coordinator/services.py` |
 | Sessions shelf and Activity | `frontend/src/session-library.ts`, `frontend/src/ActivityPage.tsx` |
@@ -215,21 +217,25 @@ uv sync --locked
 cp .env.example .env
 # Configure .env for your local database, host, and optional Redis.
 uv run python manage.py migrate
-npm ci --prefix frontend
-npm run build --prefix frontend
-uv run python manage.py createsuperuser
+uv run python manage.py create_owner YOUR_NAME
 uv run uvicorn config.asgi:application --reload
+# In a second terminal: the SPA with a same-origin proxy to uvicorn.
+npm ci --prefix frontend
+npm run dev --prefix frontend
 ```
 
-Visit `/dashboard/` for the workspace, `/admin/` for administration, `/api/` for
-the authenticated browsable API, and `/healthz` for public liveness. SQLite is
+Visit http://localhost:5173/ for the workspace (sign in with the owner you created),
+`/admin/` for Django administration, `/api/v1/schema` for the OpenAPI contract, and
+`/healthz` for public liveness. Owners add people from **Users & invites** with
+single-use invite links. `docker compose up` runs the same split: Django behind the
+Caddy front door on http://localhost:8000. SQLite is
 for solo development. PostgreSQL is the concurrent-agent database; Redis is
 needed for notifications across multiple ASGI workers.
 
 ### Register another agent
 
-Sign in as staff and open **Configuration → Agents**, or visit
-`/dashboard/?section=configuration` directly (also available in mobile navigation).
+Sign in as an owner and open **Configuration → Agents**, or visit
+`/?section=configuration` directly (also available in mobile navigation).
 
 1. Enter a unique agent name and choose **Register agent**.
 2. Copy the agent name and newly generated API key. The key is shown only in

@@ -44,28 +44,25 @@ def staff_client(django_user_model):
 
 
 @pytest.mark.django_db
-def test_dashboard_and_snapshot_require_staff_and_do_not_expose_keys(
+def test_dashboard_snapshot_requires_a_role_and_does_not_expose_keys(
     client,
     staff_client,
     api_client,
     project,
     django_user_model,
 ):
-    # The SPA shell is public and data-free; data endpoints still require a role (#49).
-    shell = client.get("/dashboard/")
-    assert shell.status_code == 200 and "no-store" in shell.headers["Cache-Control"]
-    assert client.get("/dashboard/state/").status_code == 302
-    assert api_client.get("/dashboard/state/").status_code == 302
+    # Django no longer serves the SPA (#50); the data endpoints keep their checks.
+    assert client.get("/dashboard/").status_code == 404
+    assert client.get("/api/v1/dashboard/state").status_code in {401, 403}
+    assert api_client.get("/api/v1/dashboard/state").status_code == 403
     inactive = django_user_model.objects.create_user("inactive", is_active=False)
     client.force_login(inactive)
-    assert client.get("/dashboard/state/").status_code == 302
-    assert client.get("/invite").status_code == 200
+    assert client.get("/api/v1/dashboard/state").status_code in {401, 403}
     task = create(api_client, title="<script>untrusted task title</script>")
     post(api_client, f"tasks/{task['id']}/claim")
-    dashboard = staff_client.get("/dashboard/")
-    assert dashboard.status_code == 200
-    assert "csrftoken" in dashboard.cookies
-    response = staff_client.get("/dashboard/state/")
+    primed = staff_client.get("/api/v1/auth/csrf")
+    assert primed.status_code == 200 and "csrftoken" in primed.cookies
+    response = staff_client.get("/api/v1/dashboard/state")
     assert response.status_code == 200
     data = response.json()
     assert data["counts"]["in_progress"] == 1
@@ -116,7 +113,9 @@ def test_socket_delivers_committed_changes_and_remains_silent_on_rollback(
             task = await sync_to_async(create)(api_client, title="Committed dashboard task")
             message = json.loads((await socket.receive_output(timeout=5))["text"])
             assert message["type"] == "changed" and message["event_id"] is not None
-            state = await sync_to_async(lambda: staff_client.get("/dashboard/state/").json())()
+            state = await sync_to_async(
+                lambda: staff_client.get("/api/v1/dashboard/state").json()
+            )()
             assert state["tasks"][0]["id"] == task["id"]
 
             def rollback():
@@ -126,7 +125,9 @@ def test_socket_delivers_committed_changes_and_remains_silent_on_rollback(
 
             await sync_to_async(rollback)()
             assert await socket.receive_nothing(timeout=0.2)
-            state = await sync_to_async(lambda: staff_client.get("/dashboard/state/").json())()
+            state = await sync_to_async(
+                lambda: staff_client.get("/api/v1/dashboard/state").json()
+            )()
             assert state["total_tasks"] == 1
             await sync_to_async(post)(api_client, f"tasks/{task['id']}/claim")
             assert json.loads((await socket.receive_output(timeout=5))["text"])["type"] == "changed"
@@ -196,9 +197,9 @@ def test_project_filter_is_applied_before_dashboard_limits(staff_client, api_cli
     )
     Project.objects.create(slug="later-project", name="Later project")
     task = create(api_client, "Visible in its project", project="later-project")
-    state = staff_client.get("/dashboard/state/", {"project": "later-project"}).json()
+    state = staff_client.get("/api/v1/dashboard/state", {"project": "later-project"}).json()
     assert [item["id"] for item in state["tasks"]] == [task["id"]]
     assert state["scope_total_tasks"] == 1
     assert state["events"][0]["task_id"] == task["id"]
     assert state["projects"][0]["counts"]["pending"] == 205
-    assert staff_client.get("/dashboard/state/", {"project": "unknown"}).status_code == 404
+    assert staff_client.get("/api/v1/dashboard/state", {"project": "unknown"}).status_code == 404

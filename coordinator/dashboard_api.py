@@ -1,9 +1,10 @@
 """Dashboard read models served by DRF under /api/v1/dashboard/ (#40).
 
-The legacy /dashboard/state/ and /dashboard/workspace/ routes wrap these same views
-(see config/urls.py), so both mounts return byte-identical payloads.
+The SPA reads these through /api/v1; the old /dashboard/*/ aliases were removed
+with the SPA split (#50).
 """
 
+from django.conf import settings
 from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -12,6 +13,7 @@ from django.views.decorators.cache import never_cache
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -234,3 +236,20 @@ class WorkspaceStateView(APIView):
             # Legacy payload shape kept so /dashboard/workspace/ clients stay unchanged.
             return Response({"detail": exc.detail}, status=400)
         return Response(WorkspaceStateSerializer(state).data)
+
+
+@method_decorator(never_cache, name="dispatch")
+class MetaView(APIView):
+    """Public, data-free facts the SPA needs before sign-in (#50)."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        operation_id="meta",
+        summary="Deployment facts for the SPA (no authentication)",
+        responses=inline_serializer("Meta", {"demo": serializers.BooleanField()}),
+        auth=[],
+    )
+    def get(self, request):
+        return Response({"demo": bool(settings.COORDINATOR_DEMO)})

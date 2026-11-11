@@ -57,7 +57,7 @@ export function useSignOut() {
       await api.POST("/api/v1/auth/logout");
     } finally {
       client.clear();
-      window.location.assign("/dashboard/");
+      window.location.assign("/");
     }
   };
 }

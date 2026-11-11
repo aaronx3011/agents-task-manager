@@ -156,7 +156,7 @@ export function InviteScreen() {
         }),
       );
       // Drop the token from history before entering the workspace.
-      window.location.replace("/dashboard/");
+      window.location.replace("/");
     } catch (e) {
       setError(message(e));
     } finally {
@@ -168,7 +168,7 @@ export function InviteScreen() {
   if (problem)
     return (
       <Card title="Invite unavailable" lead={problem}>
-        <a className="button secondary" href="/dashboard/">
+        <a className="button secondary" href="/">
           Go to sign in
         </a>
       </Card>

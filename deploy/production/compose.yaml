@@ -8,7 +8,8 @@
 # Differences from development:
 # - Secrets must be provided explicitly (no host-side generation).
 # - Secure cookies and CSRF settings are enabled by default.
-# - No fixed host port mapping: the reverse proxy joins the compose network.
+# - No fixed host port mapping: the reverse proxy reaches `front` (SPA + API
+#   proxy, port 8080) on the shared proxy network.
 
 name: atm-prod
 
@@ -24,6 +25,8 @@ x-web: &web
     DJANGO_SECURE_SSL_REDIRECT: "true"
     DJANGO_SECURE_COOKIES: "true"
     DJANGO_TRUST_PROXY: "true"
+    # HTTPS reverse proxy, then the Caddy front door.
+    DJANGO_NUM_PROXIES: "2"
     WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
     WORKER_OFFLINE_SECONDS: ${WORKER_OFFLINE_SECONDS:-10}
     WORKER_SESSION_KEEP: ${WORKER_SESSION_KEEP:-500}
@@ -76,6 +79,14 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
+  front:
+    # SPA + same-origin proxy to Django (#50); the HTTPS proxy reaches it on
+    # the shared network at front:8080.
+    image: agents-task-manager-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
     networks:
       - default
       - proxy
