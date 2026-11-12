@@ -42,6 +42,27 @@ Expo Go (SDK 58) runs the app without a native build. The sign-in screen lets
 you change the server address at any time. Use an account created with
 `create_owner` or an invite link.
 
+## Build an APK to sideload
+
+Android's native project is generated, not committed (`android/` is ignored).
+With JDK 17 (`brew install openjdk@17`) and the Android SDK:
+
+```sh
+cd mobile
+CI=1 npx expo prebuild --platform android --no-install
+cd android
+JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home \
+ANDROID_HOME=$HOME/Library/Android/sdk \
+EXPO_PUBLIC_API_URL=https://atm.aaron-henriquez.com NODE_ENV=production \
+./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
+```
+
+The APK lands in `android/app/build/outputs/apk/release/app-release.apk`.
+`EXPO_PUBLIC_API_URL` becomes the sign-in screen's default server. The release
+build is signed with the Android debug key: fine for installing directly, not
+for the Play Store. Revert the `android`/`ios` scripts prebuild rewrites in
+`package.json` before committing.
+
 ## Code layout
 
 - `src/app/` — Expo Router screens: `(tabs)/` holds one Stack per tab.
