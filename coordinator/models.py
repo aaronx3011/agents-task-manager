@@ -202,6 +202,8 @@ class Worker(models.Model):
     # Connected model catalog observed from the local OpenCode endpoint.
     default_model = models.JSONField(null=True, blank=True)
     model_catalog = models.JSONField(default=list, blank=True)
+    # Retain metadata written by the earlier Planning release (#93).
+    agent_catalog = models.JSONField(default=list, blank=True)
     # Inventory window limits and discarded-event counters reported by the bridge.
     session_limit = models.PositiveIntegerField(default=50)
     message_limit = models.PositiveIntegerField(default=30)
@@ -541,6 +543,7 @@ class ProjectPlan(models.Model):
     default_worker = models.ForeignKey(Worker, null=True, blank=True, on_delete=models.PROTECT)
     directory = models.CharField(max_length=500, blank=True)
     model = models.JSONField(null=True, blank=True)
+    agent = models.CharField(max_length=100, blank=True)
     context = models.TextField(blank=True)
     instructions = models.TextField(blank=True)
     templates = models.JSONField(default=list, blank=True)
@@ -559,6 +562,8 @@ class PlanningCard(models.Model):
     column = models.CharField(max_length=100, default="Backlog")
     position = models.PositiveIntegerField(default=0)
     instructions = models.TextField(blank=True)
+    agent = models.CharField(max_length=100, blank=True)
+    model = models.JSONField(null=True, blank=True)
     task = models.OneToOneField(Task, null=True, blank=True, on_delete=models.PROTECT)
     archived = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
