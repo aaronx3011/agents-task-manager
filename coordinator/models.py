@@ -203,6 +203,8 @@ class Worker(models.Model):
     session_limit = models.PositiveIntegerField(default=50)
     message_limit = models.PositiveIntegerField(default=30)
     dropped_events = models.PositiveIntegerField(default=0)
+    # Last envelope's unacknowledged event count; older bridges do not report it.
+    buffered_events = models.PositiveIntegerField(null=True, blank=True)
     # Worker heartbeat: freshness of the last authenticated, acknowledged sync.
     last_sync_at = models.DateTimeField(null=True, blank=True, db_index=True)
     # Acknowledged event batch for idempotent sync retries (#11).

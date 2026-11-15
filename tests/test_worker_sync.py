@@ -135,6 +135,34 @@ class TestSyncContract:
 
 
 class TestSyncApplies:
+    def test_buffer_gauge_persists_reads_retries_and_drain(self, api_client, staff_client, worker):
+        assert services.worker_read_model(worker)["buffered_events"] is None
+        payload = sync_payload(
+            meta={"buffered_events": 2, "dropped_events": 5},
+            events=[{"type": "fixture.event", "payload": {"index": i}} for i in range(2)],
+            cursor={"batch_id": "buffered"},
+        )
+        for _ in range(2):
+            assert post_sync(api_client, payload).status_code == 200
+        worker.refresh_from_db()
+        assert worker.buffered_events == 2
+        assert WorkerEvent.objects.filter(worker=worker).count() == 2
+        assert staff_client.get(f"/api/workers/{worker.name}").json()["buffered_events"] == 2
+        assert (
+            post_sync(
+                api_client,
+                sync_payload(meta={"buffered_events": 0}, cursor={"batch_id": "drained"}),
+            ).status_code
+            == 200
+        )
+        worker.refresh_from_db()
+        assert services.worker_read_model(worker)["buffered_events"] == 0
+        assert worker.dropped_events == 5
+        # Older bridges omit the gauge; do not invent a new reading.
+        assert post_sync(api_client, sync_payload()).status_code == 200
+        worker.refresh_from_db()
+        assert worker.buffered_events == 0
+
     def test_full_batch_persists_observations(self, api_client, worker):
         payload = sync_payload(
             sessions=[

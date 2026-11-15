@@ -495,6 +495,10 @@ def record_worker_meta(worker, meta):
         value = meta.get(name)
         if isinstance(value, int) and 0 <= value <= 100000:
             setattr(worker, name, value)
+    buffered = meta.get("buffered_events")
+    # Bridge bounds: at most 1000 queued plus 1000 frozen in-flight events.
+    if type(buffered) is int and 0 <= buffered <= 2000:
+        worker.buffered_events = buffered
     worker.last_sync_at = now
     worker.save()
     return worker
@@ -554,6 +558,7 @@ def worker_read_model(worker, counts=False):
         "session_limit": worker.session_limit,
         "message_limit": worker.message_limit,
         "dropped_events": worker.dropped_events,
+        "buffered_events": worker.buffered_events,
         "last_sync_at": worker.last_sync_at,
         "created_at": worker.created_at,
     }
