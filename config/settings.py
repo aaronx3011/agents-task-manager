@@ -117,6 +117,14 @@ WORKER_EVENT_KEEP = env_int("WORKER_EVENT_KEEP", 5000)
 WORKER_EVENT_MAX_BYTES = env_int("WORKER_EVENT_MAX_BYTES", 64 * 1024)
 WORKER_LIVE_MAX_BYTES = env_int("WORKER_LIVE_MAX_BYTES", 256 * 1024)
 WORKER_LIVE_TTL = env_int("WORKER_LIVE_TTL", 15)
+
+# One-way Notion mirror (GH #94). Empty token disables the sync worker.
+NOTION_TOKEN = os.environ.get("NOTION_TOKEN", "").strip()
+NOTION_PROJECTS_DATA_SOURCE_ID = os.environ.get("NOTION_PROJECTS_DATA_SOURCE_ID", "").strip()
+NOTION_TASKS_DATA_SOURCE_ID = os.environ.get("NOTION_TASKS_DATA_SOURCE_ID", "").strip()
+NOTION_SYNC_INTERVAL_SECONDS = env_int("NOTION_SYNC_INTERVAL_SECONDS", 20)
+# Minimum gap between heartbeat-only pushes for one task.
+NOTION_HEARTBEAT_PUSH_SECONDS = env_int("NOTION_HEARTBEAT_PUSH_SECONDS", 600)
 DATABASES = {
     "default": dj_database_url.parse(
         os.environ.get("DATABASE_URL") or f"sqlite:///{BASE_DIR / 'db.sqlite3'}",

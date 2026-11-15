@@ -4,7 +4,7 @@ from django.db import transaction
 from django.http import HttpResponse
 
 from . import services
-from .models import Agent, Project, Task, TaskEvent, Worker, WorkerCommand
+from .models import Agent, NotionLink, Project, Task, TaskEvent, Worker, WorkerCommand
 
 
 @admin.register(Worker)
@@ -55,6 +55,27 @@ class WorkerAdmin(admin.ModelAdmin):
 class ProjectAdmin(admin.ModelAdmin):
     list_display = ("name", "slug", "kind", "docs_path")
     prepopulated_fields = {"slug": ("name",)}
+
+
+@admin.register(NotionLink)
+class NotionLinkAdmin(admin.ModelAdmin):
+    """Read-only view of the Notion mirror; failures show here with their backoff."""
+
+    list_display = ("__str__", "synced_at", "failures", "retry_at", "last_error")
+    list_filter = ("failures",)
+    search_fields = ("page_id", "task__title", "project__slug", "last_error")
+    actions = ["requeue"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    @admin.action(description="Re-push to Notion on the next pass")
+    def requeue(self, request, queryset):
+        count = queryset.update(props_hash="", source_updated_at=None, retry_at=None)
+        self.message_user(request, f"Requeued {count} link(s).", messages.SUCCESS)
 
 
 @admin.register(Agent)
