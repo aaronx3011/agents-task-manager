@@ -95,10 +95,7 @@ export class LiveSnapshots {
         this.dirty.delete(id)
         const session = this.options.sessions.get(id)
         if (!session) continue
-        const history = await this.options.connection.request(
-          `/session/${encodeURIComponent(id)}/message?limit=${this.options.messageLimit}`,
-          { directory: session.directory },
-        )
+        const history = await this.options.connection.messages(session, this.options.messageLimit)
         if (!Array.isArray(history)) continue
         this.send({ type: "snapshot", sessionID: id, messages: history,
           executionStatus: this.states.get(id) ?? session.status })

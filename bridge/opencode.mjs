@@ -28,6 +28,10 @@ export class OpenCodeConnection {
     })
   }
 
+  messages(session, limit) {
+    return this.request(`/session/${encodeURIComponent(session.id)}/message?limit=${limit}`, { directory: session.directory })
+  }
+
   // Flatten a Django command card into one local OpenCode call. OpenCode owns
   // permission/order enforcement locally; the bridge re-checks pending state
   // against the snapshot it published before replying.

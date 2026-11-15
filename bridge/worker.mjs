@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url"
 import { setTimeout } from "node:timers/promises"
 import { randomUUID } from "node:crypto"
 import { OpenCodeConnection, consumeSSE } from "./opencode.mjs"
+import { CodexConnection } from "./codex.mjs"
 import { CommandReceipts } from "./receipts.mjs"
 import { workerSettings, workerOptions } from "./settings.mjs"
 import { LiveSnapshots, syncScheduler } from "./live.mjs"
@@ -29,7 +30,12 @@ export function sanitizeSync(value) {
 export function startWorker(input) {
   const options = workerSettings(input)
   const controller = new AbortController()
-  const connection = new OpenCodeConnection({ ...options, signal: controller.signal })
+  // Codex owns its session registry in-process; OpenCode is a
+  // separate local HTTP server. `embedded` selects the in-process contract.
+  const embedded = options.backend !== "opencode"
+  const runtimeLabel = { opencode: "OpenCode", codex: "Codex" }[options.backend]
+  const Connection = { opencode: OpenCodeConnection, codex: CodexConnection }[options.backend]
+  const connection = new Connection({ ...options, signal: controller.signal })
   const receipts = new CommandReceipts(options.stateDirectory)
   const workerID = options.worker
   const sessions = new Map()
@@ -62,42 +68,39 @@ export function startWorker(input) {
     }
   }
 
+  function observe(frame) {
+    const event = frame.payload ?? frame
+    if (!event.type || event.type === "server.heartbeat") return
+    if (options.directory && frame.directory && frame.directory !== options.directory) return
+    if (frame.directory && (event.type.startsWith("permission.") || event.type.startsWith("question."))) {
+      seenDirectories.add(frame.directory)
+      if (seenDirectories.size > 50) seenDirectories.delete(seenDirectories.values().next().value)
+    }
+    const sessionID = event.properties?.sessionID ?? event.properties?.part?.sessionID ??
+      event.properties?.info?.sessionID ?? (event.type.startsWith("session.") ? event.properties?.info?.id : undefined)
+    live.observe(event, sessionID)
+    enqueue({ type: event.type, sessionID, payload: frame })
+  }
+
   async function stream() {
     while (!controller.signal.aborted) {
       try {
-        const response = await fetch(connection.endpoint("/global/event", undefined), {
-          headers: connection.headers,
-          signal: controller.signal,
-        })
-        if (!response.ok || !response.headers.get("content-type")?.includes("text/event-stream")) {
-          throw new Error("SSE unavailable")
-        }
-        streamConnected = true
-        await consumeSSE(response.body, (frame) => {
-          const event = frame.payload ?? frame
-          if (!event.type || event.type === "server.heartbeat") return
-          // Local directory filtering is applied to snapshots too.
-          if (options.directory && frame.directory && frame.directory !== options.directory) return
-          // Pending interactions are workspace-scoped, so remember workspaces
-          // that raised one even when their session falls outside the window.
-          if (frame.directory && typeof event.type === "string" &&
-            (event.type.startsWith("permission.") || event.type.startsWith("question."))) {
-            seenDirectories.add(frame.directory)
-            if (seenDirectories.size > 50) seenDirectories.delete(seenDirectories.values().next().value)
-          }
-          const sessionID = event.properties?.sessionID ?? event.properties?.part?.sessionID ??
-            event.properties?.info?.sessionID ?? (event.type.startsWith("session.") ? event.properties?.info?.id : undefined)
-          live.observe(event, sessionID)
-          enqueue({
-            type: event.type,
-            sessionID:
-              event.properties?.sessionID ??
-              event.properties?.part?.sessionID ??
-              event.properties?.info?.sessionID ??
-              (event.type.startsWith("session.") ? event.properties?.info?.id : undefined),
-             payload: frame,
+        if (embedded) {
+          await connection.stream(observe, () => {
+            streamConnected = true
+            scheduler.wake()
           })
-        })
+        } else {
+          const response = await fetch(connection.endpoint("/global/event", undefined), {
+            headers: connection.headers,
+            signal: controller.signal,
+          })
+          if (!response.ok || !response.headers.get("content-type")?.includes("text/event-stream")) {
+            throw new Error("SSE unavailable")
+          }
+          streamConnected = true
+          await consumeSSE(response.body, observe)
+        }
       } catch (error) {
         if (!controller.signal.aborted) console.error(`[${workerID}] Event stream: ${error.message}`)
       } finally {
@@ -114,80 +117,91 @@ export function startWorker(input) {
     let error
     let version
     try {
-      const health = await connection.request("/global/health")
+      const health = embedded ? connection.health() : await connection.request("/global/health")
       version = health?.version
-      if (version !== "1.18.32") {
+      if (!embedded && version !== "1.18.32") {
         throw new Error("Unsupported OpenCode API: verified version is 1.18.32")
       }
       if (Date.now() - catalogAt > 60000) {
-        const catalog = await connection.request("/provider")
-        models = catalog.all
-          .filter((provider) => catalog.connected.includes(provider.id))
-          .flatMap((provider) =>
-            Object.entries(provider.models).map(([id, model]) => ({
-              providerID: provider.id,
-              modelID: id,
-              name: model.name ?? id,
-            })),
-          )
-        try {
-          const list = await connection.request("/agent")
-          if (Array.isArray(list)) {
-            agents = list
-              .filter((agent) => agent && typeof agent.name === "string" && agent.name)
-              .map((agent) => ({
-                name: agent.name,
-                description: agent.description ?? "",
-                mode: agent.mode,
-                builtIn: agent.builtIn === true,
-              }))
+        if (embedded) models = await connection.catalog()
+        else {
+          const catalog = await connection.request("/provider")
+          models = catalog.all
+            .filter((provider) => catalog.connected.includes(provider.id))
+            .flatMap((provider) =>
+              Object.entries(provider.models).map(([id, model]) => ({
+                providerID: provider.id,
+                modelID: id,
+                name: model.name ?? id,
+              })),
+            )
+          try {
+            const list = await connection.request("/agent")
+            if (Array.isArray(list)) {
+              agents = list
+                .filter((agent) => agent && typeof agent.name === "string" && agent.name)
+                .map((agent) => ({
+                  name: agent.name,
+                  description: agent.description ?? "",
+                  mode: agent.mode,
+                  builtIn: agent.builtIn === true,
+                }))
+            }
+          } catch {
+            // Agent discovery is optional; task prompts still use the worker default.
+            agents = []
           }
-        } catch {
-          // Agent discovery is optional; task prompts still use the worker default.
-          agents = []
         }
         catalogAt = Date.now()
       }
-      // The regular list is project-scoped; the v1 global list spans projects.
-      const list = await connection.request(
-        `${options.directory ? "/session" : "/experimental/session"}?limit=${options.sessionLimit}`,
-      )
-      const statuses = await connection.request("/session/status")
-      if (!Array.isArray(list)) throw new Error("Unsupported session list response; expected OpenCode v1 API")
-       const filtered = (options.directory ? list.filter((s) => s.directory === options.directory) : list).slice(0, options.sessionLimit)
-      // Pending interactions are directory-scoped on the local API: a query
-      // without a workspace never returns requests raised inside it. Merge the
-      // scopes of every observed workspace (recent sessions plus event hints).
-      const pendingPermissions = []
-      const pendingQuestions = []
-      for (const directory of new Set([...filtered.map((s) => s.directory), ...seenDirectories])) {
-        if (!directory) continue
-        const [scopedPermissions, scopedQuestions] = await Promise.all([
-          connection.request("/permission", { directory }),
-          connection.request("/question", { directory }),
-        ])
-        if (!Array.isArray(scopedPermissions) || !Array.isArray(scopedQuestions)) {
-          throw new Error("Unexpected pending interaction response")
+      let filtered
+      if (embedded) {
+        const snapshot = connection.snapshot()
+        filtered = snapshot.sessions
+        pending = snapshot.pending
+      } else {
+        // The regular list is project-scoped; the v1 global list spans projects.
+        const list = await connection.request(
+          `${options.directory ? "/session" : "/experimental/session"}?limit=${options.sessionLimit}`,
+        )
+        const statuses = await connection.request("/session/status")
+        if (!Array.isArray(list)) throw new Error("Unsupported session list response; expected OpenCode v1 API")
+        filtered = (options.directory ? list.filter((s) => s.directory === options.directory) : list).slice(0, options.sessionLimit)
+        // Pending interactions are directory-scoped on the local API: a query
+        // without a workspace never returns requests raised inside it. Merge the
+        // scopes of every observed workspace (recent sessions plus event hints).
+        const pendingPermissions = []
+        const pendingQuestions = []
+        for (const directory of new Set([...filtered.map((s) => s.directory), ...seenDirectories])) {
+          if (!directory) continue
+          const [scopedPermissions, scopedQuestions] = await Promise.all([
+            connection.request("/permission", { directory }),
+            connection.request("/question", { directory }),
+          ])
+          if (!Array.isArray(scopedPermissions) || !Array.isArray(scopedQuestions)) {
+            throw new Error("Unexpected pending interaction response")
+          }
+          pendingPermissions.push(...scopedPermissions)
+          pendingQuestions.push(...scopedQuestions)
         }
-        pendingPermissions.push(...scopedPermissions)
-        pendingQuestions.push(...scopedQuestions)
-      }
-      const uniqueRequests = (requests) => [...new Map(requests.map((request) => [request.id, request])).values()]
-      const permissions = uniqueRequests(pendingPermissions)
-      const questions = uniqueRequests(pendingQuestions)
-      // Requests can belong to an older session outside the recent-history window;
-      // preserve them by observing their rows too (server retention keeps them).
-      for (const id of new Set([...permissions, ...questions].map((r) => r.sessionID))) {
-        if (filtered.some((s) => s.id === id)) continue
-        const session = await connection.request(`/session/${encodeURIComponent(id)}`)
-         if ((!options.directory || session.directory === options.directory) && filtered.length < 100) filtered.push(session)
-      }
-       pending = {
-         // A truncated window must never resolve requests omitted by its cap.
-         complete: permissions.length <= 200 && questions.length <= 200 &&
-           [...permissions, ...questions].every((r) => filtered.some((s) => s.id === r.sessionID)),
-         permissions: permissions.filter((r) => filtered.some((s) => s.id === r.sessionID)).slice(0, 200),
-         questions: questions.filter((r) => filtered.some((s) => s.id === r.sessionID)).slice(0, 200),
+        const uniqueRequests = (requests) => [...new Map(requests.map((request) => [request.id, request])).values()]
+        const permissions = uniqueRequests(pendingPermissions)
+        const questions = uniqueRequests(pendingQuestions)
+        // Requests can belong to an older session outside the recent-history window;
+        // preserve them by observing their rows too (server retention keeps them).
+        for (const id of new Set([...permissions, ...questions].map((r) => r.sessionID))) {
+          if (filtered.some((s) => s.id === id)) continue
+          const session = await connection.request(`/session/${encodeURIComponent(id)}`)
+          if ((!options.directory || session.directory === options.directory) && filtered.length < 100) filtered.push(session)
+        }
+        pending = {
+          // A truncated window must never resolve requests omitted by its cap.
+          complete: permissions.length <= 200 && questions.length <= 200 &&
+            [...permissions, ...questions].every((r) => filtered.some((s) => s.id === r.sessionID)),
+          permissions: permissions.filter((r) => filtered.some((s) => s.id === r.sessionID)).slice(0, 200),
+          questions: questions.filter((r) => filtered.some((s) => s.id === r.sessionID)).slice(0, 200),
+        }
+        filtered = filtered.map((session) => ({ ...session, status: statuses[session.id]?.type ?? "idle" }))
       }
       for (const id of sessions.keys()) {
         if (!filtered.some((s) => s.id === id)) {
@@ -197,15 +211,11 @@ export function startWorker(input) {
       }
       for (const [index, session] of filtered.entries()) {
         const previous = sessions.get(session.id)
-        const info = { ...session, status: statuses[session.id]?.type ?? "idle" }
-        sessions.set(session.id, info)
+        sessions.set(session.id, session)
         // Periodically reconcile recent messages: embedded TUI processes may
         // share the DB without publishing their live stream on this endpoint.
         if (!previous || index < 8 || previous.time.updated !== session.time.updated) {
-          const history = await connection.request(
-            `/session/${encodeURIComponent(session.id)}/message?limit=${options.messageLimit}`,
-            { directory: session.directory },
-          )
+          const history = await connection.messages(session, options.messageLimit)
           if (!Array.isArray(history)) throw new Error("Unexpected message history response")
           const serialized = JSON.stringify(history)
           if (messages.get(session.id) !== serialized) {
@@ -216,7 +226,7 @@ export function startWorker(input) {
             enqueue({
               type: prior ? "session.snapshot.changed" : "session.discovered",
               sessionID: session.id,
-               payload: { title: session.title, messageCount: history.length, status: info.status },
+               payload: { title: session.title, messageCount: history.length, status: session.status },
             })
           }
         }
@@ -240,9 +250,9 @@ export function startWorker(input) {
           protocol_version: 1,
           meta: {
             hostname: hostname(),
-            opencode_url: options.url,
+            opencode_url: embedded ? "" : options.url,
             protocol_version: 1,
-            opencode_version: version,
+            opencode_version: embedded && version ? `${runtimeLabel} ${version}` : version,
             directory: options.directory ?? "",
             create_directory: options.createDirectory ?? options.directory ?? "",
             connected,
@@ -252,9 +262,13 @@ export function startWorker(input) {
             models,
             agents,
             default_model: options.model,
+            codex_usage: options.backend === "codex" ? connection.usage : undefined,
             session_limit: options.sessionLimit,
             message_limit: options.messageLimit,
             dropped_events: dropped,
+            // Sample before splicing: outgoing events remain buffered until
+            // acknowledged. Retries preserve this sample with the frozen body.
+            buffered_events: queue.length,
           },
           sessions: [...sessions.values()],
           pending,
@@ -297,7 +311,7 @@ export function startWorker(input) {
         if (controller.signal.aborted) break
         results.push(
           await receipts.execute(command, async () => {
-             if (!localConnected) throw new Error(localError ?? "Local OpenCode is unavailable")
+             if (!localConnected) throw new Error(localError ?? "Local agent runtime is unavailable")
             return connection.execute(command, [...sessions.values()], pending)
           }),
         )
@@ -311,7 +325,7 @@ export function startWorker(input) {
   const done = (async () => {
     results.push(...(await receipts.pending()))
     const streaming = stream()
-    console.log(`[${workerID}] ${options.worker} @ ${options.url} -> ${options.syncURL}`)
+    console.log(`[${workerID}] ${options.worker} @ ${embedded ? runtimeLabel : options.url} -> ${options.syncURL}`)
     while (!controller.signal.aborted) {
       await tick()
       await scheduler.wait(options.interval)

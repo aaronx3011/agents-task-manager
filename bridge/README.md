@@ -75,3 +75,27 @@ explicitly to also require a real assistant completion; this can invoke a provid
 Use `OPENCODE_A_URL` / `OPENCODE_B_URL` for separate local endpoints instead of
 the shared `OPENCODE_URL`. Workspace scopes are canonicalized to match OpenCode.
 The smoke leaves one deliberately uncertain command for staff reconciliation.
+
+## Codex workers
+
+Use a separate worker name, worker-bound agent key, and state directory for
+Codex. Provision it with the existing coordinator worker command, then run
+`node bridge/worker.mjs` with:
+
+| Variable | Meaning |
+| --- | --- |
+| `WORKER_BACKEND=codex` | Use a local Codex App Server over stdio |
+| `CODEX_BINARY` | Codex CLI executable, defaults to `codex` on PATH |
+| `CODEX_WORKSPACE_ROOT` | Root containing allowed project directories |
+| `CODEX_CREATE_DIRECTORY` | Default project directory for dashboard sessions |
+| `CODEX_DIRECTORY` | Optional exact directory restriction |
+
+Sign in to the Codex CLI as the OS user running the worker. The worker uses
+its own persistent session registry inside `WORKER_STATE_DIRECTORY`. A
+dashboard-created session starts a Codex thread when it receives its first
+prompt. The dashboard supports streaming, subsequent turns, interruption and
+command/file approval requests. Model IDs use the `openai/<model>` convention.
+The worker reports only its own sessions, and refuses workspace paths outside
+its configured local root. Retain the state directory when upgrading the
+worker. Test the adapter with `node --test bridge/codex.test.mjs`.
+

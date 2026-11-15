@@ -63,7 +63,7 @@ async function state(t) {
   return directory
 }
 
-async function localServer(t, { version = "1.18.32", history = [], title = "Fixture" } = {}) {
+async function localServer(t, { version = "1.18.32", onStream, history = [], title = "Fixture" } = {}) {
   const calls = []
   const url = await serve(t, (request, response, body) => {
     const path = new URL(request.url, "http://fixture").pathname
@@ -72,6 +72,7 @@ async function localServer(t, { version = "1.18.32", history = [], title = "Fixt
     if (path === "/global/event") {
       response.writeHead(200, { "Content-Type": "text/event-stream" })
       response.write('data: {"payload":{"type":"session.updated","properties":{"info":{"id":"ses_fixture"}}}}\n\n')
+      onStream?.(response)
       return
     }
     if (path === "/global/health") return json(response, { version: typeof version === "function" ? version() : version })
@@ -249,6 +250,52 @@ test("OpenCode recovery explicitly clears the previously reported error", async 
   assert.match(uploads[0].meta.error, /Unsupported OpenCode/)
   const recovered = uploads.find((envelope) => envelope.meta.connected)
   assert.equal(recovered.meta.error, "")
+})
+
+test("buffer gauge includes unacknowledged events, bounds retry backlog and drains to zero", async (t) => {
+  let stream
+  const local = await localServer(t, { onStream: (response) => { stream = response } })
+  const uploads = []
+  let frozen
+  let release
+  const hub = await serve(t, async (request, response, body) => {
+    const envelope = JSON.parse(body)
+    uploads.push(envelope)
+    if (!frozen) {
+      frozen = body
+      // Keep the first batch in flight while SSE fills a separate bounded queue.
+      await new Promise((resolve) => { release = resolve })
+      response.destroy()
+      return
+    }
+    if (envelope.cursor.batch_id === JSON.parse(frozen).cursor.batch_id) {
+      assert.equal(body, frozen, "retry must preserve gauge and exact envelope")
+    }
+    json(response, ack(envelope))
+  })
+  const handle = await worker(t, local, hub, await state(t))
+  await until(() => release && stream)
+  assert.ok(uploads[0].events.length > 0)
+  assert.equal(uploads[0].meta.buffered_events, uploads[0].events.length)
+  const frames = Array.from({ length: 1005 }, (_, index) =>
+    `data: ${JSON.stringify({ payload: { type: "fixture.queued", properties: { index } } })}\n\n`).join("")
+  stream.write(frames)
+  // Allow the real fetch/SSE consumer to process the burst while upload is held.
+  await setTimeout(100)
+  release()
+  await until(() => uploads.some((upload) => upload.meta.buffered_events === 0))
+  handle.stop()
+  await handle.done
+  const backlog = uploads.find((upload) => upload.events.some((event) => event.type === "fixture.queued"))
+  assert.equal(backlog.events.length, 1000)
+  assert.equal(backlog.meta.buffered_events, 1000)
+  assert.equal(backlog.meta.dropped_events, 5)
+  assert.deepEqual(backlog.events.map((event) => event.payload.payload.properties.index),
+    Array.from({ length: 1000 }, (_, index) => index + 5))
+  assert.equal(uploads.at(-1).meta.buffered_events, 0)
+  assert.equal(uploads.at(-1).meta.dropped_events, 5, "drain must not reset cumulative losses")
+  assert.deepEqual(uploads.at(-1).events, [])
+  assert.equal(uploads.filter((upload) => upload.cursor.batch_id === uploads[0].cursor.batch_id).length, 2)
 })
 
 test("crash after write-ahead intent publishes uncertain outcome without executing prompt", async (t) => {
