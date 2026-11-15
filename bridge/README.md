@@ -67,7 +67,7 @@ sessions remain available through database-backed overview polling. This first
 version coalesces active-session observations worker-side without viewer-count
 tracking; browser selection does not control OpenCode execution or collection.
 
-Checks: `node --test bridge/bridge.test.mjs` (Node 20.19+).
+Checks: `npm test --prefix bridge` (Node 20.19+; runs the OpenCode, Codex and Claude suites).
 Live smoke: `node bridge/smoke.mjs` with `WORKER_A_ID`, `WORKER_A_KEY`,
 `WORKER_B_ID`, `WORKER_B_KEY`, `COORDINATOR_URL`, `OPENCODE_URL` and
 `SMOKE_DIRECTORY` set for two dedicated workers. Set `SMOKE_MODEL=providerID/modelID`
@@ -99,3 +99,42 @@ The worker reports only its own sessions, and refuses workspace paths outside
 its configured local root. Retain the state directory when upgrading the
 worker. Test the adapter with `node --test bridge/codex.test.mjs`.
 
+## Claude Code workers (#98)
+
+`WORKER_BACKEND=claude` drives local Claude Code sessions through the Claude
+Agent SDK (Claude Code packaged as a library). Only this backend needs npm
+packages: run `npm ci --prefix bridge` once. OpenCode and Codex workers keep
+working without it. Provision a separate worker name, worker-bound agent key
+and state directory, then run `node bridge/worker.mjs` with:
+
+| Variable | Meaning |
+| --- | --- |
+| `WORKER_BACKEND=claude` | Use the Claude Agent SDK |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Subscription token from `claude setup-token` (see below) |
+| `ANTHROPIC_API_KEY` | Alternative: Anthropic API key (or `CLAUDE_CODE_USE_BEDROCK` / `_VERTEX` / `_FOUNDRY` with that cloud's credentials) |
+| `CLAUDE_WORKSPACE_ROOT` | Root containing allowed project directories |
+| `CLAUDE_CREATE_DIRECTORY` | Default project directory for dashboard sessions |
+| `CLAUDE_DIRECTORY` | Optional exact directory restriction |
+| `CLAUDE_PERMISSION_MODE` | `default` (every gated tool asks the dashboard), `acceptEdits`, `plan`, `dontAsk` or `auto`. `bypassPermissions` is refused |
+| `CLAUDE_CODE_EXECUTABLE` | Optional path to a Claude Code binary instead of the SDK's bundled one |
+
+The worker does not reuse the Claude desktop app's login. To use a Claude
+subscription, run `bridge/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude setup-token`
+(or `claude setup-token` with the Claude Code CLI), sign in in the browser, and
+export the printed token as `CLAUDE_CODE_OAUTH_TOKEN` for the worker only.
+The Agent SDK docs document API keys and cloud providers; check Anthropic's
+terms for your plan before relying on a subscription token. At startup it checks
+the SDK's account info and reports "not signed in" on the dashboard instead
+of accepting prompts. Credentials stay on the worker machine.
+
+Each dashboard session is one streaming Agent SDK query that runs in its
+project directory with the user's and project's Claude Code settings
+(CLAUDE.md, MCP servers, permission rules). Follow-up prompts join the running
+session; `interrupt` stops the current turn. Tool approvals and
+`AskUserQuestion` appear as permission/question cards: `once` allows the call,
+`always` also applies Claude Code's suggested session rule, and `reject` denies
+it. Model IDs use `anthropic/<alias or model>` from the SDK's model list.
+The registry in `WORKER_STATE_DIRECTORY/claude/` maps dashboard sessions to
+Claude session IDs, so after a restart the next prompt resumes the same
+conversation and history is reloaded from Claude Code's local transcript.
+Test the adapter with `node --test bridge/claude.test.mjs`.

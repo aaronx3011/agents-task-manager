@@ -8,6 +8,7 @@ import { setTimeout } from "node:timers/promises"
 import { randomUUID } from "node:crypto"
 import { OpenCodeConnection, consumeSSE } from "./opencode.mjs"
 import { CodexConnection } from "./codex.mjs"
+import { ClaudeConnection } from "./claude.mjs"
 import { CommandReceipts } from "./receipts.mjs"
 import { workerSettings, workerOptions } from "./settings.mjs"
 import { LiveSnapshots, syncScheduler } from "./live.mjs"
@@ -30,11 +31,11 @@ export function sanitizeSync(value) {
 export function startWorker(input) {
   const options = workerSettings(input)
   const controller = new AbortController()
-  // Codex owns its session registry in-process; OpenCode is a
+  // Codex and Claude own their session registry in-process; OpenCode is a
   // separate local HTTP server. `embedded` selects the in-process contract.
   const embedded = options.backend !== "opencode"
-  const runtimeLabel = { opencode: "OpenCode", codex: "Codex" }[options.backend]
-  const Connection = { opencode: OpenCodeConnection, codex: CodexConnection }[options.backend]
+  const runtimeLabel = { opencode: "OpenCode", codex: "Codex", claude: "Claude Code" }[options.backend]
+  const Connection = { opencode: OpenCodeConnection, codex: CodexConnection, claude: ClaudeConnection }[options.backend]
   const connection = new Connection({ ...options, signal: controller.signal })
   const receipts = new CommandReceipts(options.stateDirectory)
   const workerID = options.worker
@@ -263,6 +264,8 @@ export function startWorker(input) {
             agents,
             default_model: options.model,
             codex_usage: options.backend === "codex" ? connection.usage : undefined,
+            // Backend-neutral plan usage (Codex and Claude share one shape).
+            usage: embedded ? connection.usage : undefined,
             session_limit: options.sessionLimit,
             message_limit: options.messageLimit,
             dropped_events: dropped,

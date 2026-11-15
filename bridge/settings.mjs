@@ -15,7 +15,13 @@ export function workerSettings(options) {
     return url
   }
   const backend = options.backend ?? "opencode"
-  if (!["opencode", "codex"].includes(backend)) throw new Error("WORKER_BACKEND must be opencode or codex")
+  if (!["opencode", "codex", "claude"].includes(backend)) {
+    throw new Error("WORKER_BACKEND must be opencode, codex or claude")
+  }
+  if (options.claudePermissionMode && !["default", "acceptEdits", "plan", "dontAsk", "auto"].includes(options.claudePermissionMode)) {
+    // bypassPermissions is deliberately unsupported for a remotely driven worker.
+    throw new Error("CLAUDE_PERMISSION_MODE must be default, acceptEdits, plan, dontAsk or auto")
+  }
   const url = endpoint(options.url ?? "http://127.0.0.1:4096", "OPENCODE_URL")
   if (!options.worker?.trim() || !options.key?.trim() || !options.coordinatorURL?.trim()) {
     throw new Error("Coordinator mode requires WORKER_ID, COORDINATOR_API_KEY and COORDINATOR_URL")
@@ -64,7 +70,7 @@ function parseModel(value) {
 
 // Each backend reads its own prefixed variable; unset never falls back to another.
 function backendEnv(env, name) {
-  const prefix = env.WORKER_BACKEND === "codex" ? "CODEX" : "OPENCODE"
+  const prefix = { codex: "CODEX", claude: "CLAUDE" }[env.WORKER_BACKEND] ?? "OPENCODE"
   return env[`${prefix}_${name}`]
 }
 
@@ -73,7 +79,9 @@ export function workerOptions(env = process.env) {
     worker: env.WORKER_ID,
     backend: env.WORKER_BACKEND,
     codexBinary: env.CODEX_BINARY,
-    workspaceRoot: env.CODEX_WORKSPACE_ROOT,
+    claudeExecutable: env.CLAUDE_CODE_EXECUTABLE,
+    claudePermissionMode: env.CLAUDE_PERMISSION_MODE,
+    workspaceRoot: env.WORKER_BACKEND === "claude" ? env.CLAUDE_WORKSPACE_ROOT : env.CODEX_WORKSPACE_ROOT,
     key: env.COORDINATOR_API_KEY,
     coordinatorURL: env.COORDINATOR_URL,
     syncPath: env.COORDINATOR_SYNC_PATH,
