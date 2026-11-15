@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   ArrowDownWideNarrow,
@@ -19,6 +19,8 @@ import {
   Command,
   Layers3,
   LayoutGrid,
+  LogOut,
+  UserCog,
   List,
   Moon,
   PanelRightClose,
@@ -34,8 +36,11 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { ApiError, get, query } from "./api";
+import { ApiError } from "./api";
 import { ApprovalNotifications } from "./ApprovalNotifications";
+import { api, unwrap } from "./api-client";
+import { workspaceQuery } from "./workspace-query";
+import { ROLE_LABELS, useAccess, useSignOut } from "./auth";
 import { Board } from "./Board";
 import { useLiveUpdates } from "./live";
 import { useLocationState } from "./location";
@@ -43,7 +48,7 @@ import { useSessionLibrary } from "./session-library";
 import { TaskList } from "./TaskList";
 import { ModalBoundary } from "./ModalBoundary";
 import { LABELS, STATUSES } from "./types";
-import type { Agent, Workspace } from "./types";
+import type { Agent } from "./types";
 import {
   Age,
   Avatar,
@@ -62,6 +67,12 @@ const OpenCodes = lazy(() => import("./OpenCodes"));
 const Configuration = lazy(() => import("./Configuration"));
 const ActivityPage = lazy(() => import("./ActivityPage"));
 const Planning = lazy(() => import("./Planning"));
+const UsersPage = lazy(() =>
+  import("./Users").then((module) => ({ default: module.UsersPage })),
+);
+const AccountPage = lazy(() =>
+  import("./Users").then((module) => ({ default: module.AccountPage })),
+);
 
 function preference(key: string, fallback: string) {
   try {
@@ -188,7 +199,8 @@ function AgentChip({
   );
 }
 export default function App() {
-  const sessionLibrary = useSessionLibrary();
+  const { me, canWrite, canManage } = useAccess();
+  const sessionLibrary = useSessionLibrary(me.username);
   const { location, navigate } = useLocationState();
   const { connection, highlighted } = useLiveUpdates();
   const [theme, setTheme] = useState(() =>
@@ -203,12 +215,22 @@ export default function App() {
   const [agentsOpen, setAgentsOpen] = useState(true);
   const [trail, setTrail] = useState<string[]>([]);
   const trigger = useRef<HTMLElement | null>(null);
-  const root = document.getElementById("root")!;
+  const meta = useQuery({
+    queryKey: ["meta"],
+    queryFn: () => unwrap(api.GET("/api/v1/meta")),
+    staleTime: Infinity,
+  });
+  const signOut = useSignOut();
+  const queryClient = useQueryClient();
   const { filters } = location;
   const workspace = useQuery({
     queryKey: ["workspace", filters],
-    queryFn: ({ signal }) =>
-      get<Workspace>(`/dashboard/workspace/?${query(filters)}`, signal),
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/dashboard/workspace", {
+          params: { query: workspaceQuery(filters) },
+        }),
+      ),
   });
   const data = workspace.data;
   useEffect(() => {
@@ -283,6 +305,10 @@ export default function App() {
   const expired =
     connection === "expired" ||
     (workspace.error instanceof ApiError && workspace.error.status === 401);
+  useEffect(() => {
+    // A 401 means the session ended: re-check it so the gate shows sign-in.
+    if (expired) void queryClient.invalidateQueries({ queryKey: ["me"] });
+  }, [expired, queryClient]);
   const connectionLabel = expired
     ? "Session expired"
     : workspace.isError
@@ -296,11 +322,7 @@ export default function App() {
     <ClockProvider serverTime={data?.server_time}>
       <div className={`app-shell density-${density}`}>
         <aside className="sidebar">
-          <a
-            className="brand"
-            href="/dashboard/"
-            aria-label="Agent Ops workspace"
-          >
+          <a className="brand" href="/" aria-label="Agent Ops workspace">
             <span className="brand-mark">
               <Command size={20} />
             </span>
@@ -366,18 +388,20 @@ export default function App() {
           </button>
           <div className="nav-caption project-caption">
             PROJECTS<span>{data?.projects.length || 0}</span>
-            <button
-              className="icon-button"
-              aria-label="Create project"
-              onClick={() =>
-                navigate(
-                  { section: "planning", new_project: "true", task: null },
-                  true,
-                )
-              }
-            >
-              <Plus size={14} />
-            </button>
+            {canWrite && (
+              <button
+                className="icon-button"
+                aria-label="Create project"
+                onClick={() =>
+                  navigate(
+                    { section: "planning", new_project: "true", task: null },
+                    true,
+                  )
+                }
+              >
+                <Plus size={14} />
+              </button>
+            )}
           </div>
           <div className="project-navigation">
             {data?.projects.map((item) => (
@@ -409,15 +433,28 @@ export default function App() {
             ))}
           </div>
           <div className="sidebar-bottom">
-            <button
-              className={`nav-link ${location.section === "configuration" ? "active" : ""}`}
-              onClick={() =>
-                navigate({ section: "configuration", task: null }, true)
-              }
-            >
-              <Settings size={16} />
-              Configuration
-            </button>
+            {canManage && (
+              <>
+                <button
+                  className={`nav-link ${location.section === "users" ? "active" : ""}`}
+                  onClick={() =>
+                    navigate({ section: "users", task: null }, true)
+                  }
+                >
+                  <UserCog size={16} />
+                  Users &amp; invites
+                </button>
+                <button
+                  className={`nav-link ${location.section === "configuration" ? "active" : ""}`}
+                  onClick={() =>
+                    navigate({ section: "configuration", task: null }, true)
+                  }
+                >
+                  <Settings size={16} />
+                  Configuration
+                </button>
+              </>
+            )}
             <a
               className="nav-link"
               href="https://github.com/aaronx3011/agents-task-manager/issues/3"
@@ -429,18 +466,37 @@ export default function App() {
               <ArrowUpRight size={13} />
             </a>
             <div className="user-bar">
-              <Avatar name={root.dataset.username || "Staff"} />
-              <div>
-                <strong>{root.dataset.username || "Staff"}</strong>
-                <span>Staff workspace</span>
-              </div>
-              <a
-                className="icon-button"
-                href="/admin/"
-                aria-label="Open Django admin"
+              <button
+                className="user-bar-identity"
+                aria-label="Account settings"
+                onClick={() =>
+                  navigate({ section: "account", task: null }, true)
+                }
               >
-                <ArrowUpRight size={15} />
-              </a>
+                <Avatar name={me.username} />
+                <div>
+                  <strong>{me.username}</strong>
+                  <span>{ROLE_LABELS[me.role]}</span>
+                </div>
+              </button>
+              <div className="user-menu-actions">
+                {me.is_superuser && meta.data?.admin_url && (
+                  <a
+                    className="icon-button"
+                    href={meta.data.admin_url}
+                    aria-label="Open Django admin"
+                  >
+                    <ArrowUpRight size={15} />
+                  </a>
+                )}
+                <button
+                  className="icon-button"
+                  aria-label="Sign out"
+                  onClick={() => void signOut()}
+                >
+                  <LogOut size={15} />
+                </button>
+              </div>
             </div>
           </div>
         </aside>
@@ -461,7 +517,11 @@ export default function App() {
                         ? "Activity"
                         : location.section === "configuration"
                           ? "Configuration"
-                          : project?.name || "All projects"}
+                          : location.section === "users"
+                            ? "Users & invites"
+                            : location.section === "account"
+                              ? "Account"
+                              : project?.name || "All projects"}
               </strong>
             </div>
             <div className="topbar-actions">
@@ -526,13 +586,31 @@ export default function App() {
             >
               Activity
             </button>
+            {canManage && (
+              <>
+                <button
+                  aria-pressed={location.section === "users"}
+                  onClick={() =>
+                    navigate({ section: "users", task: null }, true)
+                  }
+                >
+                  Users
+                </button>
+                <button
+                  aria-pressed={location.section === "configuration"}
+                  onClick={() =>
+                    navigate({ section: "configuration", task: null }, true)
+                  }
+                >
+                  Configuration
+                </button>
+              </>
+            )}
             <button
-              aria-pressed={location.section === "configuration"}
-              onClick={() =>
-                navigate({ section: "configuration", task: null }, true)
-              }
+              aria-pressed={location.section === "account"}
+              onClick={() => navigate({ section: "account", task: null }, true)}
             >
-              Configuration
+              Account
             </button>
           </div>
           {location.section === "planning" ? (
@@ -580,12 +658,23 @@ export default function App() {
                 }
               />
             </Suspense>
-          ) : location.section === "configuration" ? (
+          ) : location.section === "configuration" && canManage ? (
             <Suspense
               key="configuration"
               fallback={<Loading label="Opening configuration…" />}
             >
               <Configuration />
+            </Suspense>
+          ) : location.section === "users" && canManage ? (
+            <Suspense key="users" fallback={<Loading label="Opening users…" />}>
+              <UsersPage />
+            </Suspense>
+          ) : location.section === "account" ? (
+            <Suspense
+              key="account"
+              fallback={<Loading label="Opening account…" />}
+            >
+              <AccountPage />
             </Suspense>
           ) : (
             <>
@@ -599,7 +688,7 @@ export default function App() {
                   <p>A clear picture of the work. As it happens.</p>
                 </div>
                 <div className="heading-right">
-                  {root.dataset.demo === "true" && (
+                  {meta.data?.demo && (
                     <span className="demo-label">
                       <Radio size={13} />
                       LIVE MCP DEMO
@@ -790,11 +879,12 @@ export default function App() {
               {expired && (
                 <div className="session-notice">
                   Your session has ended.{" "}
-                  <a
-                    href={`/admin/login/?next=${encodeURIComponent(window.location.pathname + window.location.search)}`}
+                  <button
+                    className="link-button"
+                    onClick={() => window.location.reload()}
                   >
                     Sign in again
-                  </a>
+                  </button>
                 </div>
               )}
               <div className="workspace-content">

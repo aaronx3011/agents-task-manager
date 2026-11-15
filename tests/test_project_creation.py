@@ -36,7 +36,7 @@ def test_staff_creation_selectable_in_workspace_and_planning(staff):
     project = Project.objects.get(slug="my-project")
     assert project.kind == "design"
     assert ProjectPlan.objects.filter(project=project).exists()
-    workspace = staff.get("/dashboard/workspace/").json()
+    workspace = staff.get("/api/v1/dashboard/workspace").json()
     assert any(p["slug"] == project.slug for p in workspace["projects"])
     plan = staff.get("/api/projects/my-project/planning").json()
     assert plan["cards"] == [] and plan["settings"]["worker"] == ""
@@ -82,7 +82,7 @@ def test_creation_requires_staff_session_and_csrf(agent_clients):
     csrf = Client(enforce_csrf_checks=True)
     csrf.force_login(user)
     assert csrf.post("/api/projects", body, content_type="application/json").status_code == 403
-    csrf.get("/dashboard/")
+    csrf.get("/api/v1/auth/csrf")
     response = csrf.post(
         "/api/projects",
         body,

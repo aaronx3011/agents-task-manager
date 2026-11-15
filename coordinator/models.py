@@ -142,9 +142,9 @@ class Task(models.Model):
             and not self.depends_on.exclude(status=self.Status.DONE).exists()
         )
 
-    def log(self, event_type, agent=None, message=""):
+    def log(self, event_type, agent=None, message="", actor_user=None):
         return TaskEvent.objects.create(
-            task=self, agent=agent, event_type=event_type, message=message
+            task=self, agent=agent, event_type=event_type, message=message, actor_user=actor_user
         )
 
 
@@ -164,6 +164,10 @@ class TaskEvent(models.Model):
     agent = models.ForeignKey(Agent, null=True, blank=True, on_delete=models.PROTECT)
     event_type = models.CharField(max_length=20, choices=Type.choices)
     message = models.TextField(blank=True)
+    # Human who caused this (#44); the message keeps the historical text label.
+    actor_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
@@ -272,6 +276,10 @@ class WorkerCommand(models.Model):
         Agent, on_delete=models.PROTECT, null=True, blank=True, related_name="issued_commands"
     )
     actor_label = models.CharField(max_length=100, blank=True)
+    # Human who caused this (#44); the message keeps the historical text label.
+    actor_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     action = models.CharField(max_length=32, choices=ACTION_CHOICES)
     payload = models.JSONField(default=dict, blank=True)
     remote_session_id = models.CharField(max_length=128, blank=True)
@@ -589,6 +597,10 @@ class PlanningJob(models.Model):
     )
     detail = models.TextField(blank=True)
     actor = models.CharField(max_length=100)
+    # Human who caused this (#44); the message keeps the historical text label.
+    actor_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
@@ -604,3 +616,44 @@ class PlanningJob(models.Model):
                 name="one_live_job_per_card",
             ),
         ]
+
+
+class NotionLink(models.Model):
+    """Outbound Notion mirror state for one project or task (GH #94).
+
+    The coordinator stays authoritative; this row only remembers which Notion page
+    mirrors an object and what was last pushed, so the sync can skip unchanged rows.
+    A task is due for sync when it has no link or ``task.updated_at`` moved past
+    ``source_updated_at``; projects are compared by payload hash each pass.
+    """
+
+    project = models.OneToOneField(
+        Project, null=True, blank=True, on_delete=models.CASCADE, related_name="notion_link"
+    )
+    task = models.OneToOneField(
+        Task, null=True, blank=True, on_delete=models.CASCADE, related_name="notion_link"
+    )
+    page_id = models.CharField(max_length=64, blank=True, db_index=True)
+    # Task.updated_at consumed by the last successful pass (tasks only).
+    source_updated_at = models.DateTimeField(null=True, blank=True)
+    props_hash = models.CharField(max_length=64, blank=True)
+    body_hash = models.CharField(max_length=64, blank=True)
+    # Heartbeat and Updated are pushed on a throttle, separately from props_hash.
+    heartbeat_pushed = models.DateTimeField(null=True, blank=True)
+    synced_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.TextField(blank=True)
+    failures = models.PositiveIntegerField(default=0)
+    retry_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(project__isnull=False, task__isnull=True)
+                | Q(project__isnull=True, task__isnull=False),
+                name="notion_link_single_target",
+            ),
+        ]
+
+    def __str__(self):
+        target = f"project {self.project_id}" if self.project_id else f"task {self.task_id}"
+        return f"Notion {target} → {self.page_id or 'unlinked'}"

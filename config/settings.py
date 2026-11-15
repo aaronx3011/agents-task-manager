@@ -31,8 +31,10 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "drf_spectacular",
     "channels",
     "coordinator.apps.CoordinatorConfig",
+    "accounts.apps.AccountsConfig",
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -115,6 +117,14 @@ WORKER_EVENT_KEEP = env_int("WORKER_EVENT_KEEP", 5000)
 WORKER_EVENT_MAX_BYTES = env_int("WORKER_EVENT_MAX_BYTES", 64 * 1024)
 WORKER_LIVE_MAX_BYTES = env_int("WORKER_LIVE_MAX_BYTES", 256 * 1024)
 WORKER_LIVE_TTL = env_int("WORKER_LIVE_TTL", 15)
+
+# One-way Notion mirror (GH #94). Empty token disables the sync worker.
+NOTION_TOKEN = os.environ.get("NOTION_TOKEN", "").strip()
+NOTION_PROJECTS_DATA_SOURCE_ID = os.environ.get("NOTION_PROJECTS_DATA_SOURCE_ID", "").strip()
+NOTION_TASKS_DATA_SOURCE_ID = os.environ.get("NOTION_TASKS_DATA_SOURCE_ID", "").strip()
+NOTION_SYNC_INTERVAL_SECONDS = env_int("NOTION_SYNC_INTERVAL_SECONDS", 20)
+# Minimum gap between heartbeat-only pushes for one task.
+NOTION_HEARTBEAT_PUSH_SECONDS = env_int("NOTION_HEARTBEAT_PUSH_SECONDS", 600)
 DATABASES = {
     "default": dj_database_url.parse(
         os.environ.get("DATABASE_URL") or f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
@@ -151,13 +161,57 @@ if env_bool("DJANGO_TRUST_PROXY"):
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 
+# Django admin is a superuser-only operations console (#53). Role owners manage
+# people from the SPA. Set DJANGO_ADMIN_ENABLED=false to remove it, or move it with
+# DJANGO_ADMIN_PATH (e.g. "ops-7f3a/"); the Caddy front door reads ADMIN_PATH.
+ADMIN_ENABLED = env_bool("DJANGO_ADMIN_ENABLED", True)
+ADMIN_PATH = os.environ.get("DJANGO_ADMIN_PATH", "admin/").strip("/") + "/"
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "coordinator.auth.AgentKeyAuthentication",
+        "accounts.authentication.UserTokenAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
-    "DEFAULT_PERMISSION_CLASSES": ["coordinator.auth.IsAgentOrStaff"],
+    "DEFAULT_PERMISSION_CLASSES": ["coordinator.auth.IsAgentOrRole"],
     "EXCEPTION_HANDLER": "coordinator.exceptions.exception_handler",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_PAGINATION_CLASS": "coordinator.pagination.TaskPagination",
     "PAGE_SIZE": 100,
+    # Login attempts per client address + username (accounts.api.LoginThrottle).
+    "DEFAULT_THROTTLE_RATES": {
+        "login": os.environ.get("LOGIN_THROTTLE_RATE", "10/min"),
+        "invite": os.environ.get("INVITE_THROTTLE_RATE", "20/min"),
+    },
+    # Count of trusted proxies in front of Django (e.g. TLS proxy + Caddy = 2), so
+    # throttles key on the real client and clients cannot spoof X-Forwarded-For.
+    "NUM_PROXIES": int(
+        os.environ.get("DJANGO_NUM_PROXIES", "1" if env_bool("DJANGO_TRUST_PROXY") else "0")
+    ),
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Agent Task Coordinator API",
+    "DESCRIPTION": (
+        "Versioned HTTP contract shared by the web dashboard, mobile clients, MCP and bridges."
+    ),
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    # Same audience as the API itself; offline generation uses `manage.py spectacular`.
+    "SERVE_PERMISSIONS": ["coordinator.auth.IsAgentOrRole"],
+    # Only the versioned mount is documented; /api/ stays as an undocumented alias.
+    "PREPROCESSING_HOOKS": ["coordinator.openapi.only_versioned_endpoints"],
+    "POSTPROCESSING_HOOKS": [
+        "drf_spectacular.hooks.postprocess_schema_enums",
+        "coordinator.openapi.responses_include_every_field",
+    ],
+    "SCHEMA_PATH_PREFIX": r"/api/v1",
+    "COMPONENT_SPLIT_REQUEST": True,
+    # Several request/response "status" fields use different choice sets.
+    "ENUM_NAME_OVERRIDES": {
+        "TaskStatusEnum": "coordinator.models.Task.Status",
+        "TaskStatusUpdateEnum": ["in_progress", "blocked", "review", "done", "cancelled"],
+        "CommandResolutionEnum": ["done", "error"],
+        "PlanningJobReportStatusEnum": ["heartbeat", "done", "blocked", "review"],
+    },
 }

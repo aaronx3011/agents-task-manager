@@ -45,17 +45,29 @@ Do not commit or push unless requested by the user.
 ## Development
 `uv sync --locked` installs dependencies. Copy `.env.example` to `.env` and configure
 the environment. `uv run python manage.py migrate` initializes the database.
-`npm ci --prefix frontend` and `npm run build --prefix frontend` build the React
-workspace assets before collecting static files. Docker builds them automatically.
-`uv run uvicorn config.asgi:application --reload` serves dashboard at `/dashboard/`,
-admin at `/admin/` and API at `/api/`. WebSockets require this ASGI server.
+`uv run uvicorn config.asgi:application --reload` serves the API at `/api/`, admin
+at `/admin/` and WebSockets at `/ws/` (WebSockets require this ASGI server). The React
+SPA is separate: `npm ci --prefix frontend` then `npm run dev --prefix frontend`
+serves it at http://localhost:5173 and proxies `/api`, `/ws`, `/admin`, `/static` to
+uvicorn on the same origin (`ATM_API_ORIGIN` overrides http://localhost:8000).
+Deployments run two images from the Dockerfile: `api` (Django) and `web` (the built
+SPA behind Caddy, `deploy/web/Caddyfile`), which owns the public port.
+`uv run python manage.py create_owner NAME` provisions the first owner; others join
+through invite links.
 Set `REDIS_URL` for multiple workers; the empty default is single-process memory only.
-`uv run python manage.py createsuperuser` provisions a human admin.
+`uv run python manage.py createsuperuser` provisions a Django admin (superuser).
+Django admin is superuser-only operations: role owners are not admins, owners manage
+people in the SPA. `DJANGO_ADMIN_ENABLED`/`DJANGO_ADMIN_PATH` disable or move it, and
+`/api-auth/` (DRF browsable login) exists only with `DJANGO_DEBUG=true`.
 `uv run python manage.py create_agent NAME` prints a new key once.
 
 Checks: `uv run ruff check .`, `uv run ruff format --check .`,
 `uv run python manage.py check`, `uv run python manage.py makemigrations --check --dry-run`,
 and `uv run pytest`. Run the suite against PostgreSQL for row-lock guarantees.
+API contract: `openapi/schema.json` is generated from the DRF views and the TypeScript
+types in `frontend/src/api-client/` are generated from it; run `scripts/update_api_client.sh`
+after any API change (CI fails on drift). New frontend calls use `api`/`unwrap` from
+`./api-client` against `/api/v1/...`.
 Frontend checks: `npm run lint --prefix frontend`, `npm run format:check --prefix frontend`,
 and `npm run build --prefix frontend` (includes TypeScript checking).
 Keep mutations/audit events transactional in `coordinator/services.py`; keep MCP

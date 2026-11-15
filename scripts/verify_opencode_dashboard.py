@@ -287,7 +287,13 @@ def run(directory, screenshots, assets_only=False):
     call_command("migrate", verbosity=0)
     call_command("collectstatic", verbosity=0, interactive=False)
     password = secrets.token_urlsafe(24)
-    get_user_model().objects.create_user("dashboard-verifier", password=password, is_staff=True)
+    verifier = get_user_model().objects.create_user(
+        "dashboard-verifier", password=password, is_staff=True
+    )
+    # The walkthrough registers agents, which is an owner action (#43).
+    from accounts.services import set_role
+
+    set_role(verifier, "owner", actor="verify_opencode_dashboard")
     project = Project.objects.create(slug="browser-check", name="Browser checks")
     services.create_task(None, project, "Existing task UI remains available")
     keys = {}
@@ -296,8 +302,11 @@ def run(directory, screenshots, assets_only=False):
         keys[name] = agent.set_new_api_key()
         agent.save()
         services.provision_worker(name, agent)
-    central_port, local_port = port(), port()
+    central_port, local_port, spa_port = port(), port(), port()
     origin = f"http://127.0.0.1:{central_port}"
+    # The browser uses the standalone SPA, which proxies /api and /ws to Django
+    # on the same origin, as Caddy does in deployments (#50).
+    spa = f"http://localhost:{spa_port}"
     local = f"http://127.0.0.1:{local_port}"
     workspace = directory / "workspace"
     workspace.mkdir()
@@ -437,6 +446,21 @@ def run(directory, screenshots, assets_only=False):
                 ]
             )
             wait_health(origin + "/healthz", central)
+            preview = start(
+                [
+                    "npx",
+                    "--prefix",
+                    "frontend",
+                    "vite",
+                    "preview",
+                    "frontend",
+                    "--port",
+                    str(spa_port),
+                    "--strictPort",
+                ],
+                {**env, "ATM_API_ORIGIN": origin},
+            )
+            wait_health(spa + "/healthz", preview)
             if not assets_only:
                 opencode = start(
                     [
@@ -494,21 +518,20 @@ def run(directory, screenshots, assets_only=False):
                         "framereceived", lambda value: frames.append(json.loads(value))
                     ),
                 )
-                page.goto(origin + "/admin/login/?next=/dashboard/")
-                page.locator("#id_username").fill("dashboard-verifier")
-                page.locator("#id_password").fill(password)
-                page.locator('input[type="submit"]').click()
-                page.wait_for_url("**/dashboard/")
+                page.goto(spa + "/")
+                page.get_by_label("Username").fill("dashboard-verifier")
+                page.get_by_label("Password").fill(password)
+                page.get_by_role("button", name="Sign in", exact=True).click()
                 expect(page.get_by_role("button", name="Kanban", exact=True)).to_be_visible()
                 expect(
                     page.get_by_text("Existing task UI remains available", exact=True)
                 ).to_be_visible()
-                verify_agent_registration(page, context, origin)
-                verify_project_creation(page, origin)
-                verify_planning(page, origin)
+                verify_agent_registration(page, context, spa)
+                verify_project_creation(page, spa)
+                verify_planning(page, spa)
                 verify_project_navigation(page)
                 if assets_only:
-                    page.goto(origin + "/dashboard/?section=opencodes")
+                    page.goto(spa + "/?section=opencodes")
                     expect(page.get_by_role("heading", name="Connected OpenCodes.")).to_be_visible()
                     expect(page.locator(".oc-worker")).to_have_count(3)
                     page.reload()

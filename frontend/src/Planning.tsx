@@ -16,6 +16,8 @@ import { LABELS, STATUSES } from "./types";
 import { refreshTaskViews } from "./task-sync";
 import type { ModelChoice, Worker } from "./opencode-types";
 import { ErrorState, Loading } from "./ui";
+import { useAccess } from "./auth";
+import "./auth.css";
 import "./planning.css";
 
 interface SettingsData {
@@ -88,6 +90,7 @@ export default function Planning({
   newProject: boolean;
   tab: LocationState["planningTab"];
 }) {
+  const { canWrite } = useAccess();
   const slug = project || projects[0]?.slug || "";
   return (
     <section className="planning-page">
@@ -115,9 +118,11 @@ export default function Planning({
             ))}
           </select>
         </label>
-        <button onClick={() => navigate({ new_project: "true" })}>
-          <Plus size={16} /> New project
-        </button>
+        {canWrite && (
+          <button onClick={() => navigate({ new_project: "true" })}>
+            <Plus size={16} /> New project
+          </button>
+        )}
       </header>
       {slug ? (
         <ProjectPlanning
@@ -130,7 +135,7 @@ export default function Planning({
       ) : (
         <p>Create your first project with New project to start planning.</p>
       )}
-      {newProject && (
+      {newProject && canWrite && (
         <NewProjectForm
           close={() => navigate({ new_project: null })}
           created={(slug) =>
@@ -326,6 +331,7 @@ function ProjectPlanning({
   openTask: (id: number) => void;
   tab: LocationState["planningTab"];
 }) {
+  const { canWrite } = useAccess();
   const client = useQueryClient();
   const setTab = (tab: LocationState["planningTab"]) =>
     navigate({ planning_tab: tab === "overview" ? null : tab }, true);
@@ -391,6 +397,10 @@ function ProjectPlanning({
     values: Record<string, unknown>,
     revision = data?.revision,
   ) {
+    if (!canWrite) {
+      setError("Viewers have read-only access to planning.");
+      return false;
+    }
     if (busy || revision === undefined) return false;
     setBusy(true);
     setError("");
@@ -468,24 +478,32 @@ function ProjectPlanning({
               : "Waiting for worker sync"
             : data.pause_reason || "Queue paused"}
         </span>
-        <button
-          disabled={busy || (!active && !queued.length)}
-          onClick={() =>
-            void mutate({ operation: data.playing ? "pause" : "play" })
-          }
-        >
-          {data.playing ? <Pause size={15} /> : <Play size={15} />}{" "}
-          {data.playing ? "Pause" : "Play"}
-        </button>
-        {active && (
+        <fieldset className="role-fieldset" disabled={!canWrite}>
           <button
-            disabled={busy}
-            onClick={() => void mutate({ operation: "stop" })}
+            disabled={busy || (!active && !queued.length)}
+            onClick={() =>
+              void mutate({ operation: data.playing ? "pause" : "play" })
+            }
           >
-            <Square size={14} /> Stop current
+            {data.playing ? <Pause size={15} /> : <Play size={15} />}{" "}
+            {data.playing ? "Pause" : "Play"}
           </button>
-        )}
+          {active && (
+            <button
+              disabled={busy}
+              onClick={() => void mutate({ operation: "stop" })}
+            >
+              <Square size={14} /> Stop current
+            </button>
+          )}
+        </fieldset>
       </div>
+      {!canWrite && (
+        <p className="auth-notice" role="note">
+          Viewers can follow planning but not change it. Ask an owner for member
+          access.
+        </p>
+      )}
       {error && (
         <div className="planning-error" role="alert">
           {error}
@@ -496,700 +514,712 @@ function ProjectPlanning({
           Updates interrupted: {plan.error.message}
         </div>
       )}
-      {tab === "overview" ? (
-        <section
-          className="planning-overview"
-          aria-label="Project planning overview"
-        >
-          <div className="planning-overview-summary">
-            <article>
-              <h2>Planning</h2>
-              <p>
-                Shape the next steps for {data.name}. Select a work item to
-                refine its scope and acceptance criteria.
-              </p>
-              <button
-                onClick={() =>
-                  edit({
-                    title: "",
-                    description: "",
-                    column: data.settings.columns[0],
-                    labels: [],
-                    checklist: [],
-                    instructions: "",
-                    agent: "",
-                    model: null,
-                  })
-                }
-              >
-                <Plus size={16} /> New work item
-              </button>
-            </article>
-            <article>
-              <h2>Execution</h2>
-              <p>
-                {data.cards.length} work items · {queued.length} queued ·{" "}
-                {data.jobs.filter((job) => job.status === "completed").length}{" "}
-                completed runs
-              </p>
-              {active && <p>Current: {active.title}</p>}
-              <button onClick={() => setTab("queue")}>
-                View execution queue
-              </button>
-            </article>
-          </div>
-          {data.settings.context && (
-            <article className="planning-overview-context">
-              <h2>Project context</h2>
-              <p>{data.settings.context}</p>
-            </article>
-          )}
-          <h2>Planned work</h2>
-          {!data.cards.length && (
-            <p>
-              No work items yet. Add your first work item to start planning.
-            </p>
-          )}
-          <div className="planning-work-items">
-            {data.cards.map((card) => (
-              <article className="planning-card" key={card.id}>
-                <small>{card.column}</small>
+      <fieldset className="role-fieldset" disabled={!canWrite}>
+        {tab === "overview" ? (
+          <section
+            className="planning-overview"
+            aria-label="Project planning overview"
+          >
+            <div className="planning-overview-summary">
+              <article>
+                <h2>Planning</h2>
+                <p>
+                  Shape the next steps for {data.name}. Select a work item to
+                  refine its scope and acceptance criteria.
+                </p>
                 <button
-                  className="planning-card-title"
-                  onClick={() => edit(card)}
+                  onClick={() =>
+                    edit({
+                      title: "",
+                      description: "",
+                      column: data.settings.columns[0],
+                      labels: [],
+                      checklist: [],
+                      instructions: "",
+                      agent: "",
+                      model: null,
+                    })
+                  }
                 >
-                  {card.title}
+                  <Plus size={16} /> New work item
                 </button>
-                {card.description && <p>{card.description.slice(0, 240)}</p>}
-                <div className="planning-labels">
-                  {card.labels.map((label) => (
-                    <span key={label}>{label}</span>
-                  ))}
-                </div>
-                {!!card.checklist.length && (
-                  <small>
-                    Checklist{" "}
-                    {card.checklist.filter((item) => item.done).length}/
-                    {card.checklist.length}
-                  </small>
-                )}
-                {card.task && (
+              </article>
+              <article>
+                <h2>Execution</h2>
+                <p>
+                  {data.cards.length} work items · {queued.length} queued ·{" "}
+                  {data.jobs.filter((job) => job.status === "completed").length}{" "}
+                  completed runs
+                </p>
+                {active && <p>Current: {active.title}</p>}
+                <button onClick={() => setTab("queue")}>
+                  View execution queue
+                </button>
+              </article>
+            </div>
+            {data.settings.context && (
+              <article className="planning-overview-context">
+                <h2>Project context</h2>
+                <p>{data.settings.context}</p>
+              </article>
+            )}
+            <h2>Planned work</h2>
+            {!data.cards.length && (
+              <p>
+                No work items yet. Add your first work item to start planning.
+              </p>
+            )}
+            <div className="planning-work-items">
+              {data.cards.map((card) => (
+                <article className="planning-card" key={card.id}>
+                  <small>{card.column}</small>
                   <button
-                    className="planning-task-link"
-                    onClick={() => openTask(card.task!)}
+                    className="planning-card-title"
+                    onClick={() => edit(card)}
                   >
-                    Task #{card.task} · {card.task_status}
+                    {card.title}
                   </button>
-                )}
-                {card.task && card.task_status && (
+                  {card.description && <p>{card.description.slice(0, 240)}</p>}
+                  <div className="planning-labels">
+                    {card.labels.map((label) => (
+                      <span key={label}>{label}</span>
+                    ))}
+                  </div>
+                  {!!card.checklist.length && (
+                    <small>
+                      Checklist{" "}
+                      {card.checklist.filter((item) => item.done).length}/
+                      {card.checklist.length}
+                    </small>
+                  )}
+                  {card.task && (
+                    <button
+                      className="planning-task-link"
+                      onClick={() => openTask(card.task!)}
+                    >
+                      Task #{card.task} · {card.task_status}
+                    </button>
+                  )}
+                  {card.task && card.task_status && (
+                    <TaskStatusEditor
+                      task={card.task}
+                      status={card.task_status}
+                    />
+                  )}
+                  <footer>
+                    <button
+                      disabled={
+                        busy ||
+                        data.jobs.some(
+                          (job) =>
+                            job.card === card.id &&
+                            ["queued", "running"].includes(job.status),
+                        )
+                      }
+                      onClick={() => {
+                        setLaunch(card);
+                        setInstructions(card.instructions);
+                        setTemplate("");
+                      }}
+                    >
+                      Run / Queue
+                    </button>
+                  </footer>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : tab === "settings" ? (
+          <SettingsForm
+            initial={data.settings}
+            revision={data.revision}
+            workers={workers.data?.items || []}
+            busy={busy}
+            save={(settings, revision) =>
+              mutate({ operation: "settings", settings }, revision)
+            }
+          />
+        ) : tab === "board" ? (
+          <>
+            <div className="planning-board">
+              {data.settings.columns.map((column) => (
+                <section
+                  className="planning-column"
+                  key={column}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const card = data.cards.find((c) => c.id === dragged);
+                    if (card)
+                      move(
+                        card,
+                        column,
+                        Math.max(
+                          0,
+                          ...data.cards
+                            .filter((c) => c.column === column)
+                            .map((c) => c.position || 0),
+                        ) + 1,
+                      );
+                    setDragged(null);
+                  }}
+                >
+                  <header>
+                    <h2>
+                      {column}{" "}
+                      <span>
+                        {data.cards.filter((c) => c.column === column).length}
+                      </span>
+                    </h2>
+                    <button
+                      aria-label={`Add card to ${column}`}
+                      onClick={() =>
+                        edit({
+                          title: "",
+                          description: "",
+                          column,
+                          labels: [],
+                          checklist: [],
+                          instructions: "",
+                          agent: "",
+                          model: null,
+                        })
+                      }
+                    >
+                      <Plus size={16} />
+                    </button>
+                  </header>
+                  {data.cards
+                    .filter((c) => c.column === column)
+                    .map((card) => (
+                      <article
+                        className="planning-card"
+                        key={card.id}
+                        draggable={!busy}
+                        onDragStart={() => setDragged(card.id!)}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          const source = data.cards.find(
+                            (c) => c.id === dragged,
+                          );
+                          if (source && source.id !== card.id)
+                            move(source, column, card.position || 0);
+                          setDragged(null);
+                        }}
+                      >
+                        <div className="planning-labels">
+                          {card.labels.map((label) => (
+                            <span key={label}>{label}</span>
+                          ))}
+                        </div>
+                        <button
+                          className="planning-card-title"
+                          onClick={() => edit(card)}
+                        >
+                          {card.title}
+                        </button>
+                        {card.description && (
+                          <p>{card.description.slice(0, 160)}</p>
+                        )}
+                        {!!card.checklist.length && (
+                          <small>
+                            Checklist{" "}
+                            {card.checklist.filter((c) => c.done).length}/
+                            {card.checklist.length}
+                          </small>
+                        )}
+                        {card.task && (
+                          <button
+                            className="planning-task-link"
+                            onClick={() => openTask(card.task!)}
+                          >
+                            Task #{card.task} · {card.task_status}
+                          </button>
+                        )}
+                        {card.task && card.task_status && (
+                          <TaskStatusEditor
+                            task={card.task}
+                            status={card.task_status}
+                          />
+                        )}
+                        <footer>
+                          <button
+                            disabled={
+                              busy ||
+                              data.jobs.some(
+                                (j) =>
+                                  j.card === card.id &&
+                                  ["queued", "running"].includes(j.status),
+                              )
+                            }
+                            onClick={() => {
+                              setLaunch(card);
+                              setInstructions(card.instructions);
+                              setTemplate("");
+                            }}
+                          >
+                            Run / Queue
+                          </button>
+                          <select
+                            aria-label={`Move ${card.title}`}
+                            value={card.column}
+                            onChange={(e) => move(card, e.target.value)}
+                          >
+                            {data.settings.columns.map((c) => (
+                              <option key={c}>{c}</option>
+                            ))}
+                          </select>
+                        </footer>
+                      </article>
+                    ))}
+                </section>
+              ))}
+            </div>
+            <p className="planning-help">
+              Drag cards between columns, or use their Move menu. Board columns
+              organize planning stages. Use Execution status on a linked task to
+              update its status here and in All Tasks.
+            </p>
+          </>
+        ) : (
+          <div className="planning-queue">
+            <p>
+              One task at a time. Each gets a fresh session and frozen
+              project/card context. Explicit task completion advances the queue;
+              idle sessions do not.
+            </p>
+            {!data.jobs.length && (
+              <p>
+                Add cards to the queue from the board, arrange them, then press
+                Play.
+              </p>
+            )}
+            {data.jobs.map((job) => (
+              <article className={`planning-job ${job.status}`} key={job.id}>
+                <div>
+                  <strong>{job.title}</strong>
+                  <small>
+                    {job.status} · {job.worker}
+                    {job.agent ? ` · ${job.agent}` : ""}
+                    {` · ${job.model?.modelID || "worker default model"}`}
+                    {job.task_status ? ` · task ${job.task_status}` : ""}
+                  </small>
+                  {job.detail && <p>{job.detail}</p>}
+                </div>
+                <div className="planning-job-actions">
+                  {job.status === "queued" && (
+                    <>
+                      {[-1, 1].map((direction) => (
+                        <button
+                          key={direction}
+                          aria-label={`Move ${job.title} ${direction < 0 ? "up" : "down"}`}
+                          disabled={
+                            busy ||
+                            queued.indexOf(job) + direction < 0 ||
+                            queued.indexOf(job) + direction >= queued.length
+                          }
+                          onClick={() => {
+                            const ids = queued.map((j) => j.id);
+                            const index = ids.indexOf(job.id);
+                            [ids[index], ids[index + direction]] = [
+                              ids[index + direction],
+                              ids[index],
+                            ];
+                            void mutate({ operation: "reorder", job_ids: ids });
+                          }}
+                        >
+                          {direction < 0 ? (
+                            <ArrowUp size={15} />
+                          ) : (
+                            <ArrowDown size={15} />
+                          )}
+                        </button>
+                      ))}
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          void mutate({ operation: "remove", job_id: job.id })
+                        }
+                      >
+                        Remove
+                      </button>
+                    </>
+                  )}
+                  {job.session && (
+                    <button onClick={() => session(job)}>Open session</button>
+                  )}
+                  {job.task && (
+                    <button onClick={() => openTask(job.task!)}>
+                      Task #{job.task}
+                    </button>
+                  )}
+                </div>
+                <details>
+                  <summary>Context and first prompt</summary>
+                  <pre>
+                    {job.prompt || JSON.stringify(job.snapshot, null, 2)}
+                  </pre>
+                </details>
+                {job.task && ["running", "failed"].includes(job.status) && (
                   <TaskStatusEditor
-                    task={card.task}
-                    status={card.task_status}
+                    task={job.task}
+                    status={job.task_status || "in_progress"}
                   />
                 )}
-                <footer>
-                  <button
-                    disabled={
-                      busy ||
-                      data.jobs.some(
-                        (job) =>
-                          job.card === card.id &&
-                          ["queued", "running"].includes(job.status),
-                      )
-                    }
-                    onClick={() => {
-                      setLaunch(card);
-                      setInstructions(card.instructions);
-                      setTemplate("");
-                    }}
-                  >
-                    Run / Queue
-                  </button>
-                </footer>
               </article>
             ))}
           </div>
-        </section>
-      ) : tab === "settings" ? (
-        <SettingsForm
-          initial={data.settings}
-          revision={data.revision}
-          workers={workers.data?.items || []}
-          busy={busy}
-          save={(settings, revision) =>
-            mutate({ operation: "settings", settings }, revision)
-          }
-        />
-      ) : tab === "board" ? (
-        <>
-          <div className="planning-board">
-            {data.settings.columns.map((column) => (
-              <section
-                className="planning-column"
-                key={column}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
+        )}
+        {editor && (
+          <div className="planning-overlay">
+            <section
+              className="planning-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="card-title"
+            >
+              <header>
+                <h2 id="card-title">{editor.id ? "Edit card" : "New card"}</h2>
+                <button aria-label="Close card" onClick={() => setEditor(null)}>
+                  <X size={18} />
+                </button>
+              </header>
+              <form
+                onSubmit={(e) => {
                   e.preventDefault();
-                  const card = data.cards.find((c) => c.id === dragged);
-                  if (card)
-                    move(
-                      card,
-                      column,
-                      Math.max(
-                        0,
-                        ...data.cards
-                          .filter((c) => c.column === column)
-                          .map((c) => c.position || 0),
-                      ) + 1,
-                    );
-                  setDragged(null);
+                  void mutate(
+                    { operation: "card", card: editableCard(editor) },
+                    editorRevision,
+                  ).then((ok) => {
+                    if (ok) setEditor(null);
+                  });
                 }}
               >
-                <header>
-                  <h2>
-                    {column}{" "}
-                    <span>
-                      {data.cards.filter((c) => c.column === column).length}
-                    </span>
-                  </h2>
-                  <button
-                    aria-label={`Add card to ${column}`}
-                    onClick={() =>
-                      edit({
-                        title: "",
-                        description: "",
-                        column,
-                        labels: [],
-                        checklist: [],
-                        instructions: "",
-                        agent: "",
-                        model: null,
-                      })
-                    }
-                  >
-                    <Plus size={16} />
-                  </button>
-                </header>
-                {data.cards
-                  .filter((c) => c.column === column)
-                  .map((card) => (
-                    <article
-                      className="planning-card"
-                      key={card.id}
-                      draggable={!busy}
-                      onDragStart={() => setDragged(card.id!)}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        const source = data.cards.find((c) => c.id === dragged);
-                        if (source && source.id !== card.id)
-                          move(source, column, card.position || 0);
-                        setDragged(null);
-                      }}
-                    >
-                      <div className="planning-labels">
-                        {card.labels.map((label) => (
-                          <span key={label}>{label}</span>
-                        ))}
-                      </div>
-                      <button
-                        className="planning-card-title"
-                        onClick={() => edit(card)}
-                      >
-                        {card.title}
-                      </button>
-                      {card.description && (
-                        <p>{card.description.slice(0, 160)}</p>
-                      )}
-                      {!!card.checklist.length && (
-                        <small>
-                          Checklist{" "}
-                          {card.checklist.filter((c) => c.done).length}/
-                          {card.checklist.length}
-                        </small>
-                      )}
-                      {card.task && (
-                        <button
-                          className="planning-task-link"
-                          onClick={() => openTask(card.task!)}
-                        >
-                          Task #{card.task} · {card.task_status}
-                        </button>
-                      )}
-                      {card.task && card.task_status && (
-                        <TaskStatusEditor
-                          task={card.task}
-                          status={card.task_status}
-                        />
-                      )}
-                      <footer>
-                        <button
-                          disabled={
-                            busy ||
-                            data.jobs.some(
-                              (j) =>
-                                j.card === card.id &&
-                                ["queued", "running"].includes(j.status),
-                            )
-                          }
-                          onClick={() => {
-                            setLaunch(card);
-                            setInstructions(card.instructions);
-                            setTemplate("");
-                          }}
-                        >
-                          Run / Queue
-                        </button>
-                        <select
-                          aria-label={`Move ${card.title}`}
-                          value={card.column}
-                          onChange={(e) => move(card, e.target.value)}
-                        >
-                          {data.settings.columns.map((c) => (
-                            <option key={c}>{c}</option>
-                          ))}
-                        </select>
-                      </footer>
-                    </article>
-                  ))}
-              </section>
-            ))}
-          </div>
-          <p className="planning-help">
-            Drag cards between columns, or use their Move menu. Board columns
-            organize planning stages. Use Execution status on a linked task to
-            update its status here and in All Tasks.
-          </p>
-        </>
-      ) : (
-        <div className="planning-queue">
-          <p>
-            One task at a time. Each gets a fresh session and frozen
-            project/card context. Explicit task completion advances the queue;
-            idle sessions do not.
-          </p>
-          {!data.jobs.length && (
-            <p>
-              Add cards to the queue from the board, arrange them, then press
-              Play.
-            </p>
-          )}
-          {data.jobs.map((job) => (
-            <article className={`planning-job ${job.status}`} key={job.id}>
-              <div>
-                <strong>{job.title}</strong>
-                <small>
-                  {job.status} · {job.worker}
-                  {job.agent ? ` · ${job.agent}` : ""}
-                  {` · ${job.model?.modelID || "worker default model"}`}
-                  {job.task_status ? ` · task ${job.task_status}` : ""}
-                </small>
-                {job.detail && <p>{job.detail}</p>}
-              </div>
-              <div className="planning-job-actions">
-                {job.status === "queued" && (
-                  <>
-                    {[-1, 1].map((direction) => (
-                      <button
-                        key={direction}
-                        aria-label={`Move ${job.title} ${direction < 0 ? "up" : "down"}`}
-                        disabled={
-                          busy ||
-                          queued.indexOf(job) + direction < 0 ||
-                          queued.indexOf(job) + direction >= queued.length
-                        }
-                        onClick={() => {
-                          const ids = queued.map((j) => j.id);
-                          const index = ids.indexOf(job.id);
-                          [ids[index], ids[index + direction]] = [
-                            ids[index + direction],
-                            ids[index],
-                          ];
-                          void mutate({ operation: "reorder", job_ids: ids });
-                        }}
-                      >
-                        {direction < 0 ? (
-                          <ArrowUp size={15} />
-                        ) : (
-                          <ArrowDown size={15} />
-                        )}
-                      </button>
-                    ))}
-                    <button
-                      disabled={busy}
-                      onClick={() =>
-                        void mutate({ operation: "remove", job_id: job.id })
-                      }
-                    >
-                      Remove
-                    </button>
-                  </>
-                )}
-                {job.session && (
-                  <button onClick={() => session(job)}>Open session</button>
-                )}
-                {job.task && (
-                  <button onClick={() => openTask(job.task!)}>
-                    Task #{job.task}
-                  </button>
-                )}
-              </div>
-              <details>
-                <summary>Context and first prompt</summary>
-                <pre>{job.prompt || JSON.stringify(job.snapshot, null, 2)}</pre>
-              </details>
-              {job.task && ["running", "failed"].includes(job.status) && (
-                <TaskStatusEditor
-                  task={job.task}
-                  status={job.task_status || "in_progress"}
-                />
-              )}
-            </article>
-          ))}
-        </div>
-      )}
-      {editor && (
-        <div className="planning-overlay">
-          <section
-            className="planning-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="card-title"
-          >
-            <header>
-              <h2 id="card-title">{editor.id ? "Edit card" : "New card"}</h2>
-              <button aria-label="Close card" onClick={() => setEditor(null)}>
-                <X size={18} />
-              </button>
-            </header>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void mutate(
-                  { operation: "card", card: editableCard(editor) },
-                  editorRevision,
-                ).then((ok) => {
-                  if (ok) setEditor(null);
-                });
-              }}
-            >
-              <label>
-                Title
-                <input
-                  autoFocus
-                  required
-                  maxLength={300}
-                  value={editor.title}
-                  onChange={(e) =>
-                    setEditor({ ...editor, title: e.target.value })
-                  }
-                />
-              </label>
-              <label>
-                Description / acceptance criteria
-                <textarea
-                  rows={6}
-                  maxLength={12000}
-                  value={editor.description}
-                  onChange={(e) =>
-                    setEditor({ ...editor, description: e.target.value })
-                  }
-                />
-              </label>
-              <label>
-                Labels (comma separated)
-                <input
-                  value={editor.labels.join(", ")}
-                  onChange={(e) =>
-                    setEditor({
-                      ...editor,
-                      labels: e.target.value.split(",").map((x) => x.trim()),
-                    })
-                  }
-                />
-              </label>
-              <fieldset>
-                <legend>Checklist</legend>
-                {editor.checklist.map((item, i) => (
-                  <div className="planning-check" key={i}>
-                    <input
-                      aria-label={`Complete checklist item ${i + 1}`}
-                      type="checkbox"
-                      checked={item.done}
-                      onChange={(e) =>
-                        setEditor({
-                          ...editor,
-                          checklist: editor.checklist.map((c, n) =>
-                            n === i ? { ...c, done: e.target.checked } : c,
-                          ),
-                        })
-                      }
-                    />
-                    <input
-                      aria-label={`Checklist item ${i + 1}`}
-                      required
-                      maxLength={500}
-                      value={item.text}
-                      onChange={(e) =>
-                        setEditor({
-                          ...editor,
-                          checklist: editor.checklist.map((c, n) =>
-                            n === i ? { ...c, text: e.target.value } : c,
-                          ),
-                        })
-                      }
-                    />
-                    <button
-                      type="button"
-                      aria-label={`Remove checklist item ${i + 1}`}
-                      onClick={() =>
-                        setEditor({
-                          ...editor,
-                          checklist: editor.checklist.filter((_, n) => n !== i),
-                        })
-                      }
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={() =>
-                    setEditor({
-                      ...editor,
-                      checklist: [
-                        ...editor.checklist,
-                        { text: "", done: false },
-                      ],
-                    })
-                  }
-                >
-                  Add checklist item
-                </button>
-              </fieldset>
-              <div className="planning-settings-grid">
                 <label>
-                  Agent for this task
-                  <select
-                    aria-label="Task agent"
-                    value={editor.agent}
+                  Title
+                  <input
+                    autoFocus
+                    required
+                    maxLength={300}
+                    value={editor.title}
                     onChange={(e) =>
-                      setEditor({ ...editor, agent: e.target.value })
+                      setEditor({ ...editor, title: e.target.value })
                     }
-                  >
-                    <option value="">
-                      {`Project default (${data.settings.agent || "worker default"})`}
-                    </option>
-                    {editor.agent &&
-                      !workerAgents.some((a) => a.name === editor.agent) && (
-                        <option value={editor.agent}>
-                          {editor.agent} (not reported)
-                        </option>
-                      )}
-                    {workerAgents.map((agent) => (
-                      <option key={agent.name} value={agent.name}>
-                        {agent.name}
-                        {agent.mode && agent.mode !== "all"
-                          ? ` · ${agent.mode}`
-                          : ""}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </label>
                 <label>
-                  Model for this task
-                  <select
-                    aria-label="Task model"
-                    value={
-                      editor.model
-                        ? JSON.stringify({
-                            providerID: editor.model.providerID,
-                            modelID: editor.model.modelID,
-                          })
-                        : ""
+                  Description / acceptance criteria
+                  <textarea
+                    rows={6}
+                    maxLength={12000}
+                    value={editor.description}
+                    onChange={(e) =>
+                      setEditor({ ...editor, description: e.target.value })
                     }
+                  />
+                </label>
+                <label>
+                  Labels (comma separated)
+                  <input
+                    value={editor.labels.join(", ")}
                     onChange={(e) =>
                       setEditor({
                         ...editor,
-                        model: e.target.value
-                          ? (JSON.parse(e.target.value) as ModelChoice)
-                          : null,
+                        labels: e.target.value.split(",").map((x) => x.trim()),
                       })
                     }
-                  >
-                    <option value="">
-                      {`Project default (${data.settings.model?.modelID || "worker default"})`}
-                    </option>
-                    {editor.model &&
-                      !workerModels.some(
-                        (m) =>
-                          m.providerID === editor.model?.providerID &&
-                          m.modelID === editor.model?.modelID,
-                      ) && (
-                        <option
-                          value={JSON.stringify({
-                            providerID: editor.model.providerID,
-                            modelID: editor.model.modelID,
-                          })}
-                        >
-                          {editor.model.providerID}/{editor.model.modelID} (not
-                          reported)
-                        </option>
-                      )}
-                    {workerModels.map((model) => (
-                      <option
-                        key={`${model.providerID}/${model.modelID}`}
-                        value={JSON.stringify({
-                          providerID: model.providerID,
-                          modelID: model.modelID,
-                        })}
-                      >
-                        {model.providerID}/{model.modelID}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </label>
-              </div>
-              <label>
-                Default instructions for this card
-                <textarea
-                  rows={3}
-                  maxLength={8000}
-                  value={editor.instructions}
-                  onChange={(e) =>
-                    setEditor({ ...editor, instructions: e.target.value })
-                  }
-                />
-              </label>
-              <footer>
-                <button disabled={busy} type="submit">
-                  Save card
-                </button>
-                {editor.id && (
+                <fieldset>
+                  <legend>Checklist</legend>
+                  {editor.checklist.map((item, i) => (
+                    <div className="planning-check" key={i}>
+                      <input
+                        aria-label={`Complete checklist item ${i + 1}`}
+                        type="checkbox"
+                        checked={item.done}
+                        onChange={(e) =>
+                          setEditor({
+                            ...editor,
+                            checklist: editor.checklist.map((c, n) =>
+                              n === i ? { ...c, done: e.target.checked } : c,
+                            ),
+                          })
+                        }
+                      />
+                      <input
+                        aria-label={`Checklist item ${i + 1}`}
+                        required
+                        maxLength={500}
+                        value={item.text}
+                        onChange={(e) =>
+                          setEditor({
+                            ...editor,
+                            checklist: editor.checklist.map((c, n) =>
+                              n === i ? { ...c, text: e.target.value } : c,
+                            ),
+                          })
+                        }
+                      />
+                      <button
+                        type="button"
+                        aria-label={`Remove checklist item ${i + 1}`}
+                        onClick={() =>
+                          setEditor({
+                            ...editor,
+                            checklist: editor.checklist.filter(
+                              (_, n) => n !== i,
+                            ),
+                          })
+                        }
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
                   <button
                     type="button"
-                    disabled={busy}
                     onClick={() =>
-                      void mutate(
-                        { operation: "archive", card_id: editor.id },
-                        editorRevision,
-                      ).then((ok) => {
-                        if (ok) setEditor(null);
+                      setEditor({
+                        ...editor,
+                        checklist: [
+                          ...editor.checklist,
+                          { text: "", done: false },
+                        ],
                       })
                     }
                   >
-                    Archive
+                    Add checklist item
                   </button>
-                )}
-                <button type="button" onClick={() => setEditor(null)}>
-                  Cancel
+                </fieldset>
+                <div className="planning-settings-grid">
+                  <label>
+                    Agent for this task
+                    <select
+                      aria-label="Task agent"
+                      value={editor.agent}
+                      onChange={(e) =>
+                        setEditor({ ...editor, agent: e.target.value })
+                      }
+                    >
+                      <option value="">
+                        {`Project default (${data.settings.agent || "worker default"})`}
+                      </option>
+                      {editor.agent &&
+                        !workerAgents.some((a) => a.name === editor.agent) && (
+                          <option value={editor.agent}>
+                            {editor.agent} (not reported)
+                          </option>
+                        )}
+                      {workerAgents.map((agent) => (
+                        <option key={agent.name} value={agent.name}>
+                          {agent.name}
+                          {agent.mode && agent.mode !== "all"
+                            ? ` · ${agent.mode}`
+                            : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Model for this task
+                    <select
+                      aria-label="Task model"
+                      value={
+                        editor.model
+                          ? JSON.stringify({
+                              providerID: editor.model.providerID,
+                              modelID: editor.model.modelID,
+                            })
+                          : ""
+                      }
+                      onChange={(e) =>
+                        setEditor({
+                          ...editor,
+                          model: e.target.value
+                            ? (JSON.parse(e.target.value) as ModelChoice)
+                            : null,
+                        })
+                      }
+                    >
+                      <option value="">
+                        {`Project default (${data.settings.model?.modelID || "worker default"})`}
+                      </option>
+                      {editor.model &&
+                        !workerModels.some(
+                          (m) =>
+                            m.providerID === editor.model?.providerID &&
+                            m.modelID === editor.model?.modelID,
+                        ) && (
+                          <option
+                            value={JSON.stringify({
+                              providerID: editor.model.providerID,
+                              modelID: editor.model.modelID,
+                            })}
+                          >
+                            {editor.model.providerID}/{editor.model.modelID}{" "}
+                            (not reported)
+                          </option>
+                        )}
+                      {workerModels.map((model) => (
+                        <option
+                          key={`${model.providerID}/${model.modelID}`}
+                          value={JSON.stringify({
+                            providerID: model.providerID,
+                            modelID: model.modelID,
+                          })}
+                        >
+                          {model.providerID}/{model.modelID}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <label>
+                  Default instructions for this card
+                  <textarea
+                    rows={3}
+                    maxLength={8000}
+                    value={editor.instructions}
+                    onChange={(e) =>
+                      setEditor({ ...editor, instructions: e.target.value })
+                    }
+                  />
+                </label>
+                <footer>
+                  <button disabled={busy} type="submit">
+                    Save card
+                  </button>
+                  {editor.id && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        void mutate(
+                          { operation: "archive", card_id: editor.id },
+                          editorRevision,
+                        ).then((ok) => {
+                          if (ok) setEditor(null);
+                        })
+                      }
+                    >
+                      Archive
+                    </button>
+                  )}
+                  <button type="button" onClick={() => setEditor(null)}>
+                    Cancel
+                  </button>
+                </footer>
+                {error && <p role="alert">{error}</p>}
+              </form>
+            </section>
+          </div>
+        )}
+        {launch && (
+          <div className="planning-overlay">
+            <section
+              className="planning-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="launch-title"
+            >
+              <header>
+                <h2 id="launch-title">Run: {launch.title}</h2>
+                <button
+                  aria-label="Close launch"
+                  onClick={() => setLaunch(null)}
+                >
+                  <X size={18} />
                 </button>
+              </header>
+              <p>
+                {data.settings.worker || "No worker configured"} ·{" "}
+                {data.settings.directory || "Worker default directory"} ·{" "}
+                {launch.agent || data.settings.agent || "Worker default agent"}{" "}
+                ·{" "}
+                {(launch.model || data.settings.model)?.modelID ||
+                  "Worker default model"}
+              </p>
+              <label>
+                Prompt template
+                <select
+                  aria-label="Prompt template"
+                  value={template}
+                  onChange={(e) => setTemplate(e.target.value)}
+                >
+                  <option value="">None</option>
+                  {data.settings.templates.map((t) => (
+                    <option key={t.name} value={t.text}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                What should the agent do?
+                <textarea
+                  autoFocus
+                  rows={5}
+                  maxLength={8000}
+                  value={instructions}
+                  onChange={(e) => setInstructions(e.target.value)}
+                />
+              </label>
+              <details>
+                <summary>Preview context</summary>
+                <pre>
+                  {JSON.stringify(
+                    {
+                      project: slug,
+                      context: data.settings.context,
+                      standingInstructions: data.settings.instructions,
+                      card: launch,
+                      template,
+                      instructions,
+                    },
+                    null,
+                    2,
+                  )}
+                </pre>
+              </details>
+              <p>
+                Settings are captured when you add this task. Previous completed
+                queue results are added when its session starts.
+              </p>
+              <footer>
+                {["enqueue", "run"].map((operation) => (
+                  <button
+                    key={operation}
+                    disabled={
+                      busy ||
+                      !data.settings.worker ||
+                      (operation === "run" && (!!active || !!queued.length))
+                    }
+                    onClick={() =>
+                      void mutate({
+                        operation,
+                        card_id: launch.id,
+                        instructions,
+                        template,
+                      }).then((ok) => {
+                        if (ok) {
+                          setLaunch(null);
+                          setTab("queue");
+                        }
+                      })
+                    }
+                  >
+                    {operation === "run" ? "Start session" : "Add to queue"}
+                  </button>
+                ))}
               </footer>
               {error && <p role="alert">{error}</p>}
-            </form>
-          </section>
-        </div>
-      )}
-      {launch && (
-        <div className="planning-overlay">
-          <section
-            className="planning-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="launch-title"
-          >
-            <header>
-              <h2 id="launch-title">Run: {launch.title}</h2>
-              <button aria-label="Close launch" onClick={() => setLaunch(null)}>
-                <X size={18} />
-              </button>
-            </header>
-            <p>
-              {data.settings.worker || "No worker configured"} ·{" "}
-              {data.settings.directory || "Worker default directory"} ·{" "}
-              {launch.agent || data.settings.agent || "Worker default agent"} ·{" "}
-              {(launch.model || data.settings.model)?.modelID ||
-                "Worker default model"}
-            </p>
-            <label>
-              Prompt template
-              <select
-                aria-label="Prompt template"
-                value={template}
-                onChange={(e) => setTemplate(e.target.value)}
-              >
-                <option value="">None</option>
-                {data.settings.templates.map((t) => (
-                  <option key={t.name} value={t.text}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              What should the agent do?
-              <textarea
-                autoFocus
-                rows={5}
-                maxLength={8000}
-                value={instructions}
-                onChange={(e) => setInstructions(e.target.value)}
-              />
-            </label>
-            <details>
-              <summary>Preview context</summary>
-              <pre>
-                {JSON.stringify(
-                  {
-                    project: slug,
-                    context: data.settings.context,
-                    standingInstructions: data.settings.instructions,
-                    card: launch,
-                    template,
-                    instructions,
-                  },
-                  null,
-                  2,
-                )}
-              </pre>
-            </details>
-            <p>
-              Settings are captured when you add this task. Previous completed
-              queue results are added when its session starts.
-            </p>
-            <footer>
-              {["enqueue", "run"].map((operation) => (
-                <button
-                  key={operation}
-                  disabled={
-                    busy ||
-                    !data.settings.worker ||
-                    (operation === "run" && (!!active || !!queued.length))
-                  }
-                  onClick={() =>
-                    void mutate({
-                      operation,
-                      card_id: launch.id,
-                      instructions,
-                      template,
-                    }).then((ok) => {
-                      if (ok) {
-                        setLaunch(null);
-                        setTab("queue");
-                      }
-                    })
-                  }
-                >
-                  {operation === "run" ? "Start session" : "Add to queue"}
-                </button>
-              ))}
-            </footer>
-            {error && <p role="alert">{error}</p>}
-          </section>
-        </div>
-      )}
+            </section>
+          </div>
+        )}
+      </fieldset>
     </>
   );
 }

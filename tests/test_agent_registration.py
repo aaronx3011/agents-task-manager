@@ -15,9 +15,10 @@ pytestmark = pytest.mark.django_db
 @pytest.fixture
 def registration_staff(django_user_model):
     client = Client(enforce_csrf_checks=True)
-    user = django_user_model.objects.create_user("registrar", is_staff=True)
+    # Registering agents is an owner action (#43).
+    user = django_user_model.objects.create_user("registrar", is_staff=True, is_superuser=True)
     client.force_login(user)
-    client.get("/dashboard/")
+    client.get("/api/v1/auth/csrf")
     return client
 
 
@@ -52,7 +53,7 @@ def test_key_is_shown_once_stored_hashed_and_identifies_the_new_agent(
     task = create(api_client)
     claimed = post(new_client, f"tasks/{task['id']}/claim").json()
     assert claimed["claimed_by"] == "workstation-reviewer"
-    for path in ["/api/agents", "/dashboard/workspace/", "/api/overview"]:
+    for path in ["/api/agents", "/api/v1/dashboard/workspace", "/api/overview"]:
         listed = registration_staff.get(path)
         body = listed.content.decode()
         assert key not in body and "api_key_hash" not in body and "key_prefix" not in body
@@ -148,7 +149,10 @@ def test_registration_notification_never_contains_the_raw_key(
 def test_concurrent_registration_returns_one_key_without_replacing_the_winner(django_user_model):
     if connection.vendor != "postgresql":
         pytest.skip("Concurrent registration requires PostgreSQL")
-    user = django_user_model.objects.create_user("concurrent-registrar", is_staff=True)
+    # Agent registration is owner-only (#43).
+    user = django_user_model.objects.create_user(
+        "concurrent-registrar", is_staff=True, is_superuser=True
+    )
     clients = [Client(), Client()]
     for client in clients:
         client.force_login(user)

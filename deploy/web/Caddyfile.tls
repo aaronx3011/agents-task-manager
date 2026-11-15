@@ -1,0 +1,14 @@
+# Public front door on VPS1 (#52): Caddy terminates TLS and serves the SPA, the API
+# and WebSockets on one origin. TLS=<contact email> gets Let's Encrypt certificates
+# over ACME; TLS=internal uses Caddy's local CA (staging rehearsals only).
+{
+	admin off
+}
+
+import /etc/caddy/routes.caddy
+
+{$SITE_ADDRESS:localhost} {
+	tls {$TLS:internal}
+	import app
+	header Strict-Transport-Security "max-age=31536000"
+}

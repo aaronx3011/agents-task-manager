@@ -1,13 +1,14 @@
-"""Staff planning HTTP boundary. Mutations live in services.py."""
+"""Planning HTTP boundary (viewers read, members write). Mutations live in services.py."""
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 
 from . import services
-from .auth import get_agent, staff_name
+from .auth import IsMember, ViewerReadsMemberWrites, get_agent, human_actor
 from .models import Project, Worker
+from .openapi import PROJECT_CREATED, READ_MODEL
 
 
 class ProjectInput(serializers.Serializer):
@@ -18,8 +19,9 @@ class ProjectInput(serializers.Serializer):
     docs_path = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
 
 
+@extend_schema(request=ProjectInput, responses={201: PROJECT_CREATED})
 @api_view(["POST"])
-@permission_classes([IsAdminUser])
+@permission_classes([IsMember])
 def projects_create(request):
     serializer = ProjectInput(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -134,8 +136,10 @@ class PlanningMutation(serializers.Serializer):
         return data
 
 
+@extend_schema(methods=["GET"], responses=READ_MODEL)
+@extend_schema(methods=["POST"], request=PlanningMutation, responses=READ_MODEL)
 @api_view(["GET", "POST"])
-@permission_classes([IsAdminUser])
+@permission_classes([ViewerReadsMemberWrites])
 def project_planning(request, slug):
     project = Project.objects.filter(slug=slug).first()
     if not project:
@@ -143,7 +147,7 @@ def project_planning(request, slug):
     if request.method == "POST":
         serializer = PlanningMutation(data=request.data)
         serializer.is_valid(raise_exception=True)
-        services.mutate_planning(project, staff_name(request), serializer.validated_data)
+        services.mutate_planning(project, human_actor(request), serializer.validated_data)
     return Response(services.planning_read(project))
 
 
@@ -153,6 +157,7 @@ class JobReport(serializers.Serializer):
     summary = serializers.CharField(max_length=10000, required=False, allow_blank=True, default="")
 
 
+@extend_schema(request=JobReport, responses=READ_MODEL)
 @api_view(["POST"])
 def planning_report(request, pk):
     agent = get_agent(request)

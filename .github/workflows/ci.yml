@@ -23,20 +23,39 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci --prefix frontend
+      - run: npm run api:check --prefix frontend
       - run: npm run lint --prefix frontend
       - run: npm run format:check --prefix frontend
       - run: npm run build --prefix frontend
       - name: Install production-static browser test dependencies
-        run: uv run --with playwright python -m playwright install --with-deps chromium
+        # The runner image already has Chromium's system libraries; when the apt
+        # mirrors are unreachable, install just the browser instead of failing.
+        run: |
+          uv run --with playwright python -m playwright install --with-deps chromium \
+            || uv run --with playwright python -m playwright install chromium
       - name: Verify collected frontend module graph in a browser
         run: uv run --with playwright python scripts/verify_opencode_dashboard.py --assets-only
-      - run: node --test --test-timeout=30000 bridge/bridge.test.mjs frontend/tests/session-live.test.mjs
+      - run: node --test --test-timeout=30000 bridge/bridge.test.mjs bridge/codex.test.mjs bridge/claude.test.mjs frontend/tests/session-live.test.mjs
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run python manage.py check
       - run: uv run python manage.py makemigrations --check --dry-run
       - run: uv run python manage.py collectstatic --noinput
       - run: uv run pytest
+  mobile:
+    # Expo app (#54): typed against the same generated API types as the web app.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci --prefix mobile
+      - run: npm run typecheck --prefix mobile
+      - run: npm run lint --prefix mobile
+      - run: npm run format:check --prefix mobile
   postgres:
     runs-on: ubuntu-latest
     services:

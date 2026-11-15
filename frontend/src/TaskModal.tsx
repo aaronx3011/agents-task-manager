@@ -16,7 +16,8 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { get } from "./api";
-import type { EventPage, TaskDetail, TaskEvent } from "./types";
+import { api, unwrap } from "./api-client";
+import type { EventPage, TaskEvent } from "./types";
 import {
   Age,
   Avatar,
@@ -151,7 +152,12 @@ export function TaskModal({
   };
   const task = useQuery({
     queryKey: ["task", id],
-    queryFn: () => get<TaskDetail>(`/api/tasks/${id}`),
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/tasks/{id}", {
+          params: { path: { id: String(id) } },
+        }),
+      ),
     enabled: valid,
     retry: false,
   });

@@ -15,6 +15,7 @@ htmlcov/
 frontend/node_modules/
 bridge/node_modules/
 frontend/*.tsbuildinfo
-coordinator/static/coordinator/app/
+frontend/dist/
 .DS_Store
 deploy/*/.env
+deploy/*/backups/

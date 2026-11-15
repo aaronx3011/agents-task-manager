@@ -1,0 +1,16 @@
+# Front door behind another TLS proxy (development): plain HTTP on :8080.
+# Public production terminates TLS in Caddy itself: see Caddyfile.tls (#52).
+{
+	admin off
+	auto_https off
+	servers {
+		# Keep the client address and scheme set by the trusted proxy in front.
+		trusted_proxies static private_ranges
+	}
+}
+
+import /etc/caddy/routes.caddy
+
+:8080 {
+	import app
+}

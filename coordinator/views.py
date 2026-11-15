@@ -1,14 +1,20 @@
 from django.conf import settings
 from django.db.models import Count, Exists, OuterRef, Prefetch
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_view,
+    inline_serializer,
+)
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action, api_view
 from rest_framework.exceptions import PermissionDenied, ValidationError
-from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 
 from . import services
 from . import sync as sync_module
-from .auth import get_agent, staff_name
+from .auth import IsMember, IsOwner, get_agent, human_actor
 from .chat_export import export_session
 from .models import (
     Agent,
@@ -19,6 +25,24 @@ from .models import (
     Worker,
     WorkerCommand,
     WorkerSession,
+)
+from .openapi import (
+    AGENT_CARD,
+    AGENT_CREDENTIALS,
+    DETAIL_RESPONSE,
+    HEARTBEAT_RESPONSE,
+    LAUNCH_RESPONSE,
+    OK_RESPONSE,
+    PAGINATION_PARAMS,
+    PROJECT_OVERVIEW,
+    READ_MODEL,
+    SESSION_FILTER_PARAMS,
+    TASK_EVENT_PAGE,
+    TASK_LIST_PARAMS,
+    TaskDetailResponse,
+    paginated,
+    query,
+    read_model_page,
 )
 from .pagination import TaskPagination
 from .queries import filter_tasks, order_tasks, task_queryset
@@ -34,10 +58,17 @@ from .serializers import (
 )
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=PAGINATION_PARAMS,
+        responses=paginated("AgentCardPage", AGENT_CARD),
+    ),
+    create=extend_schema(request=AgentRegistrationSerializer, responses={201: AGENT_CREDENTIALS}),
+)
 class AgentRegistrationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
-    """Staff configuration surface; agent keys never grant provisioning rights."""
+    """Owner configuration surface; agent keys never grant provisioning rights."""
 
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsOwner]
     http_method_names = ["get", "post", "head", "options"]
     serializer_class = AgentRegistrationSerializer
     queryset = Agent.objects.order_by("name", "pk")
@@ -64,6 +95,55 @@ class AgentRegistrationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         )
 
 
+SID_PARAM = OpenApiParameter("sid", str, OpenApiParameter.PATH, description="Remote session ID")
+WORKER_NAME = OpenApiParameter("name", str, OpenApiParameter.PATH, description="Worker name")
+
+
+@extend_schema_view(
+    list=extend_schema(parameters=PAGINATION_PARAMS, responses=read_model_page("WorkerPage")),
+    retrieve=extend_schema(parameters=[WORKER_NAME], responses=READ_MODEL),
+    sessions=extend_schema(
+        operation_id="workers_sessions_list",
+        parameters=[WORKER_NAME, *PAGINATION_PARAMS, *SESSION_FILTER_PARAMS],
+        responses=read_model_page("WorkerSessionPage"),
+    ),
+    session_detail=extend_schema(
+        parameters=[WORKER_NAME, SID_PARAM, query("compact", "true for a compact detail.")],
+        responses=READ_MODEL,
+    ),
+    session_messages=extend_schema(
+        parameters=[
+            WORKER_NAME,
+            SID_PARAM,
+            query("after", "Return messages after this cursor."),
+            query("before", "Return messages before this cursor."),
+            query("latest", "true for the most recent messages.", enum=["true"]),
+            query("limit", "Maximum number of messages.", int),
+        ],
+        responses=READ_MODEL,
+    ),
+    session_export=extend_schema(
+        parameters=[
+            WORKER_NAME,
+            SID_PARAM,
+            query(
+                "kind", "md for Markdown or zip for Markdown plus attachments.", enum=["md", "zip"]
+            ),
+        ],
+        responses={
+            (200, "text/markdown"): OpenApiTypes.BINARY,
+            (200, "application/zip"): OpenApiTypes.BINARY,
+        },
+    ),
+    events=extend_schema(
+        parameters=[
+            WORKER_NAME,
+            query("after", "Return events after this cursor."),
+            query("limit", "Maximum number of events.", int),
+        ],
+        responses=READ_MODEL,
+    ),
+)
 class WorkerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """Authenticated, credential-free worker registry reads (#10, #15).
 
@@ -189,8 +269,22 @@ class AttemptLinkSerializer(serializers.Serializer):
     sessionID = serializers.RegexField(r"^.{1,128}$", allow_blank=False)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            *PAGINATION_PARAMS,
+            query("status", "Command status."),
+            query("action", "Command action."),
+            query("worker", "Worker name."),
+        ],
+        responses=read_model_page("WorkerCommandPage"),
+    ),
+    retrieve=extend_schema(responses=READ_MODEL),
+    create=extend_schema(request=CommandSerializer, responses={202: READ_MODEL}),
+    resolve=extend_schema(request=ResolveSerializer, responses=READ_MODEL),
+)
 class CommandViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
-    """Durable command queue APIs (issue #12): staff any worker; agents own worker."""
+    """Durable command queue APIs (issue #12): members any worker; agents own worker."""
 
     http_method_names = ["get", "post", "head", "options"]
     lookup_value_regex = r"\d+"
@@ -217,14 +311,14 @@ class CommandViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
     def get_permissions(self):
         base = super().get_permissions()
         if self.action == "resolve":
-            return base + [IsAdminUser()]
+            return base + [IsMember()]
         return base
 
     def create(self, request, *args, **kwargs):
         agent = self._agent()
-        staff_label = staff_name(request)
-        if not agent and not staff_label:
-            raise PermissionDenied("Authenticate as staff or a worker-bound agent")
+        human_label = human_actor(request)
+        if not agent and not human_label:
+            raise PermissionDenied("Authenticate as a member or a worker-bound agent")
         serializer = CommandSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = dict(serializer.validated_data)
@@ -232,7 +326,7 @@ class CommandViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         session_id = data.pop("sessionID", "") or ""
         command, created = services.enqueue_worker_command(
             agent,
-            staff_label,
+            human_label,
             worker,
             data["action"],
             data.get("payload") or {},
@@ -248,8 +342,12 @@ class CommandViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         query = self.get_queryset()
         for name in ["status", "action"]:
             value = request.query_params.get(name)
-            if value:
-                query = query.filter(status=value)
+            if not value:
+                continue
+            choices = dict(WorkerCommand._meta.get_field(name).choices)
+            if value not in choices:
+                raise ValidationError({name: f"Must be one of: {', '.join(choices)}"})
+            query = query.filter(**{name: value})
         if request.query_params.get("worker"):
             query = query.filter(worker__name=request.query_params["worker"])
         page = self.paginate_queryset(query)
@@ -263,7 +361,7 @@ class CommandViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
 
     @action(detail=True, methods=["post"])
     def resolve(self, request, pk=None):
-        """Explicit staff reconciliation for uncertain or pending commands (#12)."""
+        """Explicit member reconciliation for uncertain or pending commands (#12)."""
         command = self.get_object()
         serializer = ResolveSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -283,6 +381,27 @@ def fresh_task(task_id):
     return task_queryset().get(pk=task_id)
 
 
+@extend_schema_view(
+    list=extend_schema(parameters=TASK_LIST_PARAMS),
+    retrieve=extend_schema(responses=TaskDetailResponse),
+    create=extend_schema(responses={201: TaskSerializer}),
+    partial_update=extend_schema(responses=TaskSerializer),
+    events=extend_schema(
+        parameters=[query("before", "Return events older than this event ID.", int)],
+        responses=TASK_EVENT_PAGE,
+    ),
+    next=extend_schema(
+        request=ClaimNextSerializer, responses={200: TaskSerializer, 404: DETAIL_RESPONSE}
+    ),
+    claim=extend_schema(request=None, responses=TaskSerializer),
+    heartbeat=extend_schema(request=None, responses=HEARTBEAT_RESPONSE),
+    set_status=extend_schema(request=StatusUpdateSerializer, responses=TaskSerializer),
+    release=extend_schema(request=ReleaseSerializer, responses=TaskSerializer),
+    notes=extend_schema(request=NoteSerializer, responses={201: OK_RESPONSE}),
+    launch=extend_schema(
+        request=LaunchSerializer, responses={201: LAUNCH_RESPONSE, 202: LAUNCH_RESPONSE}
+    ),
+)
 class TaskViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     http_method_names = ["get", "post", "patch", "head", "options"]
     lookup_value_regex = r"\d+"
@@ -320,7 +439,7 @@ class TaskViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gen
         return Response(TaskSerializer(fresh_task(task.pk)).data, status=response_status)
 
     def actor(self):
-        return {"agent": get_agent(self.request), "human_actor": staff_name(self.request)}
+        return {"agent": get_agent(self.request), "human_actor": human_actor(self.request)}
 
     def require_agent(self):
         agent = get_agent(self.request)
@@ -386,16 +505,16 @@ class TaskViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gen
     def launch(self, request, pk=None):
         """Authorized remote launch (issue #13): atomic-claim-based, idempotent."""
         agent = get_agent(request)
-        staff_label = staff_name(request)
-        if not agent and not staff_label:
-            raise PermissionDenied("Authenticate as staff or the task-owning agent")
+        human_label = human_actor(request)
+        if not agent and not human_label:
+            raise PermissionDenied("Authenticate as a member or the task-owning agent")
         serializer = LaunchSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         worker = Worker.objects.filter(name=data["worker"]).first()
         attempt, command, created = services.launch_task_execution(
             agent,
-            staff_label,
+            human_label,
             pk,
             worker,
             directory=data.get("directory") or "",
@@ -423,18 +542,19 @@ class TaskViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gen
         return Response(detail)
 
 
+@extend_schema(request=AttemptLinkSerializer, responses=READ_MODEL)
 @api_view(["POST"])
 def attempt_link(request, pk):
     """Explicit authorized attempt↔session link after ownership checks (#13)."""
     agent = get_agent(request)
-    staff_label = staff_name(request)
-    if not agent and not staff_label:
-        raise PermissionDenied("Authenticate as staff or the attempt owner")
+    human_label = human_actor(request)
+    if not agent and not human_label:
+        raise PermissionDenied("Authenticate as a member or the attempt owner")
     attempt = TaskExecutionAttempt.objects.select_related("task", "worker").filter(pk=pk).first()
     if attempt is None:
         raise services.TaskError("Unknown attempt", 404)
     if agent and attempt.owner_id != agent.pk and attempt.task.claimed_by_id != agent.pk:
-        raise PermissionDenied("Only the attempt owner or staff links sessions")
+        raise PermissionDenied("Only the attempt owner or a member links sessions")
     serializer = AttemptLinkSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     remote = serializer.validated_data["sessionID"]
@@ -443,6 +563,7 @@ def attempt_link(request, pk):
     return Response(services.attempt_read_model(linked))
 
 
+@extend_schema(request=OpenApiTypes.OBJECT, responses=READ_MODEL)
 @api_view(["POST"])
 def worker_sync(request):
     """Outbound bridge sync (#11): one authenticated envelope per cycle."""
@@ -464,12 +585,20 @@ def worker_sync(request):
     return Response(services.apply_worker_sync(worker, intent))
 
 
+@extend_schema(
+    parameters=[
+        *PAGINATION_PARAMS,
+        *SESSION_FILTER_PARAMS,
+        query("ordering", "recent for most recently updated first.", enum=["recent"]),
+    ],
+    responses=read_model_page("SessionPage"),
+)
 @api_view(["GET"])
 def sessions_read(request):
     """Unified cross-worker session list (#15).
 
     Workers stay isolated: the same remote ID on two workers remains two rows.
-    Agents read only sessions of their bound worker; staff reads everything.
+    Agents read only sessions of their bound worker; humans read everything.
     """
     agent = get_agent(request)
     sessions = WorkerSession.objects.select_related("parent", "worker")
@@ -513,6 +642,7 @@ def sessions_read(request):
     return paginator.get_paginated_response(cards)
 
 
+@extend_schema(responses=PROJECT_OVERVIEW)
 @api_view(["GET"])
 def overview(request):
     result = []
@@ -559,3 +689,63 @@ def overview(request):
             }
         )
     return Response(result)
+
+
+INTERACTION_CARD = inline_serializer(
+    "PendingInteractionCard",
+    {
+        "id": serializers.CharField(help_text="Request ID; send it back as payload.requestID."),
+        "kind": serializers.ChoiceField(choices=["permission", "question"]),
+        "worker": serializers.CharField(),
+        "sessionID": serializers.CharField(allow_null=True),
+        "sessionTitle": serializers.CharField(allow_null=True),
+        "lastSeenAt": serializers.CharField(allow_null=True),
+        "replyDispatched": serializers.BooleanField(),
+        "replyCommandId": serializers.CharField(allow_null=True),
+        # Permission requests fill type/title/description/patterns; questions fill
+        # questions. Every key is always present (null or empty when unused).
+        "type": serializers.CharField(allow_null=True),
+        "title": serializers.CharField(allow_null=True),
+        "description": serializers.CharField(allow_null=True),
+        "patterns": serializers.ListField(child=serializers.CharField()),
+        "questions": serializers.ListField(child=serializers.JSONField()),
+    },
+)
+
+
+@extend_schema(
+    operation_id="interactions_list",
+    summary="Unresolved permission and question requests across workers (#55)",
+    responses=paginated("PendingInteractionPage", INTERACTION_CARD),
+)
+@api_view(["GET"])
+def interactions_read(request):
+    """Pending approvals for the mobile and web inboxes.
+
+    Humans see every worker's requests; agent keys only their bound worker's.
+    Answer with POST /api/v1/commands (permission.reply, question.reply,
+    question.reject), which requires a member.
+    """
+    agent = get_agent(request)
+    rows = PendingInteraction.objects.filter(resolved_at=None).select_related("worker", "session")
+    if agent:
+        rows = rows.filter(worker__agent=agent)
+    rows = rows.order_by("-id")[: services.MAX_PENDING_READ]
+    blank = {
+        "replyCommandId": None,
+        "type": None,
+        "title": None,
+        "description": None,
+        "patterns": [],
+        "questions": [],
+    }
+    items = [
+        {
+            **blank,
+            **services.interaction_card(row),
+            "worker": row.worker.name,
+            "sessionTitle": row.session.title if row.session_id else None,
+        }
+        for row in rows
+    ]
+    return Response({"count": len(items), "items": items})

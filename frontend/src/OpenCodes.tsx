@@ -12,6 +12,7 @@ import {
   Square,
 } from "lucide-react";
 import { ApiError, get, post } from "./api";
+import { useAccess } from "./auth";
 import { Age, Empty, ErrorState, Loading } from "./ui";
 import type { Page } from "./types";
 import type {
@@ -200,8 +201,11 @@ function useCommandQueue() {
 }
 type Queue = ReturnType<typeof useCommandQueue>;
 function Feedback({ queue }: { queue: Queue }) {
+  const { canWrite } = useAccess();
   return (
     <div className="oc-feedback" aria-live="polite">
+      {!canWrite &&
+        "Viewers can watch sessions; members send prompts and answers."}
       {queue.isPending && "Submitting command…"}
       {queue.error && (
         <p role="alert">
@@ -554,6 +558,7 @@ function WorkerPanel({
   const [directory, setDirectory] = useState("");
   const [model, setModel] = useState("");
   const queue = useCommandQueue();
+  const { canWrite } = useAccess();
   const remember = library.remember;
   const worker = useQuery({
     queryKey: ["opencodes", name, "detail"],
@@ -593,7 +598,8 @@ function WorkerPanel({
     );
   const data = worker.data!;
   const current = selectedSession;
-  const disabled = !usable(data) || queue.isPending;
+  // Viewers watch workers and sessions; members send commands and approvals.
+  const disabled = !canWrite || !usable(data) || queue.isPending;
   return (
     <div className="oc-worker-panel">
       <header className="oc-worker-header">
@@ -819,7 +825,8 @@ function SessionPanel({
       ? 1800000
       : 0,
   });
-  const disabled = !usable(worker) || queue.isPending;
+  const { canWrite } = useAccess();
+  const disabled = !canWrite || !usable(worker) || queue.isPending;
   const displayedMessages = mergeLiveMessages(
     [...(history?.messages || []), ...(messages.data?.messages || [])],
     live,

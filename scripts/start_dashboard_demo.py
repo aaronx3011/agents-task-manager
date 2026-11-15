@@ -17,7 +17,7 @@ def main():
     )
     if existing.stdout.strip():
         raise SystemExit(
-            "The demo already exists. Open http://localhost:8000/dashboard/ or remove it first: "
+            "The demo already exists. Open http://localhost:8000/ or remove it first: "
             "docker compose -p atm-dashboard-demo -f compose.demo.yaml down"
         )
     environment = {
@@ -44,7 +44,7 @@ def main():
         env=environment,
         check=True,
     )
-    print("Dashboard: http://localhost:8000/dashboard/")
+    print("Dashboard: http://localhost:8000/")
     print("Demo login: demo / " + environment.get("DEMO_ADMIN_PASSWORD", "demo-dashboard"))
     print("Eight scripted MCP agents will keep working in repeating batches.")
     print("Stop: docker compose -p atm-dashboard-demo -f compose.demo.yaml down")

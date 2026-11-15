@@ -20,3 +20,10 @@ class TaskPagination(LimitOffsetPagination):
 
     def get_paginated_response(self, data):
         return Response({"count": self.count, "items": data})
+
+    def get_paginated_response_schema(self, schema):
+        return {
+            "type": "object",
+            "required": ["count", "items"],
+            "properties": {"count": {"type": "integer"}, "items": schema},
+        }

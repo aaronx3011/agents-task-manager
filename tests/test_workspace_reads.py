@@ -29,19 +29,19 @@ def test_shared_search_filters_ordering_and_counts(api_client, project, staff):
     ] == [second["id"], first["id"]]
     assert api_client.get("/api/tasks", {"ordering": "password"}).status_code == 400
     assert api_client.get("/api/tasks", {"q": "x" * 301}).status_code == 400
-    state = staff.get("/dashboard/workspace/", {"q": "oauth"}).json()
+    state = staff.get("/api/v1/dashboard/workspace", {"q": "oauth"}).json()
     assert state["total"] == 1 and state["counts"]["pending"] == 1
     assert state["ready_count"] == 1
     assert state["events"][0]["task_id"] == first["id"]
-    assert staff.get("/dashboard/workspace/", {"status": "wrong"}).status_code == 400
-    assert Client().get("/dashboard/workspace/").status_code == 302
+    assert staff.get("/api/v1/dashboard/workspace", {"status": "wrong"}).status_code == 400
+    assert Client().get("/api/v1/dashboard/workspace").status_code in {401, 403}
 
 
 @pytest.mark.django_db
 def test_presence_is_not_derived_from_filtered_task_pages(api_client, project, staff):
     task = create(api_client)
     post(api_client, f"tasks/{task['id']}/claim")
-    state = staff.get("/dashboard/workspace/", {"status": "done"}).json()
+    state = staff.get("/api/v1/dashboard/workspace", {"status": "done"}).json()
     assert state["total"] == 0
     alpha = next(agent for agent in state["agents"] if agent["name"] == "alpha")
     assert alpha["assignments"][0]["id"] == task["id"]
@@ -64,14 +64,16 @@ def test_lane_pagination_keeps_exact_totals_and_dependency_progress(api_client, 
     second = api_client.get("/api/tasks", {"status": "pending", "limit": 20, "offset": 20}).json()
     assert first["count"] == second["count"] == 45
     assert not {task["id"] for task in first["items"]} & {task["id"] for task in second["items"]}
-    assert staff.get("/dashboard/workspace/").json()["counts"]["pending"] == 45
+    assert staff.get("/api/v1/dashboard/workspace").json()["counts"]["pending"] == 45
     detail = api_client.get(f"/api/tasks/{dependent['id']}").json()
     assert detail["dependency_progress"] == {"done": 0, "total": 1}
     assert not detail["is_ready"]
     # Detail is canonical even if supplied filters would exclude the task from a list.
     assert api_client.get(f"/api/tasks/{dependent['id']}", {"status": "done"}).status_code == 200
     Project.objects.create(slug="empty-project", name="Empty")
-    assert staff.get("/dashboard/workspace/", {"project": "empty-project"}).json()["total"] == 0
+    assert (
+        staff.get("/api/v1/dashboard/workspace", {"project": "empty-project"}).json()["total"] == 0
+    )
 
 
 @pytest.mark.django_db

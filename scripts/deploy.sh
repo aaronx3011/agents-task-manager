@@ -68,8 +68,14 @@ print("project ready:", project.slug, "(created)" if created else "(existing)")'
 fi
 
 echo "==> Health check"
+# Ask Django inside its container: production publishes only Caddy's 80/443 (#52).
+healthy() {
+  compose exec -T web python -c \
+    "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).read().decode())" \
+    2>/dev/null | grep -q ok
+}
 for attempt in $(seq 1 30); do
-  if curl -fsS --max-time 3 http://127.0.0.1:8000/healthz | grep -q ok; then
+  if healthy; then
     echo "Deployment OK: $ENVIRONMENT @ $SHA"
     docker compose -f "$DEPLOY_DIR/compose.yaml" ps
     exit 0
