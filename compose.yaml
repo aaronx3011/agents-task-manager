@@ -22,6 +22,10 @@ x-app: &app
     WORKER_EVENT_MAX_BYTES: ${WORKER_EVENT_MAX_BYTES:-65536}
     WORKER_SYNC_MAX_BYTES: ${WORKER_SYNC_MAX_BYTES:-8388608}
     WORKER_COMMAND_QUEUE_CAP: ${WORKER_COMMAND_QUEUE_CAP:-100}
+    NOTION_TOKEN: ${NOTION_TOKEN:-}
+    NOTION_PROJECTS_DATA_SOURCE_ID: ${NOTION_PROJECTS_DATA_SOURCE_ID:-}
+    NOTION_TASKS_DATA_SOURCE_ID: ${NOTION_TASKS_DATA_SOURCE_ID:-}
+    NOTION_SYNC_INTERVAL_SECONDS: ${NOTION_SYNC_INTERVAL_SECONDS:-20}
   depends_on:
     db:
       condition: service_healthy
@@ -81,6 +85,14 @@ services:
       web:
         condition: service_healthy
       redis:
+        condition: service_healthy
+
+  notion-sync:
+    <<: *app
+    # One-way Notion mirror (GH #94); idles when NOTION_TOKEN is empty.
+    command: ["python", "manage.py", "sync_notion", "--loop"]
+    depends_on:
+      web:
         condition: service_healthy
 
 volumes:

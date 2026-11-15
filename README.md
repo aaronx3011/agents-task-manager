@@ -188,6 +188,27 @@ Apply migration `0010` before serving this feature. Source:
 `frontend/src/Planning.tsx`, `coordinator/planning_api.py`, and planning services
 in `coordinator/services.py`; focused regression tests: `tests/test_planning.py`.
 
+## Notion mirror
+
+The `notion-sync` service mirrors every project and task into the Notion
+Project Management databases, one way: coordinator → Notion
+([issue #94](https://github.com/aaronx3011/agents-task-manager/issues/94); two-way
+edits are [issue #95](https://github.com/aaronx3011/agents-task-manager/issues/95)).
+A task is pushed when its committed `updated_at` passes what was last mirrored, so
+every lifecycle action reaches Notion within one pass (`NOTION_SYNC_INTERVAL_SECONDS`).
+Heartbeat-only changes are pushed at most every `NOTION_HEARTBEAT_PUSH_SECONDS`.
+Rows are matched by `Slug` and `Task ID`, so existing backfilled pages are adopted,
+never duplicated. Owner, Due, Timeline and formula columns stay human-owned and are
+never written. Notion errors back off per row (visible in Django Admin → Notion links)
+and never fail a coordinator mutation.
+
+Set `NOTION_TOKEN` to an internal Notion integration's secret (free on every plan),
+share the Project Management page with that integration, and set the two data-source
+IDs. `python manage.py sync_notion` runs one pass, `--loop` keeps running,
+`--reconcile` reports and requeues drift (missing rows, wrong status/project,
+duplicates, orphans) and `--force` re-pushes everything. Source:
+`coordinator/notion.py`, `coordinator/notion_sync.py`; tests: `tests/test_notion_sync.py`.
+
 ## Source map
 
 | Area | Files |

@@ -42,6 +42,10 @@ x-web: &web
     WORKER_EVENT_MAX_BYTES: ${WORKER_EVENT_MAX_BYTES:-65536}
     WORKER_SYNC_MAX_BYTES: ${WORKER_SYNC_MAX_BYTES:-8388608}
     WORKER_COMMAND_QUEUE_CAP: ${WORKER_COMMAND_QUEUE_CAP:-100}
+    NOTION_TOKEN: ${NOTION_TOKEN:-}
+    NOTION_PROJECTS_DATA_SOURCE_ID: ${NOTION_PROJECTS_DATA_SOURCE_ID:-}
+    NOTION_TASKS_DATA_SOURCE_ID: ${NOTION_TASKS_DATA_SOURCE_ID:-}
+    NOTION_SYNC_INTERVAL_SECONDS: ${NOTION_SYNC_INTERVAL_SECONDS:-20}
   restart: unless-stopped
   depends_on:
     redis:
@@ -99,6 +103,14 @@ services:
   reaper:
     <<: *web
     command: ["sh", "-c", "while true; do python manage.py release_stale_tasks --minutes ${TASK_CLAIM_TIMEOUT_MINUTES:-15} || exit 1; sleep ${TASK_REAPER_INTERVAL_SECONDS:-300}; done"]
+    depends_on:
+      web:
+        condition: service_healthy
+
+  notion-sync:
+    <<: *web
+    # One-way Notion mirror (GH #94); idles when NOTION_TOKEN is empty.
+    command: ["python", "manage.py", "sync_notion", "--loop"]
     depends_on:
       web:
         condition: service_healthy
