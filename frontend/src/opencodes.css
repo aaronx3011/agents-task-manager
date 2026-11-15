@@ -18,6 +18,23 @@
   letter-spacing: -0.8px;
 }
 .oc-heading p,
+.oc-worker-usage {
+  margin: 0.4rem 0 1rem;
+}
+.oc-worker-usage > div,
+.oc-worker-usage dl,
+.oc-worker-usage dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+.oc-worker-usage dl {
+  margin: 0.5rem 0 0;
+  gap: 0.5rem 2rem;
+}
+.oc-worker-usage dd {
+  margin: 0.2rem 0 0;
+}
 .oc-worker-header p {
   color: var(--muted);
   margin: 6px 0;

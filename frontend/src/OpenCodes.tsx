@@ -16,6 +16,7 @@ import { useAccess } from "./auth";
 import { Age, Empty, ErrorState, Loading } from "./ui";
 import type { Page } from "./types";
 import type {
+  CodexUsage,
   CommandInput,
   Interaction,
   MessageWindow,
@@ -532,6 +533,63 @@ function SessionShelf({
   );
 }
 
+function CodexUsageDetails({ usage }: { usage: CodexUsage }) {
+  const resetFormat = new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+  return (
+    <div className="oc-worker-usage">
+      <div>
+        <strong>Codex usage</strong>
+        <span className="muted">
+          Checked{" "}
+          <Age value={new Date(usage.sampled_at * 1000).toISOString()} />
+        </span>
+      </div>
+      <dl>
+        {usage.windows.map((window, index) => {
+          const minutes = window.duration_minutes;
+          const label =
+            minutes === 10080
+              ? "Weekly"
+              : minutes === null
+                ? index === 0
+                  ? "Primary limit"
+                  : "Secondary limit"
+                : minutes % 60 === 0
+                  ? `${minutes / 60}-hour`
+                  : `${minutes}-minute`;
+          const resets = window.resets_at
+            ? new Date(window.resets_at * 1000)
+            : null;
+          return (
+            <div key={index}>
+              <dt>{label}</dt>
+              <dd>
+                <strong>
+                  {Number(window.remaining_percent.toFixed(1))}% left
+                </strong>
+                {resets && (
+                  <span className="muted">
+                    Resets{" "}
+                    <time dateTime={resets.toISOString()}>
+                      {resetFormat.format(resets)}
+                    </time>
+                  </span>
+                )}
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+    </div>
+  );
+}
+
 function WorkerPanel({
   name,
   selectedSession,
@@ -626,6 +684,7 @@ function WorkerPanel({
           New session
         </button>
       </header>
+      {data.codex_usage && <CodexUsageDetails usage={data.codex_usage} />}
       {data.last_error && (
         <p role="alert" className="oc-alert">
           {data.last_error}

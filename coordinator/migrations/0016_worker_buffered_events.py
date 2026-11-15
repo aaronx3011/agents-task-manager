@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("coordinator", "0014_notionlink"),
+        ("coordinator", "0015_worker_codex_usage"),
     ]
 
     operations = [

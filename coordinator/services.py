@@ -451,6 +451,42 @@ WORKER_META_TEXT_LIMITS = {
 }
 
 
+def normalize_codex_usage(value, now):
+    """Keep the latest two account usage windows and their observation time."""
+    if not isinstance(value, dict):
+        return None
+    sampled_at = value.get("sampled_at")
+    windows = value.get("windows")
+    if (
+        type(sampled_at) is not int
+        or not 0 < sampled_at <= int(now.timestamp()) + 60
+        or not isinstance(windows, list)
+        or not 1 <= len(windows) <= 2
+    ):
+        return None
+    normalized = []
+    for window in windows:
+        if not isinstance(window, dict):
+            return None
+        remaining = window.get("remaining_percent")
+        duration = window.get("duration_minutes")
+        reset = window.get("resets_at")
+        if type(remaining) not in (int, float) or not 0 <= remaining <= 100:
+            return None
+        if duration is not None and (type(duration) is not int or not 1 <= duration <= 525600):
+            return None
+        if reset is not None and (type(reset) is not int or not 0 < reset <= 253402300799):
+            return None
+        normalized.append(
+            {
+                "remaining_percent": remaining,
+                "duration_minutes": duration,
+                "resets_at": reset,
+            }
+        )
+    return {"sampled_at": sampled_at, "windows": normalized}
+
+
 @retry_sqlite
 @transaction.atomic
 def record_worker_meta(worker, meta):
@@ -504,6 +540,9 @@ def record_worker_meta(worker, meta):
     # Bridge bounds: at most 1000 queued plus 1000 frozen in-flight events.
     if type(buffered) is int and 0 <= buffered <= 2000:
         worker.buffered_events = buffered
+    usage = normalize_codex_usage(meta.get("codex_usage"), now)
+    if usage and (not worker.codex_usage or usage["sampled_at"] > worker.codex_usage["sampled_at"]):
+        worker.codex_usage = usage
     worker.last_sync_at = now
     worker.save()
     return worker

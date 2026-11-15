@@ -399,3 +399,38 @@ class TestConcurrentSync:
         assert set(
             WorkerEvent.objects.filter(worker=worker).values_list("payload__c", flat=True)
         ) == {0, 1}
+
+
+def test_codex_usage_keeps_latest_valid_sample_and_scopes_access(
+    agent_clients, staff_client, worker
+):
+    sampled_at = int(timezone.now().timestamp())
+    usage = {
+        "sampled_at": sampled_at,
+        "windows": [
+            {"remaining_percent": 64.5, "duration_minutes": 300, "resets_at": sampled_at + 3600},
+            {"remaining_percent": 0, "duration_minutes": 10080, "resets_at": None},
+        ],
+    }
+    assert (
+        post_sync(
+            agent_clients[0],
+            sync_payload(meta={"connected": True, "codex_usage": {**usage, "raw": "omit"}}),
+        ).status_code
+        == 200
+    )
+    for ignored in (
+        {**usage, "sampled_at": sampled_at - 1},
+        {**usage, "windows": [{"remaining_percent": 210}]},
+        None,
+    ):
+        response = post_sync(
+            agent_clients[0], sync_payload(meta={"connected": True, "codex_usage": ignored})
+        )
+        assert response.status_code == 200
+
+    path = "/api/workers/worker-a"
+    assert staff_client.get(path).json()["codex_usage"] == usage
+    assert agent_clients[0].get(path).json()["codex_usage"] == usage
+    assert "codex_usage" not in agent_clients[1].get(path).json()
+    assert "codex_usage" not in staff_client.get("/api/workers").json()["items"][0]

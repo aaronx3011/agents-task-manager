@@ -172,7 +172,11 @@ class WorkerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
 
     def retrieve(self, request, *args, **kwargs):
         worker = self.get_object()
-        return Response(services.worker_read_model(worker, counts=True))
+        result = services.worker_read_model(worker, counts=True)
+        agent = get_agent(request)
+        if agent is None or agent.pk == worker.agent_id:
+            result["codex_usage"] = worker.codex_usage
+        return Response(result)
 
     @action(detail=True, methods=["get"], url_path="sessions")
     def sessions(self, request, name=None):

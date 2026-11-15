@@ -9,6 +9,14 @@ export interface AgentChoice {
   mode?: "subagent" | "primary" | "all";
   builtIn?: boolean;
 }
+export interface CodexUsage {
+  sampled_at: number;
+  windows: {
+    remaining_percent: number;
+    duration_minutes: number | null;
+    resets_at: number | null;
+  }[];
+}
 export interface Worker {
   name: string;
   agent: string | null;
@@ -26,6 +34,7 @@ export interface Worker {
   models: ModelChoice[];
   agents: AgentChoice[];
   dropped_events: number;
+  codex_usage?: CodexUsage | null;
   counts?: {
     sessions: number;
     commands: number;

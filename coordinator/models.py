@@ -203,6 +203,7 @@ class Worker(models.Model):
     default_model = models.JSONField(null=True, blank=True)
     model_catalog = models.JSONField(default=list, blank=True)
     agent_catalog = models.JSONField(default=list, blank=True)
+    codex_usage = models.JSONField(null=True, blank=True)
     # Inventory window limits and discarded-event counters reported by the bridge.
     session_limit = models.PositiveIntegerField(default=50)
     message_limit = models.PositiveIntegerField(default=30)
