@@ -199,15 +199,17 @@ class Worker(models.Model):
     stream_connected = models.BooleanField(default=False)
     last_error = models.TextField(blank=True)
     last_error_at = models.DateTimeField(null=True, blank=True)
-    # Connected model catalog observed from the local OpenCode endpoint.
+    # Connected model/agent catalog observed from the local OpenCode endpoint.
     default_model = models.JSONField(null=True, blank=True)
     model_catalog = models.JSONField(default=list, blank=True)
-    # Retain metadata written by the earlier Planning release (#93).
     agent_catalog = models.JSONField(default=list, blank=True)
+    codex_usage = models.JSONField(null=True, blank=True)
     # Inventory window limits and discarded-event counters reported by the bridge.
     session_limit = models.PositiveIntegerField(default=50)
     message_limit = models.PositiveIntegerField(default=30)
     dropped_events = models.PositiveIntegerField(default=0)
+    # Last envelope's unacknowledged event count; older bridges do not report it.
+    buffered_events = models.PositiveIntegerField(null=True, blank=True)
     # Worker heartbeat: freshness of the last authenticated, acknowledged sync.
     last_sync_at = models.DateTimeField(null=True, blank=True, db_index=True)
     # Acknowledged event batch for idempotent sync retries (#11).
@@ -543,6 +545,7 @@ class ProjectPlan(models.Model):
     default_worker = models.ForeignKey(Worker, null=True, blank=True, on_delete=models.PROTECT)
     directory = models.CharField(max_length=500, blank=True)
     model = models.JSONField(null=True, blank=True)
+    # OpenCode agent name; blank inherits the worker's default agent.
     agent = models.CharField(max_length=100, blank=True)
     context = models.TextField(blank=True)
     instructions = models.TextField(blank=True)
@@ -562,6 +565,7 @@ class PlanningCard(models.Model):
     column = models.CharField(max_length=100, default="Backlog")
     position = models.PositiveIntegerField(default=0)
     instructions = models.TextField(blank=True)
+    # Per-task overrides; blank/None inherit the project defaults.
     agent = models.CharField(max_length=100, blank=True)
     model = models.JSONField(null=True, blank=True)
     task = models.OneToOneField(Task, null=True, blank=True, on_delete=models.PROTECT)

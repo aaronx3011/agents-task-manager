@@ -799,6 +799,28 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/workers/{name}/sessions/{sid}/export": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * @description Authenticated, credential-free worker registry reads (#10, #15).
+     *
+     *     The registry stays readable by every agent; session data is scoped to the
+     *     bound agent (#15): worker-scoped identity extends the project/task rules.
+     */
+    get: operations["workers_sessions_export_retrieve"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/workers/{name}/sessions/{sid}/messages": {
     parameters: {
       query?: never;
@@ -893,6 +915,8 @@ export interface components {
       labels: string[];
       checklist: components["schemas"]["ChecklistItemRequest"][];
       instructions: string;
+      agent?: string;
+      model?: components["schemas"]["ModelChoiceRequest"] | null;
     };
     ChecklistItemRequest: {
       text: string;
@@ -1171,6 +1195,8 @@ export interface components {
       worker: string;
       directory: string;
       model: components["schemas"]["ModelChoiceRequest"] | null;
+      /** @default  */
+      agent: string;
       context: string;
       instructions: string;
       templates: components["schemas"]["PromptTemplateRequest"][];
@@ -2930,6 +2956,34 @@ export interface operations {
           "application/json": {
             [key: string]: unknown;
           };
+        };
+      };
+    };
+  };
+  workers_sessions_export_retrieve: {
+    parameters: {
+      query?: {
+        /** @description md for Markdown or zip for Markdown plus attachments. */
+        kind?: "md" | "zip";
+      };
+      header?: never;
+      path: {
+        /** @description Worker name */
+        name: string;
+        /** @description Remote session ID */
+        sid: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "text/markdown": string;
+          "application/zip": string;
         };
       };
     };

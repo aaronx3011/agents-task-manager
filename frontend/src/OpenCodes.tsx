@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import {
   ArrowDown,
+  Download,
   Monitor,
   Pin,
   Plus,
@@ -15,11 +16,11 @@ import { useAccess } from "./auth";
 import { Age, Empty, ErrorState, Loading } from "./ui";
 import type { Page } from "./types";
 import type {
+  CodexUsage,
   CommandInput,
   Interaction,
   MessageWindow,
   Message,
-  ModelChoice,
   RemoteCommand,
   Session,
   Worker,
@@ -28,6 +29,12 @@ import "./opencodes.css";
 import { mergeLiveMessages, useFocusedSession } from "./session-live";
 import { sessionIdentity } from "./session-library";
 import type { SessionLibrary, SessionReference } from "./session-library";
+import {
+  composerModel,
+  conversationModel,
+  modelKey,
+  modelPayload,
+} from "./session-model";
 
 type Navigate = (
   changes: Record<string, string | number | null>,
@@ -39,6 +46,71 @@ const encoded = encodeURIComponent;
 const workerPath = (name: string) => `/api/workers/${encoded(name)}`;
 const sessionPath = (worker: string, session: string) =>
   `${workerPath(worker)}/sessions/${encoded(session)}`;
+
+function ChatExport({ path }: { path: string }) {
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  async function download(kind: "md" | "zip") {
+    setPending(kind);
+    setError(null);
+    try {
+      const response = await fetch(`${path}/export?kind=${kind}`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      if (
+        response.redirected ||
+        response.status === 401 ||
+        response.status === 403
+      )
+        throw new Error("Your session has expired. Sign in to export.");
+      if (!response.ok)
+        throw new Error(
+          `Export failed (${response.status}). Retry the download.`,
+        );
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download =
+        response.headers
+          .get("Content-Disposition")
+          ?.match(/filename="([^"]+)"/)?.[1] || `conversation.${kind}`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Export failed.");
+    } finally {
+      setPending(null);
+    }
+  }
+  return (
+    <div className="oc-export" aria-label="Export conversation">
+      {(["md", "zip"] as const).map((kind) => (
+        <button
+          key={kind}
+          className="button secondary"
+          disabled={pending !== null}
+          onClick={() => void download(kind)}
+        >
+          <Download size={13} />
+          {pending === kind
+            ? "Exporting…"
+            : kind === "md"
+              ? "Export Markdown"
+              : "Export ZIP"}
+        </button>
+      ))}
+      <p className="muted">
+        Exports all retained messages, not just this page. History may be
+        partial; ZIP includes supplied attachments and a coverage manifest.
+      </p>
+      {error && <p role="alert">{error}</p>}
+    </div>
+  );
+}
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -68,14 +140,6 @@ function health(worker: Worker) {
           ? "Event stream reconnecting"
           : "Connected";
 }
-function modelPayload(value: string, models: ModelChoice[]) {
-  const selected = models.find(
-    (model) => `${model.providerID}/${model.modelID}` === value,
-  );
-  return selected
-    ? { model: { providerID: selected.providerID, modelID: selected.modelID } }
-    : {};
-}
 function ModelSelect({
   value,
   change,
@@ -97,6 +161,9 @@ function ModelSelect({
           Worker default
           {worker.default_model ? ` · ${worker.default_model.modelID}` : ""}
         </option>
+        {value && !worker.models.some((model) => modelKey(model) === value) && (
+          <option value={value}>{value} (not in worker catalog)</option>
+        )}
         {worker.models.map((model) => (
           <option
             key={`${model.providerID}/${model.modelID}`}
@@ -466,6 +533,77 @@ function SessionShelf({
   );
 }
 
+// OpenCode bridges report a bare version; Codex/Claude bridges name themselves.
+function runtimeLabel(version: string) {
+  if (!version) return "OpenCode not seen";
+  return /^\d/.test(version) ? `OpenCode ${version}` : version;
+}
+
+function CodexUsageDetails({
+  usage,
+  runtime,
+}: {
+  usage: CodexUsage;
+  runtime: string;
+}) {
+  const resetFormat = new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+  return (
+    <div className="oc-worker-usage">
+      <div>
+        <strong>
+          {runtime.startsWith("Claude") ? "Claude usage" : "Codex usage"}
+        </strong>
+        <span className="muted">
+          Checked{" "}
+          <Age value={new Date(usage.sampled_at * 1000).toISOString()} />
+        </span>
+      </div>
+      <dl>
+        {usage.windows.map((window, index) => {
+          const minutes = window.duration_minutes;
+          const label =
+            minutes === 10080
+              ? "Weekly"
+              : minutes === null
+                ? index === 0
+                  ? "Primary limit"
+                  : "Secondary limit"
+                : minutes % 60 === 0
+                  ? `${minutes / 60}-hour`
+                  : `${minutes}-minute`;
+          const resets = window.resets_at
+            ? new Date(window.resets_at * 1000)
+            : null;
+          return (
+            <div key={index}>
+              <dt>{label}</dt>
+              <dd>
+                <strong>
+                  {Number(window.remaining_percent.toFixed(1))}% left
+                </strong>
+                {resets && (
+                  <span className="muted">
+                    Resets{" "}
+                    <time dateTime={resets.toISOString()}>
+                      {resetFormat.format(resets)}
+                    </time>
+                  </span>
+                )}
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+    </div>
+  );
+}
+
 function WorkerPanel({
   name,
   selectedSession,
@@ -543,8 +681,8 @@ function WorkerPanel({
             <span className={usable(data) ? "oc-online" : "oc-warning"}>
               {health(data)}
             </span>{" "}
-            · {data.hostname || "Unknown host"} · OpenCode{" "}
-            {data.opencode_version || "not seen"}
+            · {data.hostname || "Unknown host"} ·{" "}
+            {runtimeLabel(data.opencode_version)}
           </p>
           <p>
             {data.counts?.sessions ?? 0} sessions · {data.counts?.pending ?? 0}{" "}
@@ -560,6 +698,12 @@ function WorkerPanel({
           New session
         </button>
       </header>
+      {data.codex_usage && (
+        <CodexUsageDetails
+          usage={data.codex_usage}
+          runtime={data.opencode_version}
+        />
+      )}
       {data.last_error && (
         <p role="alert" className="oc-alert">
           {data.last_error}
@@ -722,7 +866,7 @@ function SessionPanel({
   library: SessionLibrary;
 }) {
   const [text, setText] = useState("");
-  const [model, setModel] = useState("");
+  const [modelOverride, setModelOverride] = useState<string>();
   const [noReply, setNoReply] = useState(false);
   const [history, setHistory] = useState<{
     messages: Message[];
@@ -765,6 +909,8 @@ function SessionPanel({
     [...(history?.messages || []), ...(messages.data?.messages || [])],
     live,
   );
+  const currentModel = conversationModel(displayedMessages, detail.data?.model);
+  const model = composerModel(modelOverride, currentModel);
   const cursor = history ? history.cursor : messages.data?.olderCursor;
   const title = detail.data?.title || sessionID;
   const observed = Boolean(detail.data);
@@ -853,6 +999,7 @@ function SessionPanel({
     <section className="oc-conversation" aria-label="OpenCode conversation">
       <header>
         <h2>{data.title || sessionID}</h2>
+        <ChatExport key={path} path={path} />
         <button
           className={`button secondary ${pinned ? "selected" : ""}`}
           aria-pressed={pinned}
@@ -866,9 +1013,7 @@ function SessionPanel({
         <p>
           {live?.executionStatus || data.executionStatus || "Unknown state"} ·{" "}
           {data.agentName || "Default agent"}
-          {data.model
-            ? ` · ${data.model.providerID}/${data.model.modelID}`
-            : ""}
+          {currentModel ? ` · ${modelKey(currentModel)}` : ""}
         </p>
         <code>{sessionID}</code>
         <p className="oc-directory">{data.directory}</p>
@@ -1040,7 +1185,7 @@ function SessionPanel({
         className="oc-compose oc-form"
         onSubmit={(event) => {
           event.preventDefault();
-          if (text.trim())
+          if (text.trim() && !disabled && !messages.isPending)
             queue.mutate(
               {
                 worker: worker.name,
@@ -1049,7 +1194,7 @@ function SessionPanel({
                 payload: {
                   text: text.trim(),
                   noReply,
-                  ...modelPayload(model, worker.models),
+                  ...modelPayload(model, worker.models, currentModel),
                 },
               },
               { onSuccess: () => setText("") },
@@ -1068,7 +1213,11 @@ function SessionPanel({
           />
         </label>
         <div className="oc-compose-actions">
-          <ModelSelect worker={worker} value={model} change={setModel} />
+          <ModelSelect
+            worker={worker}
+            value={model}
+            change={setModelOverride}
+          />
           <label className="oc-inline">
             <input
               type="checkbox"
@@ -1079,7 +1228,7 @@ function SessionPanel({
           </label>
           <button
             className="button secondary"
-            disabled={disabled || !text.trim()}
+            disabled={disabled || messages.isPending || !text.trim()}
           >
             <Send size={14} />
             Send message

@@ -1,0 +1,106 @@
+{
+  "_index-CLPPlipL.js": {
+    "file": "chunks/index-CLPPlipL.js",
+    "name": "index",
+    "imports": [
+      "src/main.tsx"
+    ]
+  },
+  "_opencodes-DrkNbBLX.css": {
+    "file": "assets/opencodes-DrkNbBLX.css",
+    "src": "_opencodes-DrkNbBLX.css"
+  },
+  "_refresh-cw-Cm7LjGeu.js": {
+    "file": "chunks/refresh-cw-Cm7LjGeu.js",
+    "name": "refresh-cw",
+    "imports": [
+      "src/main.tsx"
+    ]
+  },
+  "_square-B5kT5mhv.js": {
+    "file": "chunks/square-B5kT5mhv.js",
+    "name": "square",
+    "imports": [
+      "src/main.tsx"
+    ]
+  },
+  "src/ActivityPage.tsx": {
+    "file": "chunks/ActivityPage-BkIFPVU5.js",
+    "name": "ActivityPage",
+    "src": "src/ActivityPage.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "src/main.tsx"
+    ],
+    "css": [
+      "assets/opencodes-DrkNbBLX.css"
+    ]
+  },
+  "src/Configuration.tsx": {
+    "file": "chunks/Configuration-C34CkAeO.js",
+    "name": "Configuration",
+    "src": "src/Configuration.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "src/main.tsx",
+      "_refresh-cw-Cm7LjGeu.js"
+    ],
+    "css": [
+      "assets/Configuration-DmmCVOul.css"
+    ]
+  },
+  "src/OpenCodes.tsx": {
+    "file": "chunks/OpenCodes-BpWy5GcI.js",
+    "name": "OpenCodes",
+    "src": "src/OpenCodes.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "src/main.tsx",
+      "_refresh-cw-Cm7LjGeu.js",
+      "_square-B5kT5mhv.js",
+      "_index-CLPPlipL.js"
+    ],
+    "css": [
+      "assets/opencodes-DrkNbBLX.css"
+    ]
+  },
+  "src/Planning.tsx": {
+    "file": "chunks/Planning-BdEJltto.js",
+    "name": "Planning",
+    "src": "src/Planning.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "src/main.tsx",
+      "_square-B5kT5mhv.js"
+    ],
+    "css": [
+      "assets/Planning-BtMoJguH.css"
+    ]
+  },
+  "src/TaskModal.tsx": {
+    "file": "chunks/TaskModal-DQehPo2f.js",
+    "name": "TaskModal",
+    "src": "src/TaskModal.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "src/main.tsx",
+      "_index-CLPPlipL.js"
+    ]
+  },
+  "src/main.tsx": {
+    "file": "app-DypUQDEE.js",
+    "name": "main",
+    "src": "src/main.tsx",
+    "isEntry": true,
+    "dynamicImports": [
+      "src/TaskModal.tsx",
+      "src/OpenCodes.tsx",
+      "src/Configuration.tsx",
+      "src/ActivityPage.tsx",
+      "src/Planning.tsx"
+    ],
+    "css": [
+      "assets/main-BYCanwF7.css"
+    ]
+  }
+}

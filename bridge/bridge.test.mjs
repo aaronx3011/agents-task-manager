@@ -9,7 +9,7 @@ import test from "node:test"
 import { OpenCodeConnection, consumeSSE } from "./opencode.mjs"
 import { workerSettings } from "./settings.mjs"
 import { CommandReceipts } from "./receipts.mjs"
-import { startWorker } from "./worker.mjs"
+import { sanitizeSync, startWorker } from "./worker.mjs"
 
 const fixtures = new WeakMap()
 
@@ -63,7 +63,7 @@ async function state(t) {
   return directory
 }
 
-async function localServer(t, { version = "1.18.32" } = {}) {
+async function localServer(t, { version = "1.18.32", onStream, history = [], title = "Fixture" } = {}) {
   const calls = []
   const url = await serve(t, (request, response, body) => {
     const path = new URL(request.url, "http://fixture").pathname
@@ -72,15 +72,20 @@ async function localServer(t, { version = "1.18.32" } = {}) {
     if (path === "/global/event") {
       response.writeHead(200, { "Content-Type": "text/event-stream" })
       response.write('data: {"payload":{"type":"session.updated","properties":{"info":{"id":"ses_fixture"}}}}\n\n')
+      onStream?.(response)
       return
     }
-    if (path === "/global/health") return json(response, { version })
+    if (path === "/global/health") return json(response, { version: typeof version === "function" ? version() : version })
     if (path === "/provider") return json(response, { connected: ["p"], all: [{ id: "p", models: { m: { name: "Model" } } }] })
+    if (path === "/agent") return json(response, [
+      { name: "build", description: "Default builder", mode: "primary", builtIn: true },
+      { name: "plan", mode: "primary", builtIn: true },
+    ])
     if (path === "/session/status") return json(response, {})
     if (["/session", "/experimental/session"].includes(path) && request.method === "GET") {
-      return json(response, [{ id: "ses_fixture", directory: "/fixture", title: "Fixture", time: { updated: 1 } }])
+      return json(response, [{ id: "ses_fixture", directory: "/fixture", title, time: { updated: 1 } }])
     }
-    if (path.endsWith("/message")) return json(response, [])
+    if (path.endsWith("/message")) return json(response, history)
     // Pending interactions are workspace-scoped: the installed API returns an
     // empty list without the directory query, exactly like production.
     if (path === "/permission") return json(response, directory ? [{ id: "per_1", sessionID: "ses_fixture" }] : [])
@@ -109,7 +114,7 @@ test("all six mappings preserve directories/models, pending checks and local aut
   const connection = new OpenCodeConnection({ url: local.url, password: "local-secret", createDirectory: "/create", model: { providerID: "p", modelID: "default" } })
   const sessions = [{ id: "ses_fixture", directory: "/fixture" }]
   await connection.execute(command("1", "create", { title: "New", model: { providerID: "p", modelID: "m" } }), sessions)
-  await connection.execute(command("2", "prompt", { text: "Record", noReply: true }), sessions)
+  await connection.execute(command("2", "prompt", { text: "Record", noReply: true, agent: "plan" }), sessions)
   await connection.execute(command("3", "interrupt"), sessions)
   await connection.execute(command("4", "permission.reply", { reply: "once" }, { requestID: "per_1" }), sessions)
   await connection.execute(command("5", "question.reply", { answers: [["yes"]] }, { requestID: "que_1" }), sessions)
@@ -118,7 +123,7 @@ test("all six mappings preserve directories/models, pending checks and local aut
   assert.deepEqual(posts.map((call) => call.path), ["/session", "/session/ses_fixture/prompt_async", "/session/ses_fixture/abort", "/permission/per_1/reply", "/question/que_1/reply", "/question/que_2/reject"])
   assert.deepEqual(posts[0].body, { title: "New", model: { providerID: "p", id: "m" } })
   assert.equal(new URL(posts[0].url, local.url).searchParams.get("directory"), "/create")
-  assert.deepEqual(posts[1].body, { parts: [{ type: "text", text: "Record" }], noReply: true, model: { providerID: "p", modelID: "default" } })
+  assert.deepEqual(posts[1].body, { parts: [{ type: "text", text: "Record" }], noReply: true, agent: "plan", model: { providerID: "p", modelID: "default" } })
   assert.deepEqual(posts[3].body, { reply: "once" })
   assert.deepEqual(posts[4].body, { answers: [["yes"]] })
   assert.ok(posts.slice(1).every((call) => new URL(call.url, local.url).searchParams.get("directory") === "/fixture"))
@@ -162,10 +167,135 @@ test("lost sync response retries identical body, retains outcomes and republishe
   await until(() => resynced)
   assert.equal(local.calls.filter((call) => call.path.endsWith("/prompt_async")).length, 1)
   assert.ok(uploads.some((upload) => upload.events.some((event) => event.payload && !event.frame)))
+  assert.ok(
+    uploads.some((upload) =>
+      upload.meta.agents?.some((agent) => agent.name === "build" && agent.builtIn === true),
+    ),
+  )
   const receipts = new CommandReceipts(directory)
   await until(() => resultsReceived)
   await until(async () => (await receipts.pending()).length === 0)
   assert.deepEqual(await receipts.pending(), [])
+})
+
+test("sync sanitization handles every string value and key without mutating source records", () => {
+  const bad = "NUL\0 high\uD800 low\uDC00 emoji😀 end\uDFFF"
+  const good = "NUL� high� low� emoji😀 end�"
+  const source = {
+    meta: { error: bad, models: [{ name: bad }], enabled: true, count: 0 },
+    sessions: [{ title: bad }], pending: { questions: [{ text: bad }] },
+    updates: [{ messages: [{ parts: [{ type: "tool", state: { output: bad } }] }] }],
+    events: [{ payload: { [bad]: bad } }], results: [{ result: bad, error: null }],
+  }
+  const snapshot = JSON.stringify(source)
+  const clean = sanitizeSync(source)
+  assert.equal(clean.meta.error, good)
+  assert.equal(clean.meta.models[0].name, good)
+  assert.equal(clean.sessions[0].title, good)
+  assert.equal(clean.pending.questions[0].text, good)
+  assert.equal(clean.updates[0].messages[0].parts[0].state.output, good)
+  assert.equal(clean.events[0].payload[good], good)
+  assert.equal(clean.results[0].result, good)
+  assert.equal(clean.results[0].error, null)
+  assert.equal(clean.meta.enabled, true)
+  assert.equal(clean.meta.count, 0)
+  assert.equal(JSON.stringify(source), snapshot)
+  assert.equal(sanitizeSync("\uD83D\uDE00\uD83D\uDE80México\n\t"), "😀🚀México\n\t")
+})
+
+test("real sync sanitizes nested tool history and freezes the same bytes on retry", async (t) => {
+  const raw = "before\0\uD800after\uDC00😀"
+  const expected = "before��after�😀"
+  const local = await localServer(t, { title: raw, history: [{
+    info: { id: "msg_invalid", role: "assistant" },
+    parts: [{ type: "tool", state: { output: raw, input: { [raw]: raw } } }],
+  }] })
+  let first
+  let accepted = false
+  const hub = await serve(t, (request, response, body) => {
+    const envelope = JSON.parse(body)
+    if (!first) {
+      first = body
+      response.destroy()
+      return
+    }
+    if (!accepted) {
+      assert.equal(body, first)
+      assert.equal(envelope.sessions[0].title, expected)
+      const tool = envelope.updates[0].messages[0].parts[0]
+      assert.equal(tool.state.output, expected)
+      assert.deepEqual(tool.state.input, { [expected]: expected })
+      assert.equal(envelope.meta.error, "")
+      accepted = true
+    }
+    json(response, ack(envelope))
+  })
+  await worker(t, local, hub, await state(t))
+  await until(() => accepted)
+})
+
+test("OpenCode recovery explicitly clears the previously reported error", async (t) => {
+  let healthy = false
+  const local = await localServer(t, { version: () => healthy ? "1.18.32" : "unsupported" })
+  const uploads = []
+  const hub = await serve(t, (request, response, body) => {
+    const envelope = JSON.parse(body)
+    uploads.push(envelope)
+    if (!healthy) healthy = true
+    json(response, ack(envelope))
+  })
+  await worker(t, local, hub, await state(t))
+  await until(() => uploads.some((envelope) => envelope.meta.connected))
+  assert.equal(uploads[0].meta.connected, false)
+  assert.match(uploads[0].meta.error, /Unsupported OpenCode/)
+  const recovered = uploads.find((envelope) => envelope.meta.connected)
+  assert.equal(recovered.meta.error, "")
+})
+
+test("buffer gauge includes unacknowledged events, bounds retry backlog and drains to zero", async (t) => {
+  let stream
+  const local = await localServer(t, { onStream: (response) => { stream = response } })
+  const uploads = []
+  let frozen
+  let release
+  const hub = await serve(t, async (request, response, body) => {
+    const envelope = JSON.parse(body)
+    uploads.push(envelope)
+    if (!frozen) {
+      frozen = body
+      // Keep the first batch in flight while SSE fills a separate bounded queue.
+      await new Promise((resolve) => { release = resolve })
+      response.destroy()
+      return
+    }
+    if (envelope.cursor.batch_id === JSON.parse(frozen).cursor.batch_id) {
+      assert.equal(body, frozen, "retry must preserve gauge and exact envelope")
+    }
+    json(response, ack(envelope))
+  })
+  const handle = await worker(t, local, hub, await state(t))
+  await until(() => release && stream)
+  assert.ok(uploads[0].events.length > 0)
+  assert.equal(uploads[0].meta.buffered_events, uploads[0].events.length)
+  const frames = Array.from({ length: 1005 }, (_, index) =>
+    `data: ${JSON.stringify({ payload: { type: "fixture.queued", properties: { index } } })}\n\n`).join("")
+  stream.write(frames)
+  // Allow the real fetch/SSE consumer to process the burst while upload is held.
+  await setTimeout(100)
+  release()
+  await until(() => uploads.some((upload) => upload.meta.buffered_events === 0))
+  handle.stop()
+  await handle.done
+  const backlog = uploads.find((upload) => upload.events.some((event) => event.type === "fixture.queued"))
+  assert.equal(backlog.events.length, 1000)
+  assert.equal(backlog.meta.buffered_events, 1000)
+  assert.equal(backlog.meta.dropped_events, 5)
+  assert.deepEqual(backlog.events.map((event) => event.payload.payload.properties.index),
+    Array.from({ length: 1000 }, (_, index) => index + 5))
+  assert.equal(uploads.at(-1).meta.buffered_events, 0)
+  assert.equal(uploads.at(-1).meta.dropped_events, 5, "drain must not reset cumulative losses")
+  assert.deepEqual(uploads.at(-1).events, [])
+  assert.equal(uploads.filter((upload) => upload.cursor.batch_id === uploads[0].cursor.batch_id).length, 2)
 })
 
 test("crash after write-ahead intent publishes uncertain outcome without executing prompt", async (t) => {

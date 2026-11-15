@@ -2878,6 +2878,77 @@
                 }
             }
         },
+        "/api/v1/workers/{name}/sessions/{sid}/export": {
+            "get": {
+                "operationId": "workers_sessions_export_retrieve",
+                "description": "Authenticated, credential-free worker registry reads (#10, #15).\n\nThe registry stays readable by every agent; session data is scoped to the\nbound agent (#15): worker-scoped identity extends the project/task rules.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "kind",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "md",
+                                "zip"
+                            ]
+                        },
+                        "description": "md for Markdown or zip for Markdown plus attachments."
+                    },
+                    {
+                        "in": "path",
+                        "name": "name",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Worker name",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "sid",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Remote session ID",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "workers"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/markdown": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            },
+                            "application/zip": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/workers/{name}/sessions/{sid}/messages": {
             "get": {
                 "operationId": "workers_sessions_messages_retrieve",
@@ -3197,6 +3268,18 @@
                     "instructions": {
                         "type": "string",
                         "maxLength": 8000
+                    },
+                    "agent": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "model": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ModelChoiceRequest"
+                            }
+                        ],
+                        "nullable": true
                     }
                 },
                 "required": [
@@ -4111,6 +4194,11 @@
                             }
                         ],
                         "nullable": true
+                    },
+                    "agent": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 100
                     },
                     "context": {
                         "type": "string",

@@ -90,9 +90,10 @@ function Lane({
   const tasks = useInfiniteQuery({
     queryKey: ["tasks", "lane", filters, status],
     initialPageParam: 0,
-    queryFn: ({ pageParam }) =>
+    queryFn: ({ pageParam, signal }) =>
       get<Page<Task>>(
         `/api/tasks?${query(filters, { status, limit: 20, offset: pageParam, ordering: "priority" })}`,
+        signal,
       ),
     getNextPageParam: (last, pages) => {
       const loaded = pages.reduce((sum, page) => sum + page.items.length, 0);

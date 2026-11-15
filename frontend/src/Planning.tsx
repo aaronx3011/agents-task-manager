@@ -11,7 +11,9 @@ import {
   X,
 } from "lucide-react";
 import { get, post } from "./api";
-import type { Page, Project } from "./types";
+import type { LocationState, Page, Project, Status } from "./types";
+import { LABELS, STATUSES } from "./types";
+import { refreshTaskViews } from "./task-sync";
 import type { ModelChoice, Worker } from "./opencode-types";
 import { ErrorState, Loading } from "./ui";
 import { useAccess } from "./auth";
@@ -22,6 +24,7 @@ interface SettingsData {
   worker: string;
   directory: string;
   model: ModelChoice | null;
+  agent: string;
   context: string;
   instructions: string;
   templates: { name: string; text: string }[];
@@ -36,8 +39,10 @@ interface Card {
   labels: string[];
   checklist: { text: string; done: boolean }[];
   instructions: string;
+  agent: string;
+  model: ModelChoice | null;
   task?: number | null;
-  task_status?: string | null;
+  task_status?: Status | null;
 }
 interface Job {
   id: number;
@@ -46,9 +51,11 @@ interface Job {
   status: string;
   position: number;
   worker: string;
+  agent: string;
+  model: ModelChoice | null;
   session: string;
   task: number | null;
-  task_status: string | null;
+  task_status: Status | null;
   detail: string;
   prompt: string;
   snapshot: Record<string, unknown>;
@@ -74,12 +81,14 @@ export default function Planning({
   navigate,
   openTask,
   newProject,
+  tab,
 }: {
   projects: Project[];
   project: string;
   navigate: Navigate;
   openTask: (id: number) => void;
   newProject: boolean;
+  tab: LocationState["planningTab"];
 }) {
   const { canWrite } = useAccess();
   const slug = project || projects[0]?.slug || "";
@@ -88,7 +97,9 @@ export default function Planning({
       <header className="planning-heading">
         <div>
           <div className="eyebrow">PLAN → EXECUTE → REVIEW</div>
-          <h1>Project planning</h1>
+          <h1>
+            {projects.find((p) => p.slug === slug)?.name || "Project planning"}
+          </h1>
           <p>Organize your work. Launch contextual sessions in order.</p>
         </div>
         <label>
@@ -97,7 +108,7 @@ export default function Planning({
             aria-label="Planning project"
             value={slug}
             onChange={(e) =>
-              navigate({ project: e.target.value, planning_tab: null })
+              navigate({ project: e.target.value, planning_tab: null }, true)
             }
           >
             {projects.map((p) => (
@@ -119,6 +130,7 @@ export default function Planning({
           slug={slug}
           navigate={navigate}
           openTask={openTask}
+          tab={tab}
         />
       ) : (
         <p>Create your first project with New project to start planning.</p>
@@ -312,19 +324,17 @@ function ProjectPlanning({
   slug,
   navigate,
   openTask,
+  tab,
 }: {
   slug: string;
   navigate: Navigate;
   openTask: (id: number) => void;
+  tab: LocationState["planningTab"];
 }) {
   const { canWrite } = useAccess();
   const client = useQueryClient();
-  const [tab, setTab] = useState(() =>
-    new URLSearchParams(window.location.search).get("planning_tab") ===
-    "settings"
-      ? "settings"
-      : "board",
-  );
+  const setTab = (tab: LocationState["planningTab"]) =>
+    navigate({ planning_tab: tab === "overview" ? null : tab }, true);
   const [editor, setEditor] = useState<Card | null>(null);
   const [editorRevision, setEditorRevision] = useState(0);
   const [launch, setLaunch] = useState<Card | null>(null);
@@ -374,8 +384,8 @@ function ProjectPlanning({
   }, [dialogOpen]);
   const plan = useQuery({
     queryKey: ["planning", slug],
-    queryFn: () => get<Plan>(`/api/projects/${slug}/planning`),
-    refetchInterval: 5000,
+    queryFn: ({ signal }) =>
+      get<Plan>(`/api/projects/${slug}/planning`, signal),
   });
   const workers = useQuery({
     queryKey: ["planning-workers"],
@@ -400,7 +410,7 @@ function ProjectPlanning({
         ...values,
       });
       client.setQueryData(["planning", slug], result);
-      void client.invalidateQueries({ queryKey: ["workspace"] });
+      void refreshTaskViews(client);
       return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save changes");
@@ -414,10 +424,15 @@ function ProjectPlanning({
     return plan.isError ? (
       <ErrorState error={plan.error} retry={() => void plan.refetch()} />
     ) : (
-      <Loading label="Loading project board…" />
+      <Loading label="Loading project planning…" />
     );
   const queued = data.jobs.filter((j) => j.status === "queued");
   const active = data.jobs.find((j) => j.status === "running");
+  const projectWorker = workers.data?.items.find(
+    (w) => w.name === data.settings.worker,
+  );
+  const workerAgents = projectWorker?.agents || [];
+  const workerModels = projectWorker?.models || [];
   const edit = (card: Card) => {
     setEditor({ ...card });
     setEditorRevision(data.revision);
@@ -440,13 +455,19 @@ function ProjectPlanning({
   return (
     <>
       <div className="planning-toolbar">
-        <div className="view-tabs">
-          {["board", "queue", "settings"].map((t) => (
+        <div
+          className="view-tabs"
+          role="group"
+          aria-label="Project planning view"
+        >
+          {(["overview", "board", "queue", "settings"] as const).map((t) => (
             <button key={t} aria-pressed={tab === t} onClick={() => setTab(t)}>
               {t === "settings" && <Settings size={14} />}{" "}
-              {t === "queue"
-                ? `Queue (${queued.length})`
-                : t[0].toUpperCase() + t.slice(1)}
+              {t === "overview"
+                ? "Planning"
+                : t === "queue"
+                  ? `Queue (${queued.length})`
+                  : t[0].toUpperCase() + t.slice(1)}
             </button>
           ))}
         </div>
@@ -494,7 +515,121 @@ function ProjectPlanning({
         </div>
       )}
       <fieldset className="role-fieldset" disabled={!canWrite}>
-        {tab === "settings" ? (
+        {tab === "overview" ? (
+          <section
+            className="planning-overview"
+            aria-label="Project planning overview"
+          >
+            <div className="planning-overview-summary">
+              <article>
+                <h2>Planning</h2>
+                <p>
+                  Shape the next steps for {data.name}. Select a work item to
+                  refine its scope and acceptance criteria.
+                </p>
+                <button
+                  onClick={() =>
+                    edit({
+                      title: "",
+                      description: "",
+                      column: data.settings.columns[0],
+                      labels: [],
+                      checklist: [],
+                      instructions: "",
+                      agent: "",
+                      model: null,
+                    })
+                  }
+                >
+                  <Plus size={16} /> New work item
+                </button>
+              </article>
+              <article>
+                <h2>Execution</h2>
+                <p>
+                  {data.cards.length} work items · {queued.length} queued ·{" "}
+                  {data.jobs.filter((job) => job.status === "completed").length}{" "}
+                  completed runs
+                </p>
+                {active && <p>Current: {active.title}</p>}
+                <button onClick={() => setTab("queue")}>
+                  View execution queue
+                </button>
+              </article>
+            </div>
+            {data.settings.context && (
+              <article className="planning-overview-context">
+                <h2>Project context</h2>
+                <p>{data.settings.context}</p>
+              </article>
+            )}
+            <h2>Planned work</h2>
+            {!data.cards.length && (
+              <p>
+                No work items yet. Add your first work item to start planning.
+              </p>
+            )}
+            <div className="planning-work-items">
+              {data.cards.map((card) => (
+                <article className="planning-card" key={card.id}>
+                  <small>{card.column}</small>
+                  <button
+                    className="planning-card-title"
+                    onClick={() => edit(card)}
+                  >
+                    {card.title}
+                  </button>
+                  {card.description && <p>{card.description.slice(0, 240)}</p>}
+                  <div className="planning-labels">
+                    {card.labels.map((label) => (
+                      <span key={label}>{label}</span>
+                    ))}
+                  </div>
+                  {!!card.checklist.length && (
+                    <small>
+                      Checklist{" "}
+                      {card.checklist.filter((item) => item.done).length}/
+                      {card.checklist.length}
+                    </small>
+                  )}
+                  {card.task && (
+                    <button
+                      className="planning-task-link"
+                      onClick={() => openTask(card.task!)}
+                    >
+                      Task #{card.task} · {card.task_status}
+                    </button>
+                  )}
+                  {card.task && card.task_status && (
+                    <TaskStatusEditor
+                      task={card.task}
+                      status={card.task_status}
+                    />
+                  )}
+                  <footer>
+                    <button
+                      disabled={
+                        busy ||
+                        data.jobs.some(
+                          (job) =>
+                            job.card === card.id &&
+                            ["queued", "running"].includes(job.status),
+                        )
+                      }
+                      onClick={() => {
+                        setLaunch(card);
+                        setInstructions(card.instructions);
+                        setTemplate("");
+                      }}
+                    >
+                      Run / Queue
+                    </button>
+                  </footer>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : tab === "settings" ? (
           <SettingsForm
             initial={data.settings}
             revision={data.revision}
@@ -546,6 +681,8 @@ function ProjectPlanning({
                           labels: [],
                           checklist: [],
                           instructions: "",
+                          agent: "",
+                          model: null,
                         })
                       }
                     >
@@ -601,6 +738,12 @@ function ProjectPlanning({
                             Task #{card.task} · {card.task_status}
                           </button>
                         )}
+                        {card.task && card.task_status && (
+                          <TaskStatusEditor
+                            task={card.task}
+                            status={card.task_status}
+                          />
+                        )}
                         <footer>
                           <button
                             disabled={
@@ -636,7 +779,8 @@ function ProjectPlanning({
             </div>
             <p className="planning-help">
               Drag cards between columns, or use their Move menu. Board columns
-              are independent of task execution status.
+              organize planning stages. Use Execution status on a linked task to
+              update its status here and in All Tasks.
             </p>
           </>
         ) : (
@@ -658,6 +802,8 @@ function ProjectPlanning({
                   <strong>{job.title}</strong>
                   <small>
                     {job.status} · {job.worker}
+                    {job.agent ? ` · ${job.agent}` : ""}
+                    {` · ${job.model?.modelID || "worker default model"}`}
                     {job.task_status ? ` · task ${job.task_status}` : ""}
                   </small>
                   {job.detail && <p>{job.detail}</p>}
@@ -717,9 +863,9 @@ function ProjectPlanning({
                   </pre>
                 </details>
                 {job.task && ["running", "failed"].includes(job.status) && (
-                  <CompletionForm
+                  <TaskStatusEditor
                     task={job.task}
-                    done={() => void plan.refetch()}
+                    status={job.task_status || "in_progress"}
                   />
                 )}
               </article>
@@ -848,6 +994,89 @@ function ProjectPlanning({
                     Add checklist item
                   </button>
                 </fieldset>
+                <div className="planning-settings-grid">
+                  <label>
+                    Agent for this task
+                    <select
+                      aria-label="Task agent"
+                      value={editor.agent}
+                      onChange={(e) =>
+                        setEditor({ ...editor, agent: e.target.value })
+                      }
+                    >
+                      <option value="">
+                        {`Project default (${data.settings.agent || "worker default"})`}
+                      </option>
+                      {editor.agent &&
+                        !workerAgents.some((a) => a.name === editor.agent) && (
+                          <option value={editor.agent}>
+                            {editor.agent} (not reported)
+                          </option>
+                        )}
+                      {workerAgents.map((agent) => (
+                        <option key={agent.name} value={agent.name}>
+                          {agent.name}
+                          {agent.mode && agent.mode !== "all"
+                            ? ` · ${agent.mode}`
+                            : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Model for this task
+                    <select
+                      aria-label="Task model"
+                      value={
+                        editor.model
+                          ? JSON.stringify({
+                              providerID: editor.model.providerID,
+                              modelID: editor.model.modelID,
+                            })
+                          : ""
+                      }
+                      onChange={(e) =>
+                        setEditor({
+                          ...editor,
+                          model: e.target.value
+                            ? (JSON.parse(e.target.value) as ModelChoice)
+                            : null,
+                        })
+                      }
+                    >
+                      <option value="">
+                        {`Project default (${data.settings.model?.modelID || "worker default"})`}
+                      </option>
+                      {editor.model &&
+                        !workerModels.some(
+                          (m) =>
+                            m.providerID === editor.model?.providerID &&
+                            m.modelID === editor.model?.modelID,
+                        ) && (
+                          <option
+                            value={JSON.stringify({
+                              providerID: editor.model.providerID,
+                              modelID: editor.model.modelID,
+                            })}
+                          >
+                            {editor.model.providerID}/{editor.model.modelID}{" "}
+                            (not reported)
+                          </option>
+                        )}
+                      {workerModels.map((model) => (
+                        <option
+                          key={`${model.providerID}/${model.modelID}`}
+                          value={JSON.stringify({
+                            providerID: model.providerID,
+                            modelID: model.modelID,
+                          })}
+                        >
+                          {model.providerID}/{model.modelID}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
                 <label>
                   Default instructions for this card
                   <textarea
@@ -908,7 +1137,10 @@ function ProjectPlanning({
               <p>
                 {data.settings.worker || "No worker configured"} ·{" "}
                 {data.settings.directory || "Worker default directory"} ·{" "}
-                {data.settings.model?.modelID || "Worker default model"}
+                {launch.agent || data.settings.agent || "Worker default agent"}{" "}
+                ·{" "}
+                {(launch.model || data.settings.model)?.modelID ||
+                  "Worker default model"}
               </p>
               <label>
                 Prompt template
@@ -1002,6 +1234,8 @@ function editableCard(card: Card) {
     labels: [...new Set(card.labels.filter(Boolean))],
     checklist: card.checklist,
     instructions: card.instructions,
+    agent: card.agent,
+    model: card.model,
   };
 }
 
@@ -1063,6 +1297,7 @@ function SettingsForm({
                 worker: e.target.value,
                 directory: w?.create_directory || w?.directory || "",
                 model: null,
+                agent: "",
               });
             }}
           >
@@ -1070,6 +1305,22 @@ function SettingsForm({
             {workers.map((w) => (
               <option key={w.name} value={w.name}>
                 {w.name} · {w.online ? "online" : "offline"}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Default agent
+          <select
+            aria-label="Default agent"
+            value={draft.agent}
+            onChange={(e) => setDraft({ ...draft, agent: e.target.value })}
+          >
+            <option value="">Worker default</option>
+            {(worker?.agents || []).map((agent) => (
+              <option key={agent.name} value={agent.name}>
+                {agent.name}
+                {agent.mode && agent.mode !== "all" ? ` · ${agent.mode}` : ""}
               </option>
             ))}
           </select>
@@ -1226,7 +1477,18 @@ function SettingsForm({
   );
 }
 
-function CompletionForm({ task, done }: { task: number; done: () => void }) {
+function TaskStatusEditor({ task, status }: { task: number; status: Status }) {
+  return (
+    <details className="planning-task-status">
+      <summary>Execution status: {LABELS[status]}</summary>
+      <TaskStatusForm key={`${task}:${status}`} task={task} status={status} />
+    </details>
+  );
+}
+
+function TaskStatusForm({ task, status }: { task: number; status: Status }) {
+  const client = useQueryClient();
+  const [target, setTarget] = useState<Status>(status);
   const [summary, setSummary] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1235,33 +1497,64 @@ function CompletionForm({ task, done }: { task: number; done: () => void }) {
       className="planning-completion"
       onSubmit={(e) => {
         e.preventDefault();
+        if (busy || target === status) return;
         setBusy(true);
         setError("");
-        void post(`/api/tasks/${task}/status`, {
-          status: "done",
-          result_summary: summary,
-        })
-          .then(() => {
+        void post(
+          `/api/tasks/${task}/${target === "pending" ? "release" : "status"}`,
+          {
+            status: target,
+            reason: summary,
+            result_summary: summary,
+          },
+        )
+          .then(async () => {
             setSummary("");
-            done();
+            await refreshTaskViews(client);
           })
           .catch((e) =>
-            setError(e instanceof Error ? e.message : "Completion failed"),
+            setError(e instanceof Error ? e.message : "Status update failed"),
           )
           .finally(() => setBusy(false));
       }}
     >
       <label>
-        Explicit completion / handoff
+        Task #{task} status (also updates All Tasks)
+        <select
+          aria-label={`Execution status for task ${task}`}
+          value={target}
+          disabled={busy}
+          onChange={(event) => setTarget(event.target.value as Status)}
+        >
+          {STATUSES.map((value) => (
+            <option key={value} value={value}>
+              {LABELS[value]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        {target === "blocked" ? "Blocker reason" : "Outcome / handoff"}
         <textarea
-          required
+          required={["blocked", "review", "done"].includes(target)}
+          disabled={busy}
           rows={2}
+          maxLength={5000}
           value={summary}
           onChange={(e) => setSummary(e.target.value)}
           placeholder="Verified outcome and context for the next task"
         />
       </label>
-      <button disabled={busy || !summary.trim()}>Mark task completed</button>
+      <p>In progress requires an existing claim. Pending releases the claim.</p>
+      <button
+        disabled={
+          busy ||
+          target === status ||
+          (["blocked", "review", "done"].includes(target) && !summary.trim())
+        }
+      >
+        {busy ? "Saving…" : "Update task status"}
+      </button>
       {error && <p role="alert">{error}</p>}
     </form>
   );

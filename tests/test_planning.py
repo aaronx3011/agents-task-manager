@@ -26,6 +26,10 @@ def setup(project, agent_clients):
     worker.last_sync_at = timezone.now()
     worker.default_model = {"providerID": "test", "modelID": "model"}
     worker.model_catalog = [worker.default_model]
+    worker.agent_catalog = [
+        {"name": "build", "mode": "primary"},
+        {"name": "plan", "mode": "primary"},
+    ]
     worker.save()
     plan = ProjectPlan.objects.create(
         project=project,
@@ -166,6 +170,112 @@ def test_sequential_sessions_completion_handoff_and_no_idle_advance(setup, agent
     # Durable state: freshly loaded rows and the next sync retain the current job.
     assert sync(agent_clients[0]).json()["commands"] == []
     assert PlanningJob.objects.filter(status="running").count() == 1
+
+
+def test_project_agent_default_and_per_task_agent_model_overrides(setup, agent_clients):
+    staff, worker, plan = setup
+    current = staff.get(f"/api/projects/{plan.project.slug}/planning").json()["settings"]
+    response = mutate(
+        staff,
+        plan,
+        "settings",
+        settings={
+            **current,
+            "worker": worker.name,
+            "agent": "plan",
+        },
+    )
+    assert response.status_code == 200, response.content
+    plan.refresh_from_db()
+    assert plan.agent == "plan"
+    assert plan.model is None
+    override = card(plan, "Use a specific runner configuration")
+    override.agent = "build"
+    override.model = {"providerID": "test", "modelID": "model"}
+    override.save()
+    inherited = card(plan, "Use project defaults")
+    for c in (override, inherited):
+        assert (
+            mutate(staff, plan, "enqueue", card_id=c.pk, instructions="Execute").status_code == 200
+        )
+    jobs = {job.card_id: job for job in PlanningJob.objects.all()}
+    assert jobs[override.pk].snapshot["agent"] == "build"
+    assert jobs[override.pk].snapshot["model"] == override.model
+    assert jobs[inherited.pk].snapshot["agent"] == "plan"
+    assert jobs[inherited.pk].snapshot["model"] == worker.default_model
+    # Per-task choices never rewrite the project defaults.
+    plan.refresh_from_db()
+    assert plan.agent == "plan"
+    assert plan.model is None
+    assert PlanningCard.objects.get(pk=override.pk).agent == "build"
+    # The session's first prompt starts with the selected agent and model.
+    assert mutate(staff, plan, "play").status_code == 200
+    command = sync(agent_clients[0]).json()["commands"][0]
+    prompt = accept(agent_clients[0], command)
+    assert prompt["payload"]["agent"] == "build"
+    assert prompt["payload"]["model"] == override.model
+    assert "Use a specific runner configuration" in prompt["payload"]["text"]
+
+
+def test_unknown_agent_is_rejected_for_project_and_task(setup):
+    staff, worker, plan = setup
+    current = staff.get(f"/api/projects/{plan.project.slug}/planning").json()["settings"]
+    response = mutate(
+        staff,
+        plan,
+        "settings",
+        settings={**current, "worker": worker.name, "agent": "not-installed"},
+    )
+    assert response.status_code == 400
+    c = card(plan)
+    response = mutate(
+        staff,
+        plan,
+        "card",
+        card={**editable_card_values(c), "agent": "not-installed"},
+    )
+    assert response.status_code == 400
+    response = mutate(staff, plan, "enqueue", card_id=c.pk)
+    assert response.status_code == 200
+
+
+def editable_card_values(c):
+    return {
+        "id": c.pk,
+        "title": c.title,
+        "description": c.description,
+        "column": c.column,
+        "labels": c.labels,
+        "checklist": c.checklist,
+        "instructions": c.instructions,
+        "agent": c.agent,
+        "model": c.model,
+    }
+
+
+def test_worker_sync_publishes_agent_catalog(setup, agent_clients):
+    _, worker, _ = setup
+    response = sync(
+        agent_clients[0],
+        meta={
+            "connected": True,
+            "streamConnected": True,
+            "agents": [
+                {"name": "build", "mode": "primary", "builtIn": True},
+                {"name": "plan"},
+                {"name": ""},
+                "not-an-object",
+            ],
+        },
+    )
+    assert response.status_code == 200, response.content
+    worker.refresh_from_db()
+    assert worker.agent_catalog == [
+        {"name": "build", "mode": "primary", "builtIn": True},
+        {"name": "plan"},
+    ]
+    worker_detail = agent_clients[0].get("/api/workers/worker-a").json()
+    assert worker_detail["agents"] == worker.agent_catalog
 
 
 def test_pause_finishes_current_without_advancing_and_settings_are_frozen(setup, agent_clients):

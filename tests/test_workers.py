@@ -140,6 +140,27 @@ def test_record_worker_meta_sanitizes_endpoint_and_updates_observables(bound_wor
     assert bound_worker.model_catalog and bound_worker.default_model
 
 
+@pytest.mark.parametrize("value", [-1, 2001, True, 1.5, "5", None])
+def test_invalid_buffer_gauge_preserves_last_valid_sample(bound_worker, value):
+    services.record_worker_meta(bound_worker, meta={"buffered_events": 2000})
+    services.record_worker_meta(bound_worker, meta={"buffered_events": value})
+    bound_worker.refresh_from_db()
+    assert services.worker_read_model(bound_worker)["buffered_events"] == 2000
+
+
+def test_explicit_recovery_clears_worker_error_and_timestamp(bound_worker):
+    services.record_worker_meta(bound_worker, {"connected": False, "error": "OpenCode unavailable"})
+    bound_worker.refresh_from_db()
+    assert bound_worker.last_error == "OpenCode unavailable"
+    assert bound_worker.last_error_at is not None
+    services.record_worker_meta(bound_worker, {"connected": True, "error": ""})
+    bound_worker.refresh_from_db()
+    assert bound_worker.connected is True
+    assert bound_worker.last_error == ""
+    assert bound_worker.last_error_at is None
+    assert services.worker_read_model(bound_worker)["last_error"] == ""
+
+
 def test_worker_heartbeat_never_renews_task_claims(agent_clients, project, bound_worker):
     response = agent_clients[0].post(
         "/api/tasks", {"title": "Follow-up", "project": "coordinator"}, format="json"

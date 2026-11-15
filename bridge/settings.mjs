@@ -14,6 +14,14 @@ export function workerSettings(options) {
     }
     return url
   }
+  const backend = options.backend ?? "opencode"
+  if (!["opencode", "codex", "claude"].includes(backend)) {
+    throw new Error("WORKER_BACKEND must be opencode, codex or claude")
+  }
+  if (options.claudePermissionMode && !["default", "acceptEdits", "plan", "dontAsk", "auto"].includes(options.claudePermissionMode)) {
+    // bypassPermissions is deliberately unsupported for a remotely driven worker.
+    throw new Error("CLAUDE_PERMISSION_MODE must be default, acceptEdits, plan, dontAsk or auto")
+  }
   const url = endpoint(options.url ?? "http://127.0.0.1:4096", "OPENCODE_URL")
   if (!options.worker?.trim() || !options.key?.trim() || !options.coordinatorURL?.trim()) {
     throw new Error("Coordinator mode requires WORKER_ID, COORDINATOR_API_KEY and COORDINATOR_URL")
@@ -38,6 +46,7 @@ export function workerSettings(options) {
   const scope = createHash("sha256").update(`${syncURL.href}|${options.worker}`).digest("hex").slice(0, 24)
   return {
     ...options,
+    backend,
     // OpenCode canonicalizes workspace paths (notably /var -> /private/var on macOS).
     directory: options.directory ? realpathSync(options.directory) : undefined,
     model,
@@ -59,15 +68,26 @@ function parseModel(value) {
   return { providerID, modelID: rest.join("/") }
 }
 
+// Each backend reads its own prefixed variable; unset never falls back to another.
+function backendEnv(env, name) {
+  const prefix = { codex: "CODEX", claude: "CLAUDE" }[env.WORKER_BACKEND] ?? "OPENCODE"
+  return env[`${prefix}_${name}`]
+}
+
 export function workerOptions(env = process.env) {
   return {
     worker: env.WORKER_ID,
+    backend: env.WORKER_BACKEND,
+    codexBinary: env.CODEX_BINARY,
+    claudeExecutable: env.CLAUDE_CODE_EXECUTABLE,
+    claudePermissionMode: env.CLAUDE_PERMISSION_MODE,
+    workspaceRoot: env.WORKER_BACKEND === "claude" ? env.CLAUDE_WORKSPACE_ROOT : env.CODEX_WORKSPACE_ROOT,
     key: env.COORDINATOR_API_KEY,
     coordinatorURL: env.COORDINATOR_URL,
     syncPath: env.COORDINATOR_SYNC_PATH,
     url: env.OPENCODE_URL,
-    directory: env.OPENCODE_DIRECTORY,
-    createDirectory: env.OPENCODE_CREATE_DIRECTORY,
+    directory: backendEnv(env, "DIRECTORY"),
+    createDirectory: backendEnv(env, "CREATE_DIRECTORY"),
     model: env.WORKER_MODEL,
     password: env.OPENCODE_SERVER_PASSWORD,
     username: env.OPENCODE_SERVER_USERNAME,

@@ -298,3 +298,42 @@ class TestConcurrentReplies:
             statuses = list(pool.map(run, range(2)))
         assert sorted(statuses) == [202, 409]
         assert WorkerCommand.objects.filter(action="permission.reply").count() == 1
+
+
+class TestPendingSessionReads:
+    """Issue #145: sessions blocked on approval are discoverable in one read."""
+
+    def test_pending_filter_returns_only_blocked_sessions(
+        self, api_client, online_worker, sessions
+    ):
+        post_sync(
+            api_client,
+            {"pending": {"complete": True, "permissions": [PERMISSION], "questions": [QUESTION]}},
+        )
+        response = api_client.get("/api/sessions", {"pending": "true", "limit": 10})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["count"] == 1
+        (card,) = body["items"]
+        assert card["sessionID"] == "ses_1"
+        assert card["worker"] == "worker-a"
+        assert card["counts"]["pending"] == 2
+        assert sorted(request["kind"] for request in card["pendingInteractions"]) == [
+            "permission",
+            "question",
+        ]
+        unfiltered = api_client.get("/api/sessions", {"limit": 10}).json()
+        assert unfiltered["count"] == 2
+        assert all("pendingInteractions" not in item for item in unfiltered["items"])
+
+    def test_resolved_approvals_drop_out(self, api_client, online_worker, sessions):
+        post_sync(
+            api_client,
+            {"pending": {"complete": True, "permissions": [PERMISSION], "questions": []}},
+        )
+        assert api_client.get("/api/sessions", {"pending": "true"}).json()["count"] == 1
+        post_sync(
+            api_client,
+            {"pending": {"complete": True, "permissions": [], "questions": []}},
+        )
+        assert api_client.get("/api/sessions", {"pending": "true"}).json()["count"] == 0

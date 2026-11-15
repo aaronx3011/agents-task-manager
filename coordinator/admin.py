@@ -28,6 +28,7 @@ class WorkerAdmin(admin.ModelAdmin):
         "session_limit",
         "message_limit",
         "dropped_events",
+        "buffered_events",
         "last_sync_at",
         "created_at",
         "updated_at",

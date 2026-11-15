@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.db.models import Count
+from django.db.models import Count, Exists, OuterRef, Prefetch
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -15,6 +15,7 @@ from rest_framework.response import Response
 from . import services
 from . import sync as sync_module
 from .auth import IsMember, IsOwner, get_agent, human_actor
+from .chat_export import export_session
 from .models import (
     Agent,
     PendingInteraction,
@@ -121,6 +122,19 @@ WORKER_NAME = OpenApiParameter("name", str, OpenApiParameter.PATH, description="
         ],
         responses=READ_MODEL,
     ),
+    session_export=extend_schema(
+        parameters=[
+            WORKER_NAME,
+            SID_PARAM,
+            query(
+                "kind", "md for Markdown or zip for Markdown plus attachments.", enum=["md", "zip"]
+            ),
+        ],
+        responses={
+            (200, "text/markdown"): OpenApiTypes.BINARY,
+            (200, "application/zip"): OpenApiTypes.BINARY,
+        },
+    ),
     events=extend_schema(
         parameters=[
             WORKER_NAME,
@@ -158,7 +172,11 @@ class WorkerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
 
     def retrieve(self, request, *args, **kwargs):
         worker = self.get_object()
-        return Response(services.worker_read_model(worker, counts=True))
+        result = services.worker_read_model(worker, counts=True)
+        agent = get_agent(request)
+        if agent is None or agent.pk == worker.agent_id:
+            result["codex_usage"] = worker.codex_usage
+        return Response(result)
 
     @action(detail=True, methods=["get"], url_path="sessions")
     def sessions(self, request, name=None):
@@ -208,6 +226,13 @@ class WorkerViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
                 limit=request.query_params.get("limit"),
             )
         )
+
+    @action(detail=True, methods=["get"], url_path=r"sessions/(?P<sid>[^/]{1,128})/export")
+    def session_export(self, request, name=None, sid=None):
+        session = self._session_worker().sessions.filter(remote_id=sid).first()
+        if session is None:
+            raise services.TaskError("Unknown session for this worker", 404)
+        return export_session(session, request.query_params.get("kind", "md"))
 
     @action(detail=True, methods=["get"], url_path="events")
     def events(self, request, name=None):
@@ -594,9 +619,31 @@ def sessions_read(request):
         status=request.query_params.get("status") or "",
         project_id=request.query_params.get("project") or None,
     )
+    pending_only = request.query_params.get("pending") in {"1", "true", "yes"}
+    if pending_only:
+        # Approval notifications (#145): only sessions blocked on input, with the
+        # unresolved requests attached so the dashboard can label each alert.
+        sessions = sessions.filter(
+            Exists(PendingInteraction.objects.filter(session=OuterRef("pk"), resolved_at=None))
+        ).prefetch_related(
+            Prefetch(
+                "pending_interactions",
+                queryset=PendingInteraction.objects.filter(resolved_at=None).order_by("-id"),
+                to_attr="unresolved_interactions",
+            )
+        )
     paginator = TaskPagination()
     page = paginator.paginate_queryset(sessions, request, view=sessions_read)
-    return paginator.get_paginated_response([services.session_card(s) for s in page])
+    cards = []
+    for session in page:
+        card = services.session_card(session)
+        if pending_only:
+            card["pendingInteractions"] = [
+                services.interaction_card(interaction)
+                for interaction in session.unresolved_interactions
+            ]
+        cards.append(card)
+    return paginator.get_paginated_response(cards)
 
 
 @extend_schema(responses=PROJECT_OVERVIEW)

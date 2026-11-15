@@ -1,7 +1,10 @@
 .configuration {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
   padding: 28px 32px;
   overflow: auto;
-  min-width: 0;
+  scrollbar-width: thin;
 }
 .configuration .workspace-heading {
   padding: 0 0 24px;

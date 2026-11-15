@@ -13,6 +13,7 @@ staticfiles/
 .coverage
 htmlcov/
 frontend/node_modules/
+bridge/node_modules/
 frontend/*.tsbuildinfo
 frontend/dist/
 .DS_Store
