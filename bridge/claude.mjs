@@ -24,9 +24,13 @@ export function usageFromRateLimit(info, now = Date.now()) {
   const entries = info.unifiedWindows && typeof info.unifiedWindows === "object"
     ? Object.entries(info.unifiedWindows)
     : info.rateLimitType ? [[info.rateLimitType, info]] : []
+  // The coordinator keeps at most two windows: the 5-hour and the weekly one.
+  const priority = ["five_hour", "seven_day", "seven_day_sonnet", "seven_day_opus", "seven_day_overage_included"]
   const windows = entries
     .filter(([kind, window]) => kind in WINDOW_MINUTES && Number.isFinite(window?.utilization) &&
       window.utilization >= 0 && window.utilization <= 1)
+    .sort(([a], [b]) => priority.indexOf(a) - priority.indexOf(b))
+    .slice(0, 2)
     .map(([kind, window]) => ({
       kind,
       remaining_percent: Math.round((1 - window.utilization) * 1000) / 10,

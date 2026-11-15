@@ -434,3 +434,31 @@ def test_codex_usage_keeps_latest_valid_sample_and_scopes_access(
     assert agent_clients[0].get(path).json()["codex_usage"] == usage
     assert "codex_usage" not in agent_clients[1].get(path).json()
     assert "codex_usage" not in staff_client.get("/api/workers").json()["items"][0]
+
+
+def test_claude_usage_uses_the_backend_neutral_field(agent_clients, staff_client, worker):
+    sampled_at = int(timezone.now().timestamp())
+    usage = {
+        "sampled_at": sampled_at,
+        "windows": [
+            {
+                "kind": "five_hour",
+                "remaining_percent": 41.0,
+                "duration_minutes": 300,
+                "resets_at": sampled_at + 7200,
+            },
+            {
+                "kind": "seven_day",
+                "remaining_percent": 47.0,
+                "duration_minutes": 10080,
+                "resets_at": sampled_at + 86400,
+            },
+        ],
+    }
+    response = post_sync(agent_clients[0], sync_payload(meta={"connected": True, "usage": usage}))
+    assert response.status_code == 200
+    stored = staff_client.get("/api/workers/worker-a").json()["codex_usage"]
+    assert stored == {
+        "sampled_at": sampled_at,
+        "windows": [{k: v for k, v in w.items() if k != "kind"} for w in usage["windows"]],
+    }

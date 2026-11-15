@@ -540,7 +540,9 @@ def record_worker_meta(worker, meta):
     # Bridge bounds: at most 1000 queued plus 1000 frozen in-flight events.
     if type(buffered) is int and 0 <= buffered <= 2000:
         worker.buffered_events = buffered
-    usage = normalize_codex_usage(meta.get("codex_usage"), now)
+    # `usage` is the backend-neutral name (Codex and Claude workers); early Codex
+    # bridges send only `codex_usage`. Both land in the same column.
+    usage = normalize_codex_usage(meta.get("usage") or meta.get("codex_usage"), now)
     if usage and (not worker.codex_usage or usage["sampled_at"] > worker.codex_usage["sampled_at"]):
         worker.codex_usage = usage
     worker.last_sync_at = now

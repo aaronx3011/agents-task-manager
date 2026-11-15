@@ -533,7 +533,19 @@ function SessionShelf({
   );
 }
 
-function CodexUsageDetails({ usage }: { usage: CodexUsage }) {
+// OpenCode bridges report a bare version; Codex/Claude bridges name themselves.
+function runtimeLabel(version: string) {
+  if (!version) return "OpenCode not seen";
+  return /^\d/.test(version) ? `OpenCode ${version}` : version;
+}
+
+function CodexUsageDetails({
+  usage,
+  runtime,
+}: {
+  usage: CodexUsage;
+  runtime: string;
+}) {
   const resetFormat = new Intl.DateTimeFormat(undefined, {
     month: "short",
     day: "numeric",
@@ -544,7 +556,9 @@ function CodexUsageDetails({ usage }: { usage: CodexUsage }) {
   return (
     <div className="oc-worker-usage">
       <div>
-        <strong>Codex usage</strong>
+        <strong>
+          {runtime.startsWith("Claude") ? "Claude usage" : "Codex usage"}
+        </strong>
         <span className="muted">
           Checked{" "}
           <Age value={new Date(usage.sampled_at * 1000).toISOString()} />
@@ -667,8 +681,8 @@ function WorkerPanel({
             <span className={usable(data) ? "oc-online" : "oc-warning"}>
               {health(data)}
             </span>{" "}
-            · {data.hostname || "Unknown host"} · OpenCode{" "}
-            {data.opencode_version || "not seen"}
+            · {data.hostname || "Unknown host"} ·{" "}
+            {runtimeLabel(data.opencode_version)}
           </p>
           <p>
             {data.counts?.sessions ?? 0} sessions · {data.counts?.pending ?? 0}{" "}
@@ -684,7 +698,12 @@ function WorkerPanel({
           New session
         </button>
       </header>
-      {data.codex_usage && <CodexUsageDetails usage={data.codex_usage} />}
+      {data.codex_usage && (
+        <CodexUsageDetails
+          usage={data.codex_usage}
+          runtime={data.opencode_version}
+        />
+      )}
       {data.last_error && (
         <p role="alert" className="oc-alert">
           {data.last_error}
