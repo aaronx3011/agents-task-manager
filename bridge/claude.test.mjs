@@ -68,6 +68,8 @@ test("Claude sessions stream, gate tools on the dashboard and resume after resta
   assert.equal(sdk.queries[0].options.persistSession, false, "the sign-in probe never persists a session")
 
   await assert.rejects(conn.execute({ action: "create", payload: { directory: "/" } }, []), /outside/)
+  await assert.rejects(conn.execute({ action: "create", payload: { directory: "/User/missing" } }, []),
+    /Working directory does not exist on this worker: \/User\/missing/)
   const session = await conn.execute({ action: "create", payload: { title: "Test",
     model: { providerID: "anthropic", modelID: "sonnet" } } }, [])
   const other = await conn.execute({ action: "create" }, [])

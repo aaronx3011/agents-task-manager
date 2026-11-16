@@ -626,6 +626,7 @@ function WorkerPanel({
   const [offset, setOffset] = useState(0);
   const [creating, setCreating] = useState(false);
   const [createdID, setCreatedID] = useState("");
+  const [createError, setCreateError] = useState("");
   const [title, setTitle] = useState("");
   const [directory, setDirectory] = useState("");
   const [model, setModel] = useState("");
@@ -660,8 +661,16 @@ function WorkerPanel({
       selectSession(id);
       setCreatedID("");
     }
-    if (created.data?.status === "error" || created.data?.deliveryUncertain)
+    if (created.data?.status === "error" || created.data?.deliveryUncertain) {
+      // Reopen the form with the entered values so the user can correct them.
+      setCreateError(
+        created.data.error ||
+          created.data.uncertain ||
+          "The worker could not create the session.",
+      );
+      setCreating(true);
       setCreatedID("");
+    }
   }, [created.data, selectSession, remember, name, title]);
   if (worker.isLoading) return <Loading />;
   if (worker.error)
@@ -692,7 +701,10 @@ function WorkerPanel({
         <button
           className="button secondary"
           disabled={disabled}
-          onClick={() => setCreating(!creating)}
+          onClick={() => {
+            setCreating(!creating);
+            setCreateError("");
+          }}
         >
           <Plus size={14} />
           New session
@@ -720,6 +732,7 @@ function WorkerPanel({
           className="oc-create oc-form"
           onSubmit={(event) => {
             event.preventDefault();
+            setCreateError("");
             queue.mutate(
               {
                 worker: name,
@@ -764,11 +777,17 @@ function WorkerPanel({
             />
           </label>
           <ModelSelect worker={data} value={model} change={setModel} />
+          {createError && (
+            <p role="alert" className="oc-alert">
+              Session not created: {createError}
+            </p>
+          )}
           <button className="button secondary" disabled={disabled}>
             Create session
           </button>
         </form>
       )}
+      {createdID && <p className="muted">Creating session…</p>}
       <Feedback queue={queue} />
       {Boolean(data.pending_interactions?.length) && (
         <div className="oc-pending-summary">

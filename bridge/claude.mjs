@@ -2,7 +2,7 @@
 // coordinator worker contract (issue #98). One streaming-input query per
 // dashboard session; tool approvals and AskUserQuestion wait as pending cards.
 import { randomUUID } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs"
 import { dirname, isAbsolute, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -134,7 +134,19 @@ export class ClaudeConnection {
   }
 
   directory(value) {
-    const directory = realpathSync(value || this.options.createDirectory || this.options.directory || this.root)
+    const requested = value || this.options.createDirectory || this.options.directory || this.root
+    let directory
+    try {
+      directory = realpathSync(requested)
+    } catch (error) {
+      if (error?.code === "ENOENT" || error?.code === "ENOTDIR") {
+        throw new Error(`Working directory does not exist on this worker: ${requested}`)
+      }
+      throw error
+    }
+    if (!statSync(directory).isDirectory()) {
+      throw new Error(`Working directory is not a folder on this worker: ${requested}`)
+    }
     const path = relative(this.root, directory)
     if (path === ".." || path.startsWith("../") || isAbsolute(path) ||
       (this.options.directory && directory !== this.options.directory)) {
