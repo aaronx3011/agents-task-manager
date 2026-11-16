@@ -3,6 +3,31 @@
 (app) {
 	encode zstd gzip
 
+	# Voice Lab stays a separate service. Gate its shared MCP identity with the
+	# existing owner-only users read; never send dashboard cookies upstream.
+	@voice path /voice-agent /voice-agent/*
+	handle @voice {
+		route {
+			@badVoiceOrigin expression `( {http.request.method} == "POST" || {http.request.header.Upgrade} != "" ) && {http.request.header.Origin} != "https://" + {http.request.hostport} && {http.request.header.Origin} != "http://" + {http.request.hostport}`
+			respond @badVoiceOrigin 403
+			@voiceRoute {
+				path /voice-agent/api/status /voice-agent/api/listen
+				method GET
+			}
+			@voiceWrite {
+				path /voice-agent/api/chat /voice-agent/api/voice
+				method POST
+			}
+			handle @voiceRoute {
+				import voice_proxy
+			}
+			handle @voiceWrite {
+				import voice_proxy
+			}
+			respond 404
+		}
+	}
+
 	# ADMIN_PATH must match DJANGO_ADMIN_PATH (#53).
 	@backend path /api /api/* /ws/* /{$ADMIN_PATH:admin} /{$ADMIN_PATH:admin}/* /static/* /healthz
 	handle @backend {
@@ -29,5 +54,24 @@
 		X-Frame-Options DENY
 		Referrer-Policy same-origin
 		-Server
+	}
+}
+
+(voice_proxy) {
+	route {
+		forward_auth {$API_UPSTREAM:web:8000} {
+			uri /api/v1/users
+			header_up -Authorization
+		}
+		uri strip_prefix /voice-agent
+		reverse_proxy {$VOICE_UPSTREAM:https://voice.aaron-henriquez.com} {
+			header_up Host {$VOICE_HOST:voice.aaron-henriquez.com}
+			header_up Origin {$VOICE_ORIGIN:https://voice.aaron-henriquez.com}
+			header_up -Cookie
+			header_up -Authorization
+			flush_interval -1
+			# Voice Lab's CSP applies to its own HTML, not our streamed API replies.
+			header_down -Content-Security-Policy
+		}
 	}
 }

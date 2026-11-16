@@ -260,6 +260,62 @@ Caddy front door on http://localhost:8000. SQLite is
 for solo development. PostgreSQL is the concurrent-agent database; Redis is
 needed for notifications across multiple ASGI workers.
 
+### Talk to the voice agent
+
+Owners can open **Voice agent** in desktop/mobile navigation, or
+`/?section=voice`. Use **Start microphone** for hands-free conversation, or type
+in the composer. Spoken replies can be muted or interrupted; starting to speak
+interrupts playback. Mention the project when asking the agent to create a task.
+Ask for a task's status to get a fresh coordinator lookup. Tool results invalidate
+the dashboard's task views. Conversation history is page-local and clears on
+navigation/reload; **Clear conversation** also stops capture and playback.
+
+This is an interface to the existing **Voice Lab** service, not another agent
+backend. Keep Voice Lab, speech, Ollama, and its MCP connections running on their
+existing host. The service badges show their readiness. Microphone access needs
+HTTPS or localhost. Task-status announcements are request-driven, not automatic
+background monitoring.
+
+The Caddy front door proxies only `/voice-agent/api/{status,chat,voice,listen}`
+to `VOICE_UPSTREAM` (default `https://voice.aaron-henriquez.com`). `VOICE_HOST` and
+`VOICE_ORIGIN` must match the existing service's accepted hostname/origin; defaults
+match that public URL. Set these on the **front** container, not Django. The proxy
+authorizes requests through the existing owner-only `/api/v1/users` endpoint,
+checks browser origins for writes/upgrades, and strips dashboard credentials
+before contacting Voice Lab. Its shared MCP identity is why this page is owner-only.
+
+For Vite development/preview, `ATM_VOICE_ORIGIN` defaults to
+`http://127.0.0.1:4177`; `ATM_API_ORIGIN` must point directly to the running Django
+service for authorization. Export these variables before starting Vite; Vite's
+configuration does not automatically load the repository's `.env`. No provider or
+MCP credentials are needed by the new interface.
+
+Contract and verification: [GitHub #102](https://github.com/aaronx3011/agents-task-manager/issues/102).
+
+The PM/router behavior is server-owned in
+`integrations/voice-lab/pm-policy.mjs`. To install/update it on the existing
+Voice Lab host, run this command from this checkout, then restart that service:
+
+```sh
+node integrations/voice-lab/install.mjs /path/to/voice-assistant-backend
+```
+
+The installer copies the policy and adapts the known Voice Lab server without
+copying its provider/MCP configuration. It refuses unfamiliar backend source.
+The policy is injected on **every** chat request, including new conversations;
+browser messages cannot supply a replacement system role. Voice Lab's
+`/api/status` returns `policy.version` and `policy.sha256`, and the interface
+shows a PM router readiness badge. A policy update needs a Voice Lab restart;
+deploying Task Manager alone does not restart that separate host.
+
+Read-only real-model behavior checks:
+`node integrations/voice-lab/verify-live.mjs` (`VOICE_TEST_ORIGIN` overrides
+`http://127.0.0.1:4177`). Installed-backend protocol checks:
+`VOICE_LAB_DIR=/path/to/voice-assistant-backend node --test integrations/voice-lab/*.test.mjs`.
+These cover task lookup, project clarification, brainstorming versus mutations,
+and truthful limitations on background monitoring. A prompt does not add
+worker/session dispatch or persistent notification tools.
+
 ### Register another agent
 
 Sign in as an owner and open **Configuration → Agents**, or visit
@@ -309,6 +365,9 @@ npm run format:check --prefix frontend
 npm run build --prefix frontend
 node --test bridge/bridge.test.mjs
 node --test frontend/tests/session-live.test.mjs
+node --test frontend/tests/voice-client.test.mjs frontend/tests/voice-proxy.test.mjs
+# Optional Caddy proxy coverage: CADDY_BIN=/path/to/caddy node --test frontend/tests/voice-proxy.test.mjs
+# Built interface, fixture APIs and microphone: python scripts/verify_voice_agent_browser.py
 ```
 
 Use PostgreSQL to verify row-lock behavior. The bridge README describes live

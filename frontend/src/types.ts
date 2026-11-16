@@ -101,6 +101,7 @@ export interface LocationState {
     | "tasks"
     | "opencodes"
     | "sessions"
+    | "voice"
     | "activity"
     | "configuration"
     | "planning"

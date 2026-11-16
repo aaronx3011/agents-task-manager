@@ -31,6 +31,7 @@ import {
   Settings,
   Monitor,
   MessageSquare,
+  Mic,
   SlidersHorizontal,
   Sun,
   Users,
@@ -64,6 +65,7 @@ const TaskModal = lazy(() =>
   import("./TaskModal").then((module) => ({ default: module.TaskModal })),
 );
 const OpenCodes = lazy(() => import("./OpenCodes"));
+const VoiceAgent = lazy(() => import("./VoiceAgent"));
 const Configuration = lazy(() => import("./Configuration"));
 const ActivityPage = lazy(() => import("./ActivityPage"));
 const Planning = lazy(() => import("./Planning"));
@@ -366,6 +368,14 @@ export default function App() {
           >
             <MessageSquare size={17} /> Sessions
           </button>
+          {canManage && (
+            <button
+              className={`nav-link ${location.section === "voice" ? "active" : ""}`}
+              onClick={() => navigate({ section: "voice", task: null }, true)}
+            >
+              <Mic size={17} /> Voice agent
+            </button>
+          )}
           <button
             className={`nav-link ${agentsOpen ? "subtle-active" : ""}`}
             onClick={() => {
@@ -507,21 +517,23 @@ export default function App() {
               <span>Workspace</span>
               <ChevronRight size={13} />
               <strong>
-                {location.section === "planning"
-                  ? project?.name || "Project planning"
-                  : location.section === "opencodes"
-                    ? "Connected OpenCodes"
-                    : location.section === "sessions"
-                      ? "Sessions"
-                      : location.section === "activity"
-                        ? "Activity"
-                        : location.section === "configuration"
-                          ? "Configuration"
-                          : location.section === "users"
-                            ? "Users & invites"
-                            : location.section === "account"
-                              ? "Account"
-                              : project?.name || "All projects"}
+                {location.section === "voice"
+                  ? "Voice agent"
+                  : location.section === "planning"
+                    ? project?.name || "Project planning"
+                    : location.section === "opencodes"
+                      ? "Connected OpenCodes"
+                      : location.section === "sessions"
+                        ? "Sessions"
+                        : location.section === "activity"
+                          ? "Activity"
+                          : location.section === "configuration"
+                            ? "Configuration"
+                            : location.section === "users"
+                              ? "Users & invites"
+                              : location.section === "account"
+                                ? "Account"
+                                : project?.name || "All projects"}
               </strong>
             </div>
             <div className="topbar-actions">
@@ -589,6 +601,14 @@ export default function App() {
             {canManage && (
               <>
                 <button
+                  aria-pressed={location.section === "voice"}
+                  onClick={() =>
+                    navigate({ section: "voice", task: null }, true)
+                  }
+                >
+                  Voice agent
+                </button>
+                <button
                   aria-pressed={location.section === "users"}
                   onClick={() =>
                     navigate({ section: "users", task: null }, true)
@@ -613,7 +633,21 @@ export default function App() {
               Account
             </button>
           </div>
-          {location.section === "planning" ? (
+          {location.section === "voice" ? (
+            canManage ? (
+              <Suspense
+                key="voice"
+                fallback={<Loading label="Opening voice agent…" />}
+              >
+                <VoiceAgent />
+              </Suspense>
+            ) : (
+              <Empty
+                title="Owner access required"
+                description="The voice agent uses the shared Voice Lab identity."
+              />
+            )
+          ) : location.section === "planning" ? (
             <Suspense
               key="planning"
               fallback={<Loading label="Opening planning…" />}

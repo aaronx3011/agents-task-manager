@@ -17,4 +17,13 @@ export default tseslint.config(
     files: ["scripts/**/*.mjs", "tests/**/*.mjs"],
     languageOptions: { globals: globals.node },
   },
+  {
+    files: ["src/voice-mic.js"],
+    languageOptions: {
+      globals: {
+        AudioWorkletProcessor: "readonly",
+        registerProcessor: "readonly",
+      },
+    },
+  },
 );
