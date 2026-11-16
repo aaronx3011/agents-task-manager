@@ -152,7 +152,13 @@ def create_task(
     priority=100,
     depends_on=(),
     human_actor=None,
+    card=None,
 ):
+    """Create a task; every task is shown on its project's planning board.
+
+    ``card`` links an existing planning card (queue execution); otherwise a card
+    is created so MCP/API/admin tasks are visible in the project view.
+    """
     dependencies = list(Task.objects.filter(pk__in=depends_on))
     if len(dependencies) != len(set(depends_on)):
         raise TaskError("One or more dependencies do not exist", 400)
@@ -164,6 +170,7 @@ def create_task(
         created_by=agent,
     )
     task.depends_on.set(dependencies)
+    attach_planning_card(task, card)
     log_human(task, TaskEvent.Type.CREATED, agent, "Task created", human_actor)
     return task
 
@@ -185,6 +192,7 @@ def set_claim(task, agent):
     if not changed:
         raise TaskError("Task is no longer available")
     task.refresh_from_db()
+    sync_planning_card(task)
     task.log(TaskEvent.Type.CLAIMED, agent)
     return task
 
@@ -252,6 +260,7 @@ def update_status(agent, task_id, status, reason="", result_summary="", human_ac
     elif status == Task.Status.IN_PROGRESS:
         task.heartbeat_at = timezone.now()
     task.save()
+    sync_planning_card(task)
     log_human(
         task,
         TaskEvent.Type.STATUS_CHANGED,
@@ -267,6 +276,7 @@ def clear_claim(task, agent, reason, actor_user=None):
     task.claimed_by = task.claimed_at = task.heartbeat_at = None
     task.blocked_reason = ""
     task.save()
+    sync_planning_card(task)
     task.log(TaskEvent.Type.RELEASED, agent, reason, actor_user=actor_user)
     return task
 
@@ -383,6 +393,10 @@ def admin_save_task(instance, changed_fields, dependencies, username):
     if creating or "depends_on" in changed_fields:
         validate_dependencies(task.pk, dependencies)
         task.depends_on.set(dependencies)
+    if creating:
+        attach_planning_card(task)
+    elif before["status"] != task.status or before["project_id"] != task.project_id:
+        sync_planning_card(task)
     changes = []
     if not creating:
         for field in Task._meta.concrete_fields:
@@ -700,6 +714,58 @@ def store_sessions(worker, records):
 
 
 # --- Project planning and durable sequential execution (#28) -----------------
+
+
+def planning_column_for(columns, task):
+    """Board column matching a task's lifecycle, or None when the board lacks it.
+
+    Columns are operator-editable, so only the default names are mapped; cards on
+    custom boards keep whatever column the operator chose.
+    """
+    if task.status == Task.Status.PENDING:
+        candidates = ["Ready", "Backlog"] if task.is_ready else ["Backlog", "Ready"]
+    elif task.status in {Task.Status.DONE, Task.Status.CANCELLED}:
+        candidates = ["Completed"]
+    else:
+        candidates = ["In progress"]
+    return next((c for c in candidates if c in columns), None)
+
+
+def attach_planning_card(task, card=None):
+    """Give a new task its project-board card (creating the plan if needed)."""
+    if card is None:
+        plan, _ = ProjectPlan.objects.get_or_create(project=task.project)
+        column = planning_column_for(plan.columns, task) or plan.columns[0]
+        card = PlanningCard(
+            plan=plan,
+            title=task.title,
+            description=task.description,
+            column=column,
+            position=plan.cards.filter(column=column, archived=False).count(),
+        )
+    card.task = task
+    card.save()
+    return card
+
+
+def sync_planning_card(task):
+    """Move a task's board card to the column for its new status."""
+    card = PlanningCard.objects.filter(task=task, archived=False).select_related("plan").first()
+    if card is None:
+        return
+    if card.plan.project_id != task.project_id:
+        # An admin moved the task to another project; its card follows it.
+        if card.jobs.filter(status__in=["queued", "running"]).exists():
+            raise TaskError("Remove queued planning work before moving the task", 409)
+        card.plan, _ = ProjectPlan.objects.get_or_create(project=task.project)
+        card.column = None
+    column = planning_column_for(card.plan.columns, task)
+    if card.column is None:
+        column = column or card.plan.columns[0]
+    if column and column != card.column:
+        card.column = column
+        card.position = card.plan.cards.filter(column=column, archived=False).count()
+        card.save(update_fields=["plan", "column", "position", "updated_at"])
 
 
 def planning_read(project):
@@ -1114,9 +1180,8 @@ def _advance_planning(plan, worker):
                     next_job.snapshot["title"],
                     next_job.snapshot["description"],
                     human_actor=next_job.actor,
+                    card=card,
                 )
-                card.task = task
-                card.save(update_fields=["task"])
             claim_task(worker.agent, task.pk)
             report_token = secrets.token_urlsafe(32)
             prompt = _planning_prompt(next_job, task, report_token)
