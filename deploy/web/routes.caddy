@@ -62,6 +62,10 @@
 		forward_auth {$API_UPSTREAM:web:8000} {
 			uri /api/v1/users
 			header_up -Authorization
+			# Authorization is an ordinary HTTP read, even when the original
+			# request upgrades to speech WebSocket. Django has no WS users route.
+			header_up -Upgrade
+			header_up -Connection
 		}
 		uri strip_prefix /voice-agent
 		reverse_proxy {$VOICE_UPSTREAM:https://voice.aaron-henriquez.com} {

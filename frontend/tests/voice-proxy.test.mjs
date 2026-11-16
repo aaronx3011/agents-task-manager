@@ -54,21 +54,27 @@ for (const kind of ["vite", "caddy"]) {
     { skip: kind === "caddy" && !process.env.CADDY_BIN },
     async (t) => {
       const observed = [];
-      const api = await listen(
-        t,
-        createServer((req, res) => {
-          assert.equal(req.url, "/api/v1/users");
-          res.writeHead(
-            req.headers.cookie === "sessionid=owner"
-              ? 200
-              : req.headers.cookie
-                ? 403
-                : 401,
-            { "Content-Type": "application/json" },
-          );
-          res.end("[]");
-        }),
+      const authServer = createServer((req, res) => {
+        assert.equal(req.url, "/api/v1/users");
+        assert.equal(req.headers.upgrade, undefined);
+        res.writeHead(
+          req.headers.cookie === "sessionid=owner"
+            ? 200
+            : req.headers.cookie
+              ? 403
+              : 401,
+          { "Content-Type": "application/json" },
+        );
+        res.end("[]");
+      });
+      // ASGI interprets Upgrade on the authorization subrequest as a WebSocket
+      // to /api/v1/users and rejects it. Model that real behavior here.
+      authServer.on("upgrade", (_, socket) =>
+        socket.end(
+          "HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\n\r\n",
+        ),
       );
+      const api = await listen(t, authServer);
       const agent = createServer((req, res) => {
         observed.push({ path: req.url, headers: req.headers });
         res.writeHead(200, {
