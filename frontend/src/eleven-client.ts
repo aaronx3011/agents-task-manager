@@ -188,7 +188,7 @@ export class PMConversation {
         }
         this.connection = connection;
         this.status = "connected";
-        connection.setVolume({ volume: this.muted ? 0 : 1 });
+        if (!textOnly) connection.setVolume({ volume: this.muted ? 0 : 1 });
         this.update();
       } catch (error) {
         await this.revoke(grant);
@@ -217,12 +217,12 @@ export class PMConversation {
   }
   setMuted(muted: boolean) {
     this.muted = muted;
-    this.connection?.setVolume({ volume: muted ? 0 : 1 });
+    if (!this.textOnly) this.connection?.setVolume({ volume: muted ? 0 : 1 });
     this.update();
   }
   toggleMic() {
     this.micMuted = !this.micMuted;
-    this.connection?.setMicMuted(this.micMuted);
+    if (!this.textOnly) this.connection?.setMicMuted(this.micMuted);
     this.update();
   }
   async stop() {

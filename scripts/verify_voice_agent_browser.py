@@ -154,6 +154,8 @@ def main():
         page.get_by_label("Send message", exact=True).click()
         expect(page.get_by_text("Task 302 is in progress.", exact=True)).to_have_count(1)
         expect(page.get_by_text("get_task · result received", exact=True)).to_have_count(1)
+        expect(page.locator(".voice-error")).to_have_count(0)
+        assert not revoked
         assert issued[0]["text_only"] is True
         assert (
             initializations[0]["dynamic_variables"]["secret__atm_voice_token"]
@@ -164,6 +166,8 @@ def main():
         expect(
             page.get_by_text("Created task 987 in agents-task-manager.", exact=True)
         ).to_have_count(1)
+        expect(page.locator(".voice-error")).to_have_count(0)
+        assert not revoked
         assert len(issued) == 1  # same conversation, not a new session for every turn
         page.get_by_role("button", name="Start voice conversation", exact=True).click()
         page.wait_for_function(
