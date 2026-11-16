@@ -27,6 +27,37 @@ class Project(models.Model):
         return self.name
 
 
+class VoiceConversation(models.Model):
+    """Short-lived delegation to ElevenLabs; no provider key or audio is stored."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    auth_session = models.ForeignKey("sessions.Session", on_delete=models.CASCADE)
+    auth_hash = models.CharField(max_length=128, editable=False)
+    token_hash = models.CharField(max_length=64, unique=True, editable=False)
+    provider_conversation = models.CharField(max_length=128, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(db_index=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+
+class VoiceToolResult(models.Model):
+    conversation = models.ForeignKey(
+        VoiceConversation, on_delete=models.CASCADE, related_name="tool_results"
+    )
+    fingerprint = models.CharField(max_length=64)
+    tool = models.CharField(max_length=40)
+    result = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["conversation", "fingerprint"], name="voice_tool_result_once"
+            )
+        ]
+
+
 class Agent(models.Model):
     name = models.CharField(max_length=100, unique=True)
     api_key_hash = models.CharField(max_length=256, editable=False)

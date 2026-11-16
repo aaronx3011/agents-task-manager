@@ -672,6 +672,70 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/voice/sessions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["voice_sessions_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/voice/sessions/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["voice_sessions_retrieve"];
+    put?: never;
+    post?: never;
+    delete: operations["voice_sessions_destroy"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/voice/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["voice_status_retrieve"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/voice/tools/{operation}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["voice_tools_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/worker/sync": {
     parameters: {
       query?: never;
@@ -1284,6 +1348,18 @@ export interface components {
      * @enum {string}
      */
     RoleEnum: "owner" | "member" | "viewer";
+    SessionInputRequest: {
+      /** @default false */
+      text_only: boolean;
+    };
+    SessionOutput: {
+      /** Format: uuid */
+      id: string;
+      signed_url: string;
+      tool_token: string;
+      /** Format: date-time */
+      expires_at: string;
+    };
     SessionPage: {
       count: number;
       items: unknown[];
@@ -1434,6 +1510,11 @@ export interface components {
       last_login: string | null;
       /** Format: date-time */
       date_joined: string;
+    };
+    VoiceStatusOutput: {
+      provider: string;
+      configured: boolean;
+      policy_version: string;
     };
     WorkerCommandPage: {
       count: number;
@@ -2784,6 +2865,128 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["LoginError"];
+        };
+      };
+    };
+  };
+  voice_sessions_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["SessionInputRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["SessionInputRequest"];
+        "multipart/form-data": components["schemas"]["SessionInputRequest"];
+      };
+    };
+    responses: {
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SessionOutput"];
+        };
+      };
+    };
+  };
+  voice_sessions_retrieve: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  voice_sessions_destroy: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No response body */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  voice_status_retrieve: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VoiceStatusOutput"];
+        };
+      };
+    };
+  };
+  voice_tools_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        operation: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": {
+          [key: string]: unknown;
+        };
+        "application/x-www-form-urlencoded": {
+          [key: string]: unknown;
+        };
+        "multipart/form-data": {
+          [key: string]: unknown;
+        };
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
         };
       };
     };

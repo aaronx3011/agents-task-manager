@@ -644,7 +644,7 @@ export default function App() {
             ) : (
               <Empty
                 title="Owner access required"
-                description="The voice agent uses the shared Voice Lab identity."
+                description="The PM agent can create and update tasks with owner authority."
               />
             )
           ) : location.section === "planning" ? (

@@ -8,6 +8,15 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
+# Provider credentials are server-only. The optional file is useful for local
+# development; deployment injects the key via the private backend environment.
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+if not ELEVENLABS_API_KEY and os.environ.get("ELEVENLABS_API_KEY_FILE"):
+    ELEVENLABS_API_KEY = Path(os.environ["ELEVENLABS_API_KEY_FILE"]).read_text().strip()
+ELEVENLABS_AGENT_ID = os.environ.get("ELEVENLABS_AGENT_ID", "")
+ELEVENLABS_LLM = os.environ.get("ELEVENLABS_LLM", "gpt-4.1")
+VOICE_PUBLIC_ORIGIN = os.environ.get("VOICE_PUBLIC_ORIGIN", "https://atm.aaron-henriquez.com")
+
 
 def env_bool(name, default=False):
     return os.environ.get(name, str(default)).lower() in {"1", "true", "yes"}

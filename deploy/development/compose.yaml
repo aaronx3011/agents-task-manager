@@ -32,6 +32,9 @@ x-web: &web
     NOTION_PROJECTS_DATA_SOURCE_ID: ${NOTION_PROJECTS_DATA_SOURCE_ID:-}
     NOTION_TASKS_DATA_SOURCE_ID: ${NOTION_TASKS_DATA_SOURCE_ID:-}
     NOTION_SYNC_INTERVAL_SECONDS: ${NOTION_SYNC_INTERVAL_SECONDS:-20}
+    ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+    ELEVENLABS_AGENT_ID: ${ELEVENLABS_AGENT_ID:-}
+    VOICE_PUBLIC_ORIGIN: ${VOICE_PUBLIC_ORIGIN:-https://atm.aaron-henriquez.com}
   restart: unless-stopped
   depends_on:
     db:
@@ -85,9 +88,6 @@ services:
     image: agents-task-manager-web:${IMAGE_TAG:-latest}
     environment:
       ADMIN_PATH: ${DJANGO_ADMIN_PATH:-admin}
-      VOICE_UPSTREAM: ${VOICE_UPSTREAM:-https://voice.aaron-henriquez.com}
-      VOICE_ORIGIN: ${VOICE_ORIGIN:-https://voice.aaron-henriquez.com}
-      VOICE_HOST: ${VOICE_HOST:-voice.aaron-henriquez.com}
     ports:
       - "8000:8080"
     restart: unless-stopped

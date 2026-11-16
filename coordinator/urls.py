@@ -14,6 +14,7 @@ from .views import (
     sessions_read,
     worker_sync,
 )
+from .voice import VoiceSessionDetailView, VoiceSessionView, VoiceStatusView, VoiceToolView
 
 router = DefaultRouter(trailing_slash=False)
 router.register("agents", AgentRegistrationViewSet, basename="agent-registration")
@@ -22,6 +23,10 @@ router.register("workers", WorkerViewSet, basename="worker")
 router.register("commands", CommandViewSet, basename="command")
 
 urlpatterns = [
+    path("voice/status", VoiceStatusView.as_view(), name="voice-status"),
+    path("voice/sessions", VoiceSessionView.as_view(), name="voice-sessions"),
+    path("voice/sessions/<uuid:pk>", VoiceSessionDetailView.as_view(), name="voice-session"),
+    path("voice/tools/<str:operation>", VoiceToolView.as_view(), name="voice-tool"),
     path("projects", projects_create, name="projects-create"),
     path("planning/jobs/<int:pk>/report", planning_report, name="planning-report"),
     path("projects/<slug:slug>/planning", project_planning, name="project-planning"),

@@ -46,6 +46,9 @@ x-web: &web
     NOTION_PROJECTS_DATA_SOURCE_ID: ${NOTION_PROJECTS_DATA_SOURCE_ID:-}
     NOTION_TASKS_DATA_SOURCE_ID: ${NOTION_TASKS_DATA_SOURCE_ID:-}
     NOTION_SYNC_INTERVAL_SECONDS: ${NOTION_SYNC_INTERVAL_SECONDS:-20}
+    ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+    ELEVENLABS_AGENT_ID: ${ELEVENLABS_AGENT_ID:-}
+    VOICE_PUBLIC_ORIGIN: https://${SITE_ADDRESS}
   restart: unless-stopped
   depends_on:
     redis:
@@ -83,9 +86,6 @@ services:
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS}
       ADMIN_PATH: ${DJANGO_ADMIN_PATH:-admin}
-      VOICE_UPSTREAM: ${VOICE_UPSTREAM:-https://voice.aaron-henriquez.com}
-      VOICE_ORIGIN: ${VOICE_ORIGIN:-https://voice.aaron-henriquez.com}
-      VOICE_HOST: ${VOICE_HOST:-voice.aaron-henriquez.com}
       TLS: ${TLS:?Set to the ACME contact email (or internal for a staging rehearsal)}
     ports:
       - "${HTTP_PORT:-80}:80"

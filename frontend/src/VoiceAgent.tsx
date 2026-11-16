@@ -1,19 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mic, MicOff, Send, Square, Volume2, VolumeX } from "lucide-react";
-import { VOICE_API, VoiceClient } from "./voice-client";
-import type { VoiceStatus } from "./voice-client";
+import { api, unwrap } from "./api-client";
+import { PMConversation } from "./eleven-client";
+import type { PMStatus } from "./eleven-client";
 import { refreshTaskViews } from "./task-sync";
 import "./voice-agent.css";
 
 export default function VoiceAgent() {
   const [, render] = useState(0);
   const [draft, setDraft] = useState("");
-  const [client, setClient] = useState<VoiceClient>();
+  const [client, setClient] = useState<PMConversation>();
   const transcript = useRef<HTMLDivElement>(null);
   const queries = useQueryClient();
   useEffect(() => {
-    const connection = new VoiceClient(
+    const connection = new PMConversation(
       () => render((value) => value + 1),
       () => {
         void refreshTaskViews(queries);
@@ -24,87 +25,53 @@ export default function VoiceAgent() {
   }, [queries]);
   const status = useQuery({
     queryKey: ["voice-status"],
-    queryFn: async ({ signal }): Promise<VoiceStatus> => {
-      const response = await fetch(VOICE_API + "/status", { signal });
-      if (
-        !response.ok ||
-        !response.headers.get("content-type")?.includes("application/json")
-      )
-        throw new Error(
-          "Voice Lab is unavailable. Check the voice service and its web proxy.",
-        );
-      return response.json();
-    },
-    refetchInterval: 15000,
+    queryFn: async ({ signal }) =>
+      (await unwrap(api.GET("/api/v1/voice/status", { signal }))) as PMStatus,
+    refetchInterval: 30000,
     retry: false,
   });
   useEffect(() => {
     transcript.current?.scrollTo({ top: transcript.current.scrollHeight });
   });
-  const ready = status.data;
-  const send = async (text: string) => {
-    if (!client || !text.trim()) return;
-    // Unlock audio within the user's gesture; typed chat remains usable when
-    // speech is offline or the browser does not support AudioContext.
-    try {
-      if (ready?.speech) await client.unlockAudio();
-    } catch {
-      /* text fallback */
-    }
-    void client.send(text);
-  };
+  const connected = client?.status === "connected";
+  const busy = client?.status === "connecting";
+  const ready = Boolean(status.data?.configured);
   return (
     <section className="voice-agent" aria-label="Voice agent">
       <header className="voice-heading">
         <div>
           <h1>
-            <Mic size={23} /> Voice agent
+            <Mic size={23} /> PM router
           </h1>
           <p>
-            Talk to your existing agent to create tasks, check progress, and
-            recall project context.
+            Talk naturally about projects, create tasks, and check progress.
           </p>
         </div>
         <button
           className="secondary-button"
-          onClick={() => {
-            client?.stopReply();
-            client?.stopMic();
-            if (client) {
-              client.entries = [];
-              client.messages = [];
-              client.error = "";
-              client.update();
-            }
-          }}
+          onClick={() => void client?.clear()}
         >
           Clear conversation
         </button>
       </header>
       <div className="voice-services" aria-label="Agent services">
-        {[
-          ["Speech", ready?.speech],
-          [ready?.model || "Language model", ready?.modelReady],
-          ["Tasks", ready?.mcp?.["task-coordinator"]?.connected],
-          ["Memory", ready?.mcp?.["agent-memory"]?.connected],
-          ["PM router", ready?.policy?.version?.startsWith("pm-router-")],
-        ].map(([name, connected]) => (
-          <span key={String(name)} data-ready={Boolean(connected)}>
-            {String(name)} ·{" "}
-            {status.isPending
-              ? "checking"
-              : connected
-                ? "ready"
-                : "unavailable"}
-          </span>
-        ))}
+        <span data-ready={ready}>
+          ElevenLabs ·{" "}
+          {status.isPending ? "checking" : ready ? "configured" : "unavailable"}
+        </span>
+        <span data-ready={connected}>
+          PM agent ·{" "}
+          {connected ? "connected" : busy ? "connecting" : "not connected"}
+        </span>
         <button className="text-button" onClick={() => void status.refetch()}>
-          Reconnect / check
+          Check connection
         </button>
       </div>
-      {(status.isError || client?.error) && (
+      {(status.isError || client?.error || (!status.isPending && !ready)) && (
         <div className="voice-error" role="alert">
-          {client?.error || status.error?.message}
+          {client?.error ||
+            status.error?.message ||
+            "The ElevenLabs PM agent is not configured on the backend yet."}
         </div>
       )}
       <div
@@ -119,19 +86,19 @@ export default function VoiceAgent() {
             <Mic size={40} />
             <h2>What would you like to work on?</h2>
             <p>
-              Start the microphone or type a message. Mention the project when
-              creating a task.
+              Start a voice conversation, or type to chat without microphone
+              access.
             </p>
             <div>
               {[
-                "What tasks are ready in agents-task-manager?",
-                "Tell me the status of task 296.",
+                "What projects need my attention?",
+                "What tasks are pending in agents-task-manager?",
               ].map((text) => (
                 <button
-                  key={text}
                   className="secondary-button"
-                  onClick={() => void send(text)}
-                  disabled={!ready?.modelReady}
+                  key={text}
+                  disabled={!ready || busy}
+                  onClick={() => void client?.send(text)}
                 >
                   {text}
                 </button>
@@ -145,8 +112,8 @@ export default function VoiceAgent() {
               {entry.role === "user"
                 ? "You"
                 : entry.role === "tool"
-                  ? "Agent tool"
-                  : "Assistant"}
+                  ? "Task Manager tool"
+                  : "PM agent"}
             </small>
             <p>{entry.text || "…"}</p>
           </article>
@@ -155,22 +122,30 @@ export default function VoiceAgent() {
       <footer className="voice-controls">
         <div className="voice-buttons">
           <button
-            className={client?.capture ? "primary-button" : "secondary-button"}
-            disabled={!client || (!client.capture && !ready?.speech)}
-            onClick={() =>
-              client?.capture ? client.stopMic() : void client?.startMic()
-            }
+            className="primary-button"
+            disabled={!ready || busy || (connected && !client?.textOnly)}
+            onClick={() => void client?.start(false)}
           >
-            {client?.capture ? <MicOff size={17} /> : <Mic size={17} />}
-            {client?.capture ? "Stop microphone" : "Start microphone"}
+            <Mic size={17} /> Start voice conversation
           </button>
           <button
             className="secondary-button"
-            disabled={!client?.active}
-            onClick={() => client?.stopReply()}
+            disabled={!connected && !busy}
+            onClick={() => void client?.stop()}
           >
-            <Square size={15} /> Interrupt
+            <Square size={15} /> End conversation
           </button>
+          {connected && !client?.textOnly && (
+            <button
+              className="icon-button"
+              aria-label={
+                client?.micMuted ? "Unmute microphone" : "Mute microphone"
+              }
+              onClick={() => client?.toggleMic()}
+            >
+              {client?.micMuted ? <MicOff size={18} /> : <Mic size={18} />}
+            </button>
+          )}
           <button
             className="icon-button"
             aria-label={
@@ -181,35 +156,36 @@ export default function VoiceAgent() {
           >
             {client?.muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
           </button>
-          <span role="status">{client?.state || "Connecting…"}</span>
+          <span role="status">{client?.state || "Ready to talk"}</span>
         </div>
         <form
           onSubmit={(event) => {
             event.preventDefault();
             if (draft.trim()) {
-              void send(draft);
+              void client?.send(draft);
               setDraft("");
             }
           }}
         >
           <input
-            aria-label="Message voice agent"
-            placeholder="Ask about tasks or describe one to create…"
+            aria-label="Message PM agent"
+            placeholder="Ask about projects or describe a task…"
             value={draft}
             maxLength={4000}
             onChange={(event) => setDraft(event.target.value)}
           />
           <button
             className="primary-button"
-            disabled={!client || !draft.trim() || !ready?.modelReady}
             aria-label="Send message"
+            disabled={!ready || busy || !draft.trim()}
           >
             <Send size={17} /> Send
           </button>
         </form>
         <p className="voice-footnote">
-          Connected to Voice Lab · Conversation clears when you leave this page
-          · Task status is checked when you ask
+          Powered by ElevenLabs · Starting voice from text begins a new agent
+          session · Speak to interrupt · Task changes are handled by Task
+          Manager
         </p>
       </footer>
     </section>

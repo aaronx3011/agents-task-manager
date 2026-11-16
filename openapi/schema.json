@@ -2525,6 +2525,197 @@
                 }
             }
         },
+        "/api/v1/voice/sessions": {
+            "post": {
+                "operationId": "voice_sessions_create",
+                "tags": [
+                    "voice"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SessionInputRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SessionInputRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SessionInputRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SessionOutput"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/voice/sessions/{id}": {
+            "get": {
+                "operationId": "voice_sessions_retrieve",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "voice"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "voice_sessions_destroy",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "voice"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/voice/status": {
+            "get": {
+                "operationId": "voice_status_retrieve",
+                "tags": [
+                    "voice"
+                ],
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/VoiceStatusOutput"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/voice/tools/{operation}": {
+            "post": {
+                "operationId": "voice_tools_create",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "operation",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "voice"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "voiceConversationToken": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/worker/sync": {
             "post": {
                 "operationId": "worker_sync_create",
@@ -4510,6 +4701,40 @@
                 "type": "string",
                 "description": "* `owner` - Owner\n* `member` - Member\n* `viewer` - Viewer"
             },
+            "SessionInputRequest": {
+                "type": "object",
+                "properties": {
+                    "text_only": {
+                        "type": "boolean",
+                        "default": false
+                    }
+                }
+            },
+            "SessionOutput": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "signed_url": {
+                        "type": "string"
+                    },
+                    "tool_token": {
+                        "type": "string"
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "expires_at",
+                    "id",
+                    "signed_url",
+                    "tool_token"
+                ]
+            },
             "SessionPage": {
                 "type": "object",
                 "properties": {
@@ -5083,6 +5308,25 @@
                     "username"
                 ]
             },
+            "VoiceStatusOutput": {
+                "type": "object",
+                "properties": {
+                    "provider": {
+                        "type": "string"
+                    },
+                    "configured": {
+                        "type": "boolean"
+                    },
+                    "policy_version": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "configured",
+                    "policy_version",
+                    "provider"
+                ]
+            },
             "WorkerCommandPage": {
                 "type": "object",
                 "properties": {
@@ -5262,6 +5506,11 @@
                 "in": "header",
                 "name": "Authorization",
                 "description": "Per-device user token: `Authorization: Token <key>`."
+            },
+            "voiceConversationToken": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-ATM-Voice-Token"
             }
         }
     }

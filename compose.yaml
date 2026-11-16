@@ -26,6 +26,9 @@ x-app: &app
     NOTION_PROJECTS_DATA_SOURCE_ID: ${NOTION_PROJECTS_DATA_SOURCE_ID:-}
     NOTION_TASKS_DATA_SOURCE_ID: ${NOTION_TASKS_DATA_SOURCE_ID:-}
     NOTION_SYNC_INTERVAL_SECONDS: ${NOTION_SYNC_INTERVAL_SECONDS:-20}
+    ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+    ELEVENLABS_AGENT_ID: ${ELEVENLABS_AGENT_ID:-}
+    VOICE_PUBLIC_ORIGIN: ${VOICE_PUBLIC_ORIGIN:-https://atm.aaron-henriquez.com}
   depends_on:
     db:
       condition: service_healthy
@@ -75,10 +78,6 @@ services:
     ports:
       - "127.0.0.1:8000:8080"
     restart: unless-stopped
-    environment:
-      VOICE_UPSTREAM: ${VOICE_UPSTREAM:-https://voice.aaron-henriquez.com}
-      VOICE_ORIGIN: ${VOICE_ORIGIN:-https://voice.aaron-henriquez.com}
-      VOICE_HOST: ${VOICE_HOST:-voice.aaron-henriquez.com}
     depends_on:
       web:
         condition: service_healthy
