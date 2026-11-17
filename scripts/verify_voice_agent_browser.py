@@ -52,7 +52,7 @@ def main():
             body = dict(
                 provider="fireworks",
                 configured=state["configured"],
-                speech_provider="voice-lab",
+                speech_provider="elevenlabs",
                 speech_configured=state["speech"],
                 transcription_configured=state["speech"],
                 tts_configured=True,
@@ -113,7 +113,8 @@ def main():
                 body = dict(text="Tell me the status of task 302 from voice.")
             else:
                 speeches.append(request.post_data_json)
-                assert len(speeches[-1]["text"].encode("utf-16-le")) // 2 <= 180
+                assert len(speeches[-1]["text"]) <= 2000
+                # Playable fixture audio; the provider encoding is not under UI test.
                 route.fulfill(content_type="audio/wav", body=audio.getvalue())
                 return
         else:

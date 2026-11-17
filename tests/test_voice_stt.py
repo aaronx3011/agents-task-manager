@@ -1,10 +1,9 @@
-"""Clip-to-realtime adapter contract; no speech provider or API key required."""
+"""Clip-to-text adapter contract; no speech provider or API key required."""
 
-import base64
 import io
-import json
 import wave
 
+import httpx
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
@@ -36,69 +35,39 @@ def post(grant, content, mime="audio/wav"):
     )
 
 
-def socket_fixture(monkeypatch, events):
-    sent, connections, closed = [], [], []
+def elevenlabs_fixture(monkeypatch, response):
+    calls = []
 
-    class Socket:
-        def __enter__(self):
-            return self
+    def request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return response
 
-        def __exit__(self, *args):
-            closed.append(True)
-
-        def send(self, value):
-            sent.append(json.loads(value))
-
-        def recv(self, timeout):
-            assert 0 < timeout <= 60
-            if not events:
-                raise TimeoutError("private upstream details")
-            value = events.pop(0)
-            return value if isinstance(value, str) else json.dumps(value)
-
-    def connect(url, **kwargs):
-        connections.append((url, kwargs))
-        return Socket()
-
-    monkeypatch.setattr("coordinator.voice_runtime.connect", connect)
-    return sent, connections, closed
+    monkeypatch.setattr("coordinator.voice_runtime.httpx.request", request)
+    return calls
 
 
-def test_local_parakeet_receives_only_pcm_and_transcription_commands(voice, monkeypatch, settings):
+def test_elevenlabs_receives_only_the_bounded_clip_and_model(voice, monkeypatch, settings):
     _, grant = voice
-    sent, connections, closed = socket_fixture(
+    calls = elevenlabs_fixture(
         monkeypatch,
-        [
-            {"type": "session.created"},
-            {"type": "session.updated"},
-            {"type": "input_audio_buffer.committed"},
-            {
-                "type": "conversation.item.input_audio_transcription.completed",
-                "transcript": "Check my tasks",
-            },
-        ],
+        httpx.Response(200, json={"language_code": "eng", "text": "Check my tasks"}),
     )
-    pcm = b"\x01\x00" * 12000
-    result = post(grant, wav(pcm))
+    clip = wav()
+    result = post(grant, clip)
     assert result.status_code == 200, result.content
     assert result.json() == {"text": "Check my tasks"}
     assert result["Cache-Control"] == "no-store, private"
-    assert connections[0][0] == "wss://voice.example/api/listen"
-    assert connections[0][1]["origin"] == "https://voice.example"
-    assert sent[0] == {
-        "type": "session.update",
-        "session": {
-            "modalities": ["text"],
-            "turn_detection": None,
-        },
-    }
-    assert sent[-1] == {"type": "input_audio_buffer.commit"}
-    assert all(item["type"] == "input_audio_buffer.append" for item in sent[1:-1])
-    assert b"".join(base64.b64decode(item["audio"]) for item in sent[1:-1]) == pcm
-    assert len(sent[1:-1]) == 3
-    assert closed == [True]
-    assert grant["tool_token"] not in str(connections) + str(sent)
-    assert settings.FIREWORKS_API_KEY not in str(connections) + str(sent)
+    method, url, kwargs = calls[0]
+    assert (method, url) == ("POST", "https://api.elevenlabs.io/v1/speech-to-text")
+    assert kwargs["headers"] == {"xi-api-key": settings.ELEVENLABS_API_KEY}
+    assert kwargs["data"] == {"model_id": settings.ELEVENLABS_STT_MODEL}
+    name, content, mime = kwargs["files"]["file"]
+    assert (name, mime) == ("recording.wav", "audio/wav")
+    assert content == clip
+    assert kwargs["follow_redirects"] is False
+    assert grant["tool_token"] not in repr(calls)
+    assert settings.FIREWORKS_API_KEY not in repr(calls)
+    assert "conversation" not in repr(kwargs["headers"]).lower()
 
 
 @pytest.mark.parametrize(
@@ -120,7 +89,7 @@ def test_bad_or_oversize_duration_audio_never_reaches_upstream(voice, monkeypatc
     def unexpected(*args, **kwargs):
         pytest.fail("invalid recording reached speech provider")
 
-    monkeypatch.setattr("coordinator.voice_runtime.connect", unexpected)
+    monkeypatch.setattr("coordinator.voice_runtime.httpx.request", unexpected)
     assert post(grant, clip, mime).status_code == 400
 
 
@@ -130,41 +99,45 @@ def test_audio_payload_size_is_bounded(voice):
 
 
 @pytest.mark.parametrize(
-    "events",
+    "response",
     [
-        ["invalid json"],
-        [{"type": "error", "error": {"message": "private upstream details"}}],
-        [{"type": "session.updated"}],  # disconnect/timeout after commit
-        [
-            {"type": "session.updated"},
-            {"type": "conversation.item.input_audio_transcription.completed", "transcript": 123},
-        ],
+        httpx.Response(401, json={"detail": {"message": "private upstream details"}}),
+        httpx.Response(429, json={"detail": "private upstream details"}),
+        httpx.Response(200, content=b"not json"),
+        httpx.Response(200, json={"text": 123}),
+        httpx.Response(200, json=["private upstream details"]),
+        httpx.Response(200, json={"text": "x" * 4001}),
     ],
 )
-def test_transcription_errors_are_generic_and_close_the_connection(voice, monkeypatch, events):
+def test_transcription_errors_are_generic(voice, monkeypatch, response):
     _, grant = voice
-    _, _, closed = socket_fixture(monkeypatch, events)
+    elevenlabs_fixture(monkeypatch, response)
     result = post(grant, wav())
     assert result.status_code == 502
     assert b"private upstream details" not in result.content
-    assert closed == [True]
+
+
+def test_unreachable_provider_is_a_sanitized_error(voice, monkeypatch):
+    _, grant = voice
+
+    def request(*args, **kwargs):
+        raise httpx.ConnectError("private upstream details")
+
+    monkeypatch.setattr("coordinator.voice_runtime.httpx.request", request)
+    result = post(grant, wav())
+    assert result.status_code == 502
+    assert b"private upstream details" not in result.content
 
 
 def test_silent_turn_is_not_a_fabricated_transcript(voice, monkeypatch):
     _, grant = voice
-    socket_fixture(
-        monkeypatch,
-        [
-            {"type": "session.updated"},
-            {"type": "conversation.item.input_audio_transcription.completed", "transcript": ""},
-        ],
-    )
+    elevenlabs_fixture(monkeypatch, httpx.Response(200, json={"text": ""}))
     assert post(grant, wav()).json() == {"text": ""}
 
 
-def test_missing_local_configuration_returns_service_unavailable(voice, settings):
+def test_missing_elevenlabs_configuration_returns_service_unavailable(voice, settings):
     _, grant = voice
-    settings.LOCAL_SPEECH_ORIGIN = ""
+    settings.ELEVENLABS_API_KEY = ""
     assert post(grant, wav()).status_code == 503
 
 

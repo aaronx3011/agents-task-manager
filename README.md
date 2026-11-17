@@ -274,41 +274,45 @@ with a maximum 15-second clip. Microphone access needs HTTPS or localhost.
 
 The browser connects only to Django. **Fireworks AI** handles all PM reasoning
 and function calling; Django owns the system prompt, bounded conversation history,
-tool execution and audit writes. The existing **Voice Lab** service at
-`https://voice.aaron-henriquez.com` handles both speech directions: **Parakeet**
-recognition at `/api/listen` and **Pocket TTS** output at `/api/voice` (Alba voice).
-There is no ElevenLabs dependency or provider
-connection in the browser. Each short-lived conversation token is bound to the
-owner's login; every tool call rechecks role, session, expiry and revocation.
-Provider keys stay server-side. Typed chat needs only Fireworks; voice additionally
-needs a reachable local speech service; no separate speech-provider key is needed.
+tool execution and audit writes. **ElevenLabs** handles both speech directions
+through server-side calls: the `scribe_v1` speech-to-text API for microphone turns
+and the text-to-speech API for spoken replies. There is no ElevenLabs provider
+connection in the browser and no remote agent definition is used. Each short-lived
+conversation token is bound to the owner's login; every tool call rechecks role,
+session, expiry and revocation. Provider keys stay server-side. Typed chat needs
+only Fireworks; voice additionally needs `ELEVENLABS_API_KEY` and a voice ID.
 Text-to-voice switching preserves context.
 The bounded backend transcript is cleared on revocation; expired grants cannot
 be used. Microphone audio is converted to mono 24 kHz PCM16 WAV in the browser.
-Django validates each bounded clip and sends PCM frames to the public Voice Lab
-recognition WebSocket, commits the turn, and waits for its transcript. It never
-asks Voice Lab to generate a model reply. Reply text is sent to Pocket TTS.
-Audio is not stored by Task Manager.
+Django validates each bounded clip, uploads it to ElevenLabs speech-to-text, and
+takes the transcript. It never asks the speech provider to generate a model reply.
+Reply text is sent chunk-by-chunk to ElevenLabs text-to-speech, which returns MP3
+audio for playback. Audio is not stored by Task Manager.
 Task-status announcements are request-driven, not automatic background
 monitoring.
 
 Set these on the **Django API** container/service, not the frontend:
 
 ```sh
-LOCAL_SPEECH_ORIGIN=https://voice.aaron-henriquez.com
 FIREWORKS_API_KEY=...             # or FIREWORKS_API_KEY_FILE=/secure/path
 FIREWORKS_MODEL=accounts/fireworks/models/minimax-m3p1-flash
+ELEVENLABS_API_KEY=...            # or ELEVENLABS_API_KEY_FILE=/secure/path
+ELEVENLABS_VOICE_ID=...
+ELEVENLABS_STT_MODEL=scribe_v3
+ELEVENLABS_TTS_MODEL=eleven_v4_turbo
 VOICE_PUBLIC_ORIGIN=https://your-public-task-manager-origin
 ```
 
 Do not use `VITE_*` variables for provider credentials. For local development,
-`FIREWORKS_API_KEY_FILE` can point at a private key file outside source control.
+`FIREWORKS_API_KEY_FILE` and `ELEVENLABS_API_KEY_FILE` can point at private key
+files outside source control. `ELEVENLABS_VOICE_ID` must be a voice available to
+that account; list candidates with the ElevenLabs voices API.
 
 Apply migrations and restart Django after configuring providers. Choose a
-Fireworks model/deployment that supports OpenAI-compatible function calling;
-the model identifier is configurable for your account. All `ELEVENLABS_*` settings,
-the earlier `LOCAL_TTS_ORIGIN`, and the old `configure_voice_agent` command are no longer used.
-Existing remote ElevenLabs Agents/tools are not deleted automatically.
+Fireworks model/deployment that supports OpenAI-compatible function calling and
+an ElevenLabs account/model that supports the speech API; both identifiers are
+configurable. The earlier `LOCAL_SPEECH_ORIGIN`, `LOCAL_TTS_ORIGIN`, the Voice Lab
+speech adapters and the old `configure_voice_agent` command are no longer used.
 The PM policy and seven function schemas live in `coordinator/voice_policy.py`;
 browser messages cannot replace the system prompt or supply conversation history.
 The page is owner-only because tool calls act with the owner's authority.
@@ -316,18 +320,14 @@ Provider calls are not automatically retried. A failed reply can follow a commit
 tool write; check current task state before repeating a request.
 
 Long replies are spoken in full: the browser splits at sentence/paragraph/word
-boundaries into chunks of at most 180 UTF-16 units (below Voice Lab's 1,000-unit
-per-request limit), plays them in order, and prefetches only the next chunk.
-Small batches reduce time to first audio on the local runtime.
-It never truncates a reply to fit one request. Unbroken words/URLs and Unicode
-surrogate pairs are handled without losing text. Mute, interruption, a new turn,
-End and Clear cancel queued synthesis/playback. A failed chunk stops the queue
-and leaves the full text visible; it is not retried automatically.
-Django wraps Voice Lab's mono 24 kHz PCM16LE in WAV for browser playback.
-`LOCAL_SPEECH_ORIGIN` is a server-controlled origin; no dashboard cookie, voice token
-or provider key is forwarded to it. Status badges indicate configuration, not
-upstream health. Check the existing service's `/api/status` and its underlying
-`speech-server` if speech is unavailable. Reusing TTS does not require Ollama.
+boundaries into chunks of at most 900 characters, plays them in order, and
+prefetches only the next chunk. Small batches reduce time to first audio without
+reaching the provider's per-request limit. It never truncates a reply to fit one
+request. Unbroken words/URLs and Unicode surrogate pairs are handled without
+losing text. Mute, interruption, a new turn, End and Clear cancel queued
+synthesis/playback. A failed chunk stops the queue and leaves the full text
+visible; it is not retried automatically. Status badges indicate configuration,
+not upstream health. Check the ElevenLabs API status if speech is unavailable.
 
 Contract and browser verification:
 [GitHub #109](https://github.com/aaronx3011/agents-task-manager/issues/109) and

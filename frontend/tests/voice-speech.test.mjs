@@ -25,7 +25,7 @@ test("long replies, Unicode, paragraphs and unbroken URLs retain every character
   ]) {
     const chunks = speechChunks(text);
     assert.equal(chunks.join(""), text);
-    assert.ok(chunks.every((chunk) => chunk.length > 0 && chunk.length <= 180));
+    assert.ok(chunks.every((chunk) => chunk.length > 0 && chunk.length <= 900));
     assert.ok(
       chunks.every(
         (chunk) =>

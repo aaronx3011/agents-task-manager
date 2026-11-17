@@ -38,6 +38,18 @@ def configured():
     return bool(settings.FIREWORKS_API_KEY and settings.FIREWORKS_MODEL)
 
 
+def transcription_configured():
+    return bool(settings.ELEVENLABS_API_KEY and settings.ELEVENLABS_STT_MODEL)
+
+
+def tts_configured():
+    return bool(
+        settings.ELEVENLABS_API_KEY
+        and settings.ELEVENLABS_VOICE_ID
+        and settings.ELEVENLABS_TTS_MODEL
+    )
+
+
 class SessionInput(serializers.Serializer):
     text_only = serializers.BooleanField(default=False)
 
@@ -75,10 +87,10 @@ class VoiceStatusView(OwnerVoiceView):
             {
                 "provider": "fireworks",
                 "configured": configured(),
-                "speech_provider": "voice-lab",
-                "speech_configured": bool(settings.LOCAL_SPEECH_ORIGIN),
-                "transcription_configured": bool(settings.LOCAL_SPEECH_ORIGIN),
-                "tts_configured": bool(settings.LOCAL_SPEECH_ORIGIN),
+                "speech_provider": "elevenlabs",
+                "speech_configured": transcription_configured() and tts_configured(),
+                "transcription_configured": transcription_configured(),
+                "tts_configured": tts_configured(),
                 "policy_version": POLICY_VERSION,
             }
         )

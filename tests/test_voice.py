@@ -24,7 +24,10 @@ def owner():
 
 @pytest.fixture
 def voice(owner, settings):
-    settings.LOCAL_SPEECH_ORIGIN = "https://voice.example"
+    settings.ELEVENLABS_API_KEY = "elevenlabs-server-secret"
+    settings.ELEVENLABS_VOICE_ID = "voice-fixture-123"
+    settings.ELEVENLABS_STT_MODEL = "scribe_v3"
+    settings.ELEVENLABS_TTS_MODEL = "eleven_v4_turbo"
     settings.FIREWORKS_API_KEY = "fireworks-server-secret"
     client = Client()
     client.force_login(owner)
@@ -292,12 +295,9 @@ def test_turn_concurrency_expiry_and_no_browser_history(voice, monkeypatch):
     assert chat(grant).status_code == 401
 
 
-def test_local_tts_returns_playable_wav_without_forwarding_credentials(
+def test_elevenlabs_tts_returns_audio_without_forwarding_owner_credentials(
     voice, settings, monkeypatch
 ):
-    import io
-    import wave
-
     import httpx
 
     _, grant = voice
@@ -305,13 +305,17 @@ def test_local_tts_returns_playable_wav_without_forwarding_credentials(
 
     def provider(method, url, **kwargs):
         requests.append((url, kwargs))
-        assert url == "https://voice.example/api/voice"
-        assert kwargs["json"] == {"text": "Here are your tasks"}
-        assert "xi-api-key" not in kwargs["headers"]
+        assert url == "https://api.elevenlabs.io/v1/text-to-speech/voice-fixture-123"
+        assert kwargs["json"] == {
+            "text": "Here are your tasks",
+            "model_id": settings.ELEVENLABS_TTS_MODEL,
+        }
+        assert kwargs["headers"]["xi-api-key"] == settings.ELEVENLABS_API_KEY
+        assert kwargs["headers"]["Accept"] == "audio/mpeg"
         assert "Authorization" not in kwargs["headers"]
         assert "X-ATM-Voice-Token" not in kwargs["headers"]
         return httpx.Response(
-            200, content=b"\x01\x00" * 24000, headers={"content-type": "application/octet-stream"}
+            200, content=b"ID3\x04fake-mp3", headers={"content-type": "audio/mpeg"}
         )
 
     monkeypatch.setattr("coordinator.voice_runtime.httpx.request", provider)
@@ -322,17 +326,15 @@ def test_local_tts_returns_playable_wav_without_forwarding_credentials(
         content_type="application/json",
         **headers,
     )
-    assert result.status_code == 200 and result["Content-Type"] == "audio/wav"
-    with wave.open(io.BytesIO(result.content), "rb") as audio:
-        assert (audio.getnchannels(), audio.getsampwidth(), audio.getframerate()) == (1, 2, 24000)
-        assert audio.getnframes() == 24000
-        assert audio.readframes(24000) == b"\x01\x00" * 24000
+    assert result.status_code == 200 and result["Content-Type"] == "audio/mpeg"
+    assert result.content == b"ID3\x04fake-mp3"
     assert "convai" not in str(requests)
     assert settings.FIREWORKS_API_KEY not in str(requests)
+    assert grant["tool_token"] not in str(requests)
     assert result["Cache-Control"] == "no-store, private"
 
 
-@pytest.mark.parametrize("text", ["x" * 1001, "😀" * 501, "\ud800"])
+@pytest.mark.parametrize("text", ["x" * 2001, "😀" * 2001, "\ud800"])
 def test_tts_rejects_oversize_or_invalid_unicode_before_upstream(voice, monkeypatch, text):
     _, grant = voice
 
@@ -352,9 +354,9 @@ def test_tts_rejects_oversize_or_invalid_unicode_before_upstream(voice, monkeypa
 @pytest.mark.parametrize(
     "content,mime,status",
     [
-        (b"", "application/octet-stream", 200),
-        (b"odd", "application/octet-stream", 200),
-        (b"not audio", "application/json", 200),
+        (b"", "audio/mpeg", 200),
+        (b"private provider error body", "application/json", 200),
+        (b"private provider error body", "audio/mpeg", 429),
         (b"private provider error body", "application/json", 502),
     ],
 )
@@ -380,13 +382,14 @@ def test_tts_failures_are_bounded_and_sanitized(voice, monkeypatch, content, mim
     assert b"private provider error body" not in result.content
 
 
-def test_text_works_without_local_speech_and_safe_fireworks_failure(voice, settings, monkeypatch):
+def test_text_works_without_speech_and_safe_fireworks_failure(voice, settings, monkeypatch):
     import httpx
 
     client, grant = voice
-    settings.LOCAL_SPEECH_ORIGIN = ""
+    settings.ELEVENLABS_API_KEY = ""
     assert client.get("/api/v1/voice/status").json()["configured"] is True
     assert client.get("/api/v1/voice/status").json()["speech_configured"] is False
+    assert client.get("/api/v1/voice/status").json()["tts_configured"] is False
     monkeypatch.setattr(
         "coordinator.voice_runtime.httpx.request",
         lambda *a, **k: httpx.Response(

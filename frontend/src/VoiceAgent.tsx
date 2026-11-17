@@ -60,11 +60,11 @@ export default function VoiceAgent() {
           {status.isPending ? "checking" : ready ? "configured" : "unavailable"}
         </span>
         <span data-ready={status.data?.transcription_configured}>
-          Parakeet transcription ·{" "}
+          ElevenLabs transcription ·{" "}
           {status.data?.transcription_configured ? "configured" : "unavailable"}
         </span>
         <span data-ready={status.data?.tts_configured}>
-          Pocket TTS ·{" "}
+          ElevenLabs TTS ·{" "}
           {status.data?.tts_configured ? "configured" : "unavailable"}
         </span>
         <span data-ready={connected}>
@@ -205,8 +205,8 @@ export default function VoiceAgent() {
           </button>
         </form>
         <p className="voice-footnote">
-          Fireworks reasoning · Local Parakeet transcription · Local Pocket TTS
-          · Speak to interrupt · Task changes are handled by Task Manager
+          Fireworks reasoning · ElevenLabs transcription and speech · Speak to
+          interrupt · Task changes are handled by Task Manager
         </p>
       </footer>
     </section>

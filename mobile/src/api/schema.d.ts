@@ -3058,7 +3058,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "audio/wav": string;
+          "audio/mpeg": string;
         };
       };
     };

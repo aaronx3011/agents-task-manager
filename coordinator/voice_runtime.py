@@ -1,12 +1,9 @@
-"""Backend orchestration: Fireworks reasons; existing Voice Lab handles STT/TTS."""
+"""Backend orchestration: Fireworks reasons; ElevenLabs handles STT and TTS."""
 
-import base64
-import io
 import json
-import time
 import wave
 from datetime import timedelta
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote
 
 import httpx
 from django.conf import settings
@@ -20,14 +17,14 @@ from rest_framework import exceptions, permissions, serializers
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from websockets.exceptions import WebSocketException
-from websockets.sync.client import connect
 
 from . import services
 from .dbretry import retry_sqlite
 from .models import VoiceConversation
 from .voice import VoiceTokenAuthentication, execute_tool, validate_session
 from .voice_policy import PROMPT, tool_configs
+
+ELEVENLABS_ORIGIN = "https://api.elevenlabs.io/v1"
 
 
 def provider_request(provider, path, **kwargs):
@@ -63,6 +60,31 @@ def response_json(response, provider):
         return response.json()
     except ValueError:
         raise services.TaskError(f"{provider} returned an invalid response", 502) from None
+
+
+def speech_request(path, **kwargs):
+    key = settings.ELEVENLABS_API_KEY
+    if not key:
+        raise services.TaskError("ElevenLabs speech is not configured", 503)
+    headers = {"xi-api-key": key, **kwargs.pop("headers", {})}
+    try:
+        response = httpx.request(
+            "POST",
+            f"{ELEVENLABS_ORIGIN}/{path}",
+            headers=headers,
+            timeout=60,
+            follow_redirects=False,
+            **kwargs,
+        )
+    except httpx.HTTPError:
+        raise services.TaskError(
+            "ElevenLabs speech could not be reached; no automatic retry was made", 502
+        ) from None
+    if not response.is_success:
+        raise services.TaskError(
+            f"ElevenLabs rejected the speech request (HTTP {response.status_code})", 502
+        )
+    return response
 
 
 @retry_sqlite
@@ -254,72 +276,23 @@ class TranscriptionOutput(serializers.Serializer):
     text = serializers.CharField()
 
 
-def transcribe(pcm):
-    origin = settings.LOCAL_SPEECH_ORIGIN
-    if not origin:
-        raise services.TaskError("Local speech recognition is not configured", 503)
-    parts = urlsplit(origin)
-    if parts.scheme not in {"http", "https"} or not parts.netloc:
-        raise services.TaskError("Local speech origin must use HTTP or HTTPS", 503)
-    url = urlunsplit(
-        ("wss" if parts.scheme == "https" else "ws", parts.netloc, "/api/listen", "", "")
+def transcribe(audio):
+    if not settings.ELEVENLABS_STT_MODEL:
+        raise services.TaskError("ElevenLabs transcription is not configured", 503)
+    # Only the bounded clip and the speech model go upstream; never the owner's
+    # token, cookies, prompts or tools.
+    data = response_json(
+        speech_request(
+            "speech-to-text",
+            files={"file": ("recording.wav", audio, "audio/wav")},
+            data={"model_id": settings.ELEVENLABS_STT_MODEL},
+        ),
+        "ElevenLabs",
     )
-    try:
-        # Only audio/session configuration goes upstream. Never send the owner's token,
-        # cookies, model prompts, tools or response.create (which would invoke a reply).
-        with connect(
-            url, origin=origin, open_timeout=10, close_timeout=2, max_size=262144, max_queue=8
-        ) as socket:
-            deadline = time.monotonic() + 60
-
-            def receive():
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise TimeoutError
-                event = json.loads(socket.recv(timeout=remaining))
-                if not isinstance(event, dict) or event.get("type") == "error":
-                    raise ValueError
-                return event
-
-            socket.send(
-                json.dumps(
-                    {
-                        "type": "session.update",
-                        "session": {
-                            "modalities": ["text"],
-                            "turn_detection": None,
-                        },
-                    }
-                )
-            )
-            for _ in range(16):
-                if receive().get("type") == "session.updated":
-                    break
-            else:
-                raise ValueError
-            for start in range(0, len(pcm), 9600):
-                socket.send(
-                    json.dumps(
-                        {
-                            "type": "input_audio_buffer.append",
-                            "audio": base64.b64encode(pcm[start : start + 9600]).decode(),
-                        }
-                    )
-                )
-            socket.send(json.dumps({"type": "input_audio_buffer.commit"}))
-            for _ in range(32):
-                event = receive()
-                if event.get("type") == "conversation.item.input_audio_transcription.completed":
-                    text = event.get("transcript")
-                    if not isinstance(text, str) or len(text) > 4000:
-                        raise ValueError
-                    return text
-            raise ValueError
-    except (WebSocketException, OSError, TimeoutError, ValueError, TypeError):
-        raise services.TaskError(
-            "Local Parakeet transcription failed; check the speech service and try another turn",
-            502,
-        ) from None
+    text = data.get("text") if isinstance(data, dict) else None
+    if not isinstance(text, str) or len(text) > 4000:
+        raise services.TaskError("ElevenLabs returned an invalid transcript", 502)
+    return text
 
 
 class VoiceTranscriptionView(VoiceRuntimeView):
@@ -352,60 +325,41 @@ class VoiceTranscriptionView(VoiceRuntimeView):
             raise serializers.ValidationError(
                 "Expected a valid mono 24 kHz PCM16 WAV clip, at most 30 seconds"
             ) from None
-        return Response({"text": transcribe(pcm)})
+        audio.seek(0)
+        return Response({"text": transcribe(audio.read())})
 
 
 class SpeechInput(serializers.Serializer):
-    text = serializers.CharField(max_length=1000)
+    text = serializers.CharField(max_length=2000)
 
     def validate_text(self, value):
-        # Voice Lab's Node endpoint measures UTF-16 code units, including emoji pairs.
         try:
-            units = len(value.encode("utf-16-le")) // 2
+            value.encode("utf-8")
         except UnicodeEncodeError:
             raise serializers.ValidationError("Speech text must be valid Unicode") from None
-        if units > 1000:
-            raise serializers.ValidationError(
-                "Split speech into chunks of at most 1000 UTF-16 units"
-            )
         return value
 
 
 class VoiceSpeechView(VoiceRuntimeView):
-    @extend_schema(request=SpeechInput, responses={(200, "audio/wav"): OpenApiTypes.BINARY})
+    @extend_schema(request=SpeechInput, responses={(200, "audio/mpeg"): OpenApiTypes.BINARY})
     def post(self, request):
         serializer = SpeechInput(data=request.data)
         serializer.is_valid(raise_exception=True)
-        if not settings.LOCAL_SPEECH_ORIGIN:
-            raise services.TaskError("Local Pocket TTS is not configured", 503)
-        try:
-            response = httpx.request(
-                "POST",
-                f"{settings.LOCAL_SPEECH_ORIGIN}/api/voice",
-                json={"text": serializer.validated_data["text"]},
-                headers={"Accept": "application/octet-stream"},
-                timeout=120,
-                follow_redirects=False,
-            )
-        except httpx.HTTPError:
-            raise services.TaskError("Local Pocket TTS could not be reached", 502) from None
-        if not response.is_success:
-            raise services.TaskError(
-                f"Local Pocket TTS is unavailable (HTTP {response.status_code})", 502
-            )
-        pcm = response.content
+        if not settings.ELEVENLABS_API_KEY or not settings.ELEVENLABS_VOICE_ID:
+            raise services.TaskError("ElevenLabs speech synthesis is not configured", 503)
+        response = speech_request(
+            f"text-to-speech/{quote(settings.ELEVENLABS_VOICE_ID, safe='')}",
+            json={
+                "text": serializer.validated_data["text"],
+                "model_id": settings.ELEVENLABS_TTS_MODEL,
+            },
+            headers={"Accept": "audio/mpeg"},
+        )
+        audio = response.content
         if (
-            response.headers.get("content-type", "").split(";")[0] != "application/octet-stream"
-            or not pcm
-            or len(pcm) % 2
-            or len(pcm) > 4 * 1024 * 1024
+            response.headers.get("content-type", "").split(";")[0] != "audio/mpeg"
+            or not audio
+            or len(audio) > 8 * 1024 * 1024
         ):
-            raise services.TaskError("Local Pocket TTS returned invalid PCM audio", 502)
-        # Voice Lab returns raw PCM16LE/mono/24kHz; wrap it for browser Audio playback.
-        output = io.BytesIO()
-        with wave.open(output, "wb") as audio:
-            audio.setnchannels(1)
-            audio.setsampwidth(2)
-            audio.setframerate(24000)
-            audio.writeframes(pcm)
-        return HttpResponse(output.getvalue(), content_type="audio/wav")
+            raise services.TaskError("ElevenLabs returned invalid speech audio", 502)
+        return HttpResponse(audio, content_type="audio/mpeg")

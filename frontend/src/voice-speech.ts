@@ -1,6 +1,6 @@
-/** Preserve the full reply while respecting Voice Lab's per-request UTF-16 limit. */
-export function speechChunks(text: string, limit = 180): string[] {
-  if (!Number.isInteger(limit) || limit < 2 || limit > 1000)
+/** Preserve the full reply while keeping each synthesis request short. */
+export function speechChunks(text: string, limit = 900): string[] {
+  if (!Number.isInteger(limit) || limit < 2 || limit > 2000)
     throw new Error("Invalid speech chunk limit");
   const chunks: string[] = [];
   while (text.length > limit) {

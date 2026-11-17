@@ -301,8 +301,7 @@ export class PMConversation {
       };
       const abort = () => finish(signal.reason);
       audio.onended = () => finish();
-      audio.onerror = () =>
-        finish(new Error("Could not play local speech audio"));
+      audio.onerror = () => finish(new Error("Could not play speech audio"));
       signal.addEventListener("abort", abort, { once: true });
       this.mode = "speaking";
       this.update();
