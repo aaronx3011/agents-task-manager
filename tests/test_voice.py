@@ -295,6 +295,92 @@ def test_turn_concurrency_expiry_and_no_browser_history(voice, monkeypatch):
     assert chat(grant).status_code == 401
 
 
+def test_tool_chain_exceeds_old_round_limit_and_renews_busy_lease(voice, monkeypatch):
+    _, grant = voice
+    clock = [timezone.now()]
+    monkeypatch.setattr("coordinator.voice_runtime.timezone.now", lambda: clock[0])
+    completions = []
+
+    def provider(*args, **kwargs):
+        completions.append(kwargs["json"])
+        if len(completions) <= 12:
+            # A long chain lasts beyond the original five-minute busy lease.
+            clock[0] += timedelta(seconds=40)
+            assert chat(grant, "Concurrent reply").status_code == 409
+            return completion(calls=[tool_call("list_tasks", {"limit": 1})])
+        return completion("Finished all twelve tool rounds.")
+
+    monkeypatch.setattr("coordinator.voice_runtime.httpx.request", provider)
+    response = chat(grant)
+    assert response.status_code == 200, response.content
+    assert response.json()["text"] == "Finished all twelve tool rounds."
+    assert len(response.json()["events"]) == 12
+    assert len(completions) == 13
+    saved = VoiceConversation.objects.get(pk=grant["id"])
+    assert saved.busy_until is None
+    assert len([message for message in saved.messages if message["role"] == "tool"]) == 12
+
+
+def test_tool_batch_exceeds_old_eight_call_limit(voice, project, monkeypatch):
+    _, grant = voice
+    requests = []
+
+    def provider(*args, **kwargs):
+        requests.append(kwargs["json"])
+        if len(requests) == 1:
+            return completion(
+                calls=[
+                    tool_call(
+                        "create_task",
+                        {"project": project.slug, "title": f"Batch task {i}"},
+                        call_id=f"batch_{i}",
+                    )
+                    for i in range(12)
+                ]
+            )
+        return completion("Created all twelve requested tasks.")
+
+    monkeypatch.setattr("coordinator.voice_runtime.httpx.request", provider)
+    response = chat(grant)
+    assert response.status_code == 200, response.content
+    assert Task.objects.count() == 12
+    assert len(response.json()["events"]) == 12
+    assert all(not event["is_error"] for event in response.json()["events"])
+    assert len(requests) == 2
+
+
+def test_lost_turn_cannot_mutate_or_clear_successor_lease(voice, project, monkeypatch):
+    _, grant = voice
+    successor = timezone.now() + timedelta(minutes=9)
+
+    def provider(*args, **kwargs):
+        VoiceConversation.objects.filter(pk=grant["id"]).update(busy_until=successor)
+        return completion(
+            calls=[tool_call("create_task", {"project": project.slug, "title": "Must not execute"})]
+        )
+
+    monkeypatch.setattr("coordinator.voice_runtime.httpx.request", provider)
+    response = chat(grant)
+    assert response.status_code == 409
+    assert Task.objects.count() == 0
+    assert VoiceConversation.objects.get(pk=grant["id"]).busy_until == successor
+
+
+def test_expired_turn_is_not_resurrected(voice, monkeypatch):
+    from coordinator.services import TaskError
+    from coordinator.voice_runtime import begin_turn, renew_turn
+
+    _, grant = voice
+    session = begin_turn(VoiceConversation.objects.get(pk=grant["id"]))
+    deadline = session.busy_until
+    monkeypatch.setattr(
+        "coordinator.voice_runtime.timezone.now", lambda: deadline + timedelta(seconds=1)
+    )
+    with pytest.raises(TaskError, match="no longer owns"):
+        renew_turn(session)
+    assert VoiceConversation.objects.get(pk=grant["id"]).busy_until == deadline
+
+
 def test_elevenlabs_tts_returns_audio_without_forwarding_owner_credentials(
     voice, settings, monkeypatch
 ):

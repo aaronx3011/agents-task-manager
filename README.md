@@ -357,7 +357,10 @@ The PM policy and fourteen function schemas live in `coordinator/voice_policy.py
 browser messages cannot replace the system prompt or supply conversation history.
 The page is owner-only because tool calls act with the owner's authority.
 Provider calls are not automatically retried. A failed reply can follow a committed
-tool write; check current task state before repeating a request.
+tool action. The PM has no fixed reasoning-round or tool-call-count limit: it
+continues until the model returns a final answer. Long turns renew their exclusive
+conversation lease; access revocation, provider failures and context/payload
+validation still apply. Recheck live state before repeating a mutation after an error.
 
 Long replies are spoken in full: the browser splits at sentence/paragraph/word
 boundaries into chunks of at most 900 characters, plays them in order, and

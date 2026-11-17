@@ -103,10 +103,35 @@ def begin_turn(conversation):
     return session
 
 
+@retry_sqlite
+@transaction.atomic
+def renew_turn(session):
+    """Keep long tool chains exclusive without renewing expired or replaced ownership."""
+    current = (
+        services.locked(VoiceConversation.objects.select_related("user", "auth_session"))
+        .filter(pk=session.pk)
+        .first()
+    )
+    if current is None:
+        raise exceptions.AuthenticationFailed("Voice conversation access expired; reconnect")
+    validate_session(current)
+    now = timezone.now()
+    if (
+        current.busy_until is None
+        or current.busy_until != session.busy_until
+        or current.busy_until <= now
+    ):
+        raise services.TaskError("This PM reply no longer owns the conversation", 409)
+    current.busy_until = now + timedelta(minutes=5)
+    current.save(update_fields=["busy_until"])
+    session.busy_until = current.busy_until
+
+
 def reason(session, text):
     messages = [*session.messages, {"role": "user", "content": text}]
     events = []
-    for _ in range(5):
+    while True:
+        renew_turn(session)
         if len(json.dumps(messages)) > 120000:
             raise services.TaskError("This conversation is full; clear it to start another", 409)
         data = response_json(
@@ -124,12 +149,13 @@ def reason(session, text):
             ),
             "Fireworks",
         )
+        renew_turn(session)
         try:
             choice = data["choices"][0]
             message = choice["message"]
             calls = message.get("tool_calls") or []
             content = message.get("content") or ""
-            if not isinstance(content, str) or not isinstance(calls, list) or len(calls) > 8:
+            if not isinstance(content, str) or not isinstance(calls, list):
                 raise ValueError
             if choice.get("finish_reason") not in {"stop", "tool_calls"}:
                 raise ValueError
@@ -170,6 +196,7 @@ def reason(session, text):
                 raise services.TaskError("Fireworks returned an empty reply", 502)
             return messages, content, events
         for call_id, name, args in parsed:
+            renew_turn(session)
             try:
                 result = execute_tool(
                     session,
@@ -208,7 +235,6 @@ def reason(session, text):
             revoked_at__isnull=True,
             expires_at__gt=timezone.now(),
         ).update(messages=messages)
-    raise services.TaskError("PM tool-call limit reached; check task state before continuing", 502)
 
 
 class VoiceRuntimeView(APIView):
