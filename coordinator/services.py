@@ -1442,10 +1442,12 @@ def voice_edit_queue(project, actor, operation, job_id=None, worker="", model=""
     )
     if task:
         log_human(task, TaskEvent.Type.NOTE, None, message, actor)
+    interrupt = job.stop_command if operation == "stop" and job.stop_command_id else None
     return {
         **queue_summary(plan),
         "action": operation,
         "affected": affected,
+        "interrupt": {"id": interrupt.pk, "status": interrupt.status} if interrupt else None,
         "state": {
             "remove": (
                 "Removed from the execution queue; task status unchanged. "
@@ -1454,8 +1456,11 @@ def voice_edit_queue(project, actor, operation, job_id=None, worker="", model=""
             "retarget": "Retargeted and still queued; not started or completed.",
             "pause": "Queue paused; current work may continue, no next job will launch.",
             "stop": (
-                "Queue paused; interrupt queued for current session if present. "
+                f"Queue paused; interrupt command #{interrupt.pk} accepted and queued. "
                 "Interruption is not confirmed; task is not completed or released."
+                if interrupt
+                else "Queue paused; no session is running, so no interrupt was queued. "
+                "Waiting jobs remain queued; no task was completed or released."
             ),
         }[operation],
     }

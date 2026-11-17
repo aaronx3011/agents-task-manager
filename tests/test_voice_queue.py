@@ -67,7 +67,7 @@ def test_policy_advertises_queue_actions_without_auth_fields():
     } <= names
     assert "durable ordered queue" in PROMPT and "next sync" in PROMPT
     assert "worker/session dispatch" not in PROMPT
-    assert POLICY_VERSION.endswith(".3")
+    assert POLICY_VERSION.endswith(".4")
 
 
 def test_launch_new_task_queues_plays_and_dispatches_on_sync(
@@ -357,6 +357,8 @@ def test_pause_stop_waiting_queue_no_dispatch(voice, project, worker, agent_clie
     assert response.status_code == 200, response.content
     result = response.json()["result"]
     assert result["playing"] is False and result["affected"]["job"] == job.pk
+    if operation == "stop_queue":
+        assert result["interrupt"] is None and "no interrupt was queued" in result["state"]
     assert sync(agent_clients[0]).json()["commands"] == []
     # Each invocation checks live state rather than returning an obsolete cached pause.
     call(grant, "play_queue", {"project": project.slug})
@@ -405,6 +407,7 @@ def test_running_job_remove_retarget_refused_and_stop_uses_durable_interrupt(
     assert task.status == "in_progress" and task.claimed_by == worker.agent
     job.refresh_from_db()
     assert job.status == "failed" and job.stop_command.action == "interrupt"
+    assert result["interrupt"] == {"id": job.stop_command_id, "status": "queued"}
     assert [c["action"] for c in sync(agent_clients[0]).json()["commands"]] == ["interrupt"]
     assert sync(agent_clients[0]).json()["commands"] == []
 
