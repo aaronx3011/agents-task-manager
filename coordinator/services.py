@@ -894,6 +894,7 @@ def mutate_planning(project, actor, data):
             pk=card.pk
         ).update(position=F("position") + 1)
         card.save()
+        _refresh_queued_job(plan, card)
         if card.task_id:
             log_human(card.task, TaskEvent.Type.NOTE, None, "Planning card updated", actor)
     elif operation in {"enqueue", "run"}:
@@ -906,30 +907,13 @@ def mutate_planning(project, actor, data):
             raise TaskError("Project queue is full (100 jobs)", 429)
         if operation == "run" and plan.jobs.filter(status__in=["queued", "running"]).exists():
             raise TaskError("Use Play to run the existing queue first", 409)
-        # A card's own worker overrides the project default for this launch (#314).
-        worker = card.worker or plan.default_worker
-        if not worker:
-            raise TaskError("Configure a project worker or choose one for this card", 400)
-        if not worker.is_enabled or not worker.agent_id or not worker.agent.is_active:
-            raise TaskError(f"Worker {worker.name} is not enabled", 400)
+        worker, agent, model = _card_runner(plan, card)
         if card.task_id and card.task.status in {Task.Status.DONE, Task.Status.CANCELLED}:
             raise TaskError(
                 "This card's task is terminal. Create a new card for follow-up work.", 409
             )
-        # Project agent/model defaults belong to the project worker; another worker
-        # falls back to its own defaults unless the card names its own.
-        inherit = worker.pk == plan.default_worker_id
-        agent = (card.agent or (plan.agent if inherit else "") or "").strip()
-        if agent and not _agent_allowed(worker, agent):
-            raise TaskError(f"Agent is not available on worker {worker.name}", 400)
-        model = card.model or (plan.model if inherit else None) or worker.default_model
-        if model and not _model_allowed(worker, model):
-            raise TaskError(f"Model is not available on worker {worker.name}", 400)
         snapshot = {
-            "title": card.title,
-            "description": card.description,
-            "checklist": card.checklist,
-            "labels": card.labels,
+            **_card_snapshot(card),
             "context": plan.context,
             "standing_instructions": plan.instructions,
             "instructions": data.get("instructions", card.instructions),
@@ -1018,6 +1002,57 @@ def mutate_planning(project, actor, data):
     transaction.on_commit(
         lambda: dispatch_notification("planning.changed", subject="planning"), robust=True
     )
+
+
+def _card_runner(plan, card):
+    """Worker, agent and model a card runs with (#314).
+
+    The card's own worker overrides the project default. Project agent/model
+    defaults belong to the project worker; another worker falls back to its own
+    defaults unless the card names its own.
+    """
+    worker = card.worker or plan.default_worker
+    if not worker:
+        raise TaskError("Configure a project worker or choose one for this card", 400)
+    if not worker.is_enabled or not worker.agent_id or not worker.agent.is_active:
+        raise TaskError(f"Worker {worker.name} is not enabled", 400)
+    inherit = worker.pk == plan.default_worker_id
+    agent = (card.agent or (plan.agent if inherit else "") or "").strip()
+    if agent and not _agent_allowed(worker, agent):
+        raise TaskError(f"Agent is not available on worker {worker.name}", 400)
+    model = card.model or (plan.model if inherit else None) or worker.default_model
+    if model and not _model_allowed(worker, model):
+        raise TaskError(f"Model is not available on worker {worker.name}", 400)
+    return worker, agent, model
+
+
+def _card_snapshot(card):
+    return {
+        "title": card.title,
+        "description": card.description,
+        "checklist": card.checklist,
+        "labels": card.labels,
+    }
+
+
+def _refresh_queued_job(plan, card):
+    """Card edits reach its not-yet-started job (#321).
+
+    Project context, instructions and directory stay frozen at enqueue; the
+    card's own content and worker/agent/model choices apply until it starts.
+    A running job already has its session and is left alone.
+    """
+    job = plan.jobs.filter(card=card, status="queued").first()
+    if job is None:
+        return
+    worker, agent, model = _card_runner(plan, card)
+    snapshot = {**job.snapshot, **_card_snapshot(card), "agent": agent, "model": model}
+    if worker.pk != job.worker_id and not plan.directory:
+        # The frozen directory came from the old worker's defaults.
+        snapshot["directory"] = worker.create_directory or worker.directory
+    job.worker = worker
+    job.snapshot = snapshot
+    job.save(update_fields=["worker", "snapshot"])
 
 
 def _planning_prompt(job, task, report_token):
