@@ -199,6 +199,32 @@ class TaskListInput(serializers.Serializer):
     offset = serializers.IntegerField(default=0, min_value=0, max_value=10000)
 
 
+class LaunchInput(serializers.Serializer):
+    id = serializers.IntegerField(min_value=1, required=False)
+    project = serializers.SlugField(required=False)
+    title = serializers.CharField(max_length=300, required=False)
+    description = serializers.CharField(max_length=12000, required=False, allow_blank=True)
+    priority = serializers.IntegerField(required=False)
+    depends_on = serializers.ListField(
+        child=serializers.IntegerField(min_value=1), max_length=50, required=False
+    )
+    worker = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    model = serializers.CharField(max_length=300, required=False, allow_blank=True)
+    start = serializers.BooleanField(default=True)
+
+    def validate(self, data):
+        creating = {"project", "title", "description", "priority", "depends_on"} & set(data)
+        if "id" in data and creating:
+            raise serializers.ValidationError(
+                "Give either an existing task id or project+title for a new task, not both"
+            )
+        if "id" not in data and not {"project", "title"} <= set(data):
+            raise serializers.ValidationError(
+                "Give an existing task id, or project and title for a new task"
+            )
+        return data
+
+
 def validated_tool(operation, data):
     if operation not in TOOL_SCHEMAS:
         raise services.TaskError("Unknown PM tool", 404)
@@ -215,17 +241,19 @@ def validated_tool(operation, data):
         serializer = StatusUpdateSerializer(data=payload)
     elif operation == "add_task_note":
         serializer = NoteSerializer(data=payload)
+    elif operation == "launch_task":
+        serializer = LaunchInput(data=payload)
     else:
         serializer = None
-    if "id" in allowed:
+    if "id" in allowed and operation != "launch_task":
         task_id = serializers.IntegerField(min_value=1).run_validation(payload.get("id"))
         payload["id"] = task_id
-    if operation == "get_project":
+    if operation in {"get_project", "get_queue", "play_queue"}:
         payload["project"] = serializers.SlugField().run_validation(payload.get("project"))
     if serializer:
         serializer.is_valid(raise_exception=True)
         validated = dict(serializer.validated_data)
-        if "id" in payload:
+        if "id" in payload and operation != "launch_task":
             validated["id"] = payload["id"]
         return validated
     return payload
@@ -276,7 +304,43 @@ def run_tool(operation, args, user):
             **TaskDetailSerializer(task).data,
             "url": f"{settings.VOICE_PUBLIC_ORIGIN}/?task={task.pk}",
         }
+    if operation == "get_queue":
+        return services.voice_queue_read(get_object_or_404(Project, slug=args["project"]))
     actor = {"agent": None, "human_actor": user.get_username()}
+    if operation == "play_queue":
+        project = get_object_or_404(Project, slug=args["project"])
+        return services.voice_play_queue(project, actor["human_actor"])
+    if operation == "launch_task":
+        created = False
+        if "id" in args:
+            task = get_object_or_404(Task, pk=args["id"])
+        else:
+            project = get_object_or_404(Project, slug=args["project"])
+            fields = TaskSerializer(
+                data={
+                    key: args[key]
+                    for key in ["title", "description", "priority", "depends_on"]
+                    if key in args
+                }
+                | {"project": project.slug}
+            )
+            fields.is_valid(raise_exception=True)
+            values = dict(fields.validated_data)
+            values["depends_on"] = [item.pk for item in values.get("depends_on", [])]
+            task = services.create_task(**actor, **values)
+            created = True
+        result = services.voice_launch_task(
+            task,
+            actor["human_actor"],
+            worker=args.get("worker", ""),
+            model=args.get("model", ""),
+            start=args["start"],
+        )
+        return {
+            **result,
+            "created": created,
+            "url": f"{settings.VOICE_PUBLIC_ORIGIN}/?task={task.pk}",
+        }
     if operation == "create_task":
         args["depends_on"] = [task.pk for task in args.get("depends_on", [])]
         return task_card(services.create_task(**actor, **args))
@@ -313,7 +377,8 @@ def execute_tool(conversation, operation, body):
     fingerprint = hashlib.sha256(
         json.dumps([operation, canonical], sort_keys=True).encode()
     ).hexdigest()
-    writes = {"create_task", "update_task_status", "add_task_note"}
+    # play_queue is naturally idempotent and must re-check live state each call.
+    writes = {"create_task", "update_task_status", "add_task_note", "launch_task"}
     if operation in writes:
         previous = session.tool_results.filter(fingerprint=fingerprint).first()
         if previous:

@@ -291,6 +291,21 @@ audio for playback. Audio is not stored by Task Manager.
 Task-status announcements are request-driven, not automatic background
 monitoring.
 
+The PM can also start work on the project's Planning queue (task #333). Say "launch
+a new task in <project> to …", "launch task 42 on <worker> with <provider/model>",
+"start the queue" or "play/resume the <project> queue". `launch_task` creates (or
+reuses) the task, adds its planning card to the project's ordered queue and presses
+Play; `play_queue` plays an existing queue; `get_queue` reads queue state, jobs,
+workers and their reported models. These reuse the board's `enqueue`/`play`
+operations, so the job shows on the Planning board, the task gets an audited note
+by the signed-in owner, and execution still starts only when the worker syncs
+(create/prompt worker commands). The reply names the task, worker, model, directory
+and jobs ahead, and says "queued" rather than started or done. Requests are refused
+with no change when the worker is offline, a named model is not in the worker's
+reported catalog (or no catalog was reported), the queue is empty, or the task is
+owned, terminal or has unfinished dependencies. The PM cannot pause/stop queues or
+message worker sessions. No new configuration is needed.
+
 Set these on the **Django API** container/service, not the frontend:
 
 ```sh
@@ -313,7 +328,7 @@ Fireworks model/deployment that supports OpenAI-compatible function calling and
 an ElevenLabs account/model that supports the speech API; both identifiers are
 configurable. The earlier `LOCAL_SPEECH_ORIGIN`, `LOCAL_TTS_ORIGIN`, the Voice Lab
 speech adapters and the old `configure_voice_agent` command are no longer used.
-The PM policy and seven function schemas live in `coordinator/voice_policy.py`;
+The PM policy and ten function schemas live in `coordinator/voice_policy.py`;
 browser messages cannot replace the system prompt or supply conversation history.
 The page is owner-only because tool calls act with the owner's authority.
 Provider calls are not automatically retried. A failed reply can follow a committed

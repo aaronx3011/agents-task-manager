@@ -1026,6 +1026,282 @@ def _card_runner(plan, card):
     return worker, agent, model
 
 
+# --- PM router queue actions (#333) -------------------------------------------
+# Voice requests reuse mutate_planning's enqueue/play paths; the real dispatch
+# still happens only in tick_planning_queues during authenticated worker sync.
+# Callers run these inside one transaction, so a refusal leaves no mutation.
+
+TERMINAL_STATUSES = {Task.Status.DONE, Task.Status.CANCELLED}
+
+
+def model_label(model):
+    return f"{model['providerID']}/{model['modelID']}" if model else ""
+
+
+def catalog_models(worker, limit=None):
+    """Connectable models a worker reported, as provider/model labels."""
+    labels = []
+    for provider in worker.model_catalog or []:
+        if not isinstance(provider, dict):
+            continue
+        nested = provider.get("models")
+        if isinstance(nested, dict):
+            for item in nested.values():
+                if isinstance(item, dict) and item.get("id") and item.get("connectable", True):
+                    labels.append(f"{provider.get('id')}/{item['id']}")
+        elif provider.get("providerID") and provider.get("modelID"):
+            labels.append(model_label(provider))
+    return labels[:limit] if limit else labels
+
+
+def worker_ready(worker):
+    return bool(
+        worker.is_enabled
+        and worker.agent_id
+        and worker.agent.is_active
+        and worker.is_online()
+        and worker.connected
+        and worker.stream_connected
+    )
+
+
+def worker_brief(worker):
+    return {
+        "name": worker.name,
+        "online": worker_ready(worker),
+        "enabled": worker.is_enabled,
+        "default_model": model_label(worker.default_model),
+        "models": catalog_models(worker, 25),
+        "model_count": len(catalog_models(worker)),
+    }
+
+
+def _resolve_worker(name):
+    worker = Worker.objects.select_related("agent").filter(name=name).first()
+    worker = worker or Worker.objects.select_related("agent").filter(name__iexact=name).first()
+    if not worker:
+        known = ", ".join(Worker.objects.order_by("name").values_list("name", flat=True)[:20])
+        raise TaskError(f"Unknown worker '{name}'. Registered workers: {known or 'none'}", 400)
+    return worker
+
+
+def _parse_model(worker, value):
+    """Strict model check: voice never forwards a model the worker has not reported."""
+    provider, _, model_id = value.strip().partition("/")
+    if not provider or not model_id:
+        raise TaskError("Model must be written as provider/model, e.g. openai/gpt-5", 400)
+    model = {"providerID": provider, "modelID": model_id}
+    if not catalog_models(worker):
+        raise TaskError(
+            f"Worker {worker.name} has not reported a model catalog, so model {value} "
+            "cannot be verified",
+            400,
+        )
+    if not _model_allowed(worker, model):
+        raise TaskError(f"Model {value} is not in worker {worker.name}'s model catalog", 400)
+    return model
+
+
+def _require_ready_worker(worker, what):
+    if not worker_ready(worker):
+        raise TaskError(
+            f"Worker {worker.name} is offline or disconnected, so {what} cannot start now. "
+            "Nothing was changed; do not retry until the worker reconnects.",
+            409,
+        )
+
+
+def _require_no_blocking_failure(plan):
+    """Same rule _advance_planning uses to re-pause; refuse instead of a fake start."""
+    for failed in plan.jobs.filter(status="failed").select_related("attempt__task"):
+        if failed.attempt_id and (
+            failed.attempt.task.status not in TERMINAL_STATUSES
+            or WorkerCommand.objects.filter(
+                pk__in=[
+                    failed.attempt.create_command_id,
+                    failed.attempt.prompt_command_id,
+                    failed.stop_command_id,
+                ],
+                status__in=["queued", "dispatched"],
+            ).exists()
+        ):
+            raise TaskError(
+                f"The queue is held by failed or stopped task #{failed.attempt.task_id} "
+                f"({failed.attempt.task.status}); resolve it on the board first. "
+                "Nothing was changed.",
+                409,
+            )
+
+
+def _job_brief(job):
+    attempt = job.attempt
+    return {
+        "job": job.pk,
+        "title": job.snapshot.get("title", job.card.title),
+        "status": job.status,
+        "task": attempt.task_id if attempt else job.card.task_id,
+        "task_status": attempt.task.status if attempt else None,
+        "session": attempt.remote_session_id if attempt else "",
+        "worker": job.worker.name,
+        "worker_online": worker_ready(job.worker),
+        "model": model_label(job.snapshot.get("model")) or "worker default",
+        "agent": job.snapshot.get("agent") or "worker default",
+        "directory": job.snapshot.get("directory", ""),
+        "detail": job.detail[:500],
+    }
+
+
+def queue_summary(plan):
+    active = list(
+        plan.jobs.filter(status__in=["queued", "running"]).select_related(
+            "card", "worker__agent", "attempt__task"
+        )
+    )
+    recent = list(
+        plan.jobs.exclude(status__in=["queued", "running"])
+        .select_related("card", "worker__agent", "attempt__task")
+        .order_by("-id")[:5]
+    )
+    if not active:
+        state = "empty"
+    elif plan.playing:
+        state = "playing"
+    else:
+        state = "paused"
+    return {
+        "project": plan.project.slug,
+        "state": state,
+        "playing": plan.playing,
+        "pause_reason": plan.pause_reason,
+        "default_worker": plan.default_worker.name if plan.default_worker_id else "",
+        "directory": plan.directory,
+        "jobs": [_job_brief(job) for job in active[:20]],
+        "active_count": len(active),
+        "recent": [_job_brief(job) for job in recent],
+        "note": (
+            "queued means accepted and waiting; running means a session was requested on the "
+            "worker; only task status done means the work was reported complete"
+        ),
+    }
+
+
+def voice_queue_read(project):
+    plan, _ = ProjectPlan.objects.get_or_create(project=project)
+    workers = Worker.objects.select_related("agent").filter(is_enabled=True).order_by("name")[:10]
+    return {**queue_summary(plan), "workers": [worker_brief(w) for w in workers]}
+
+
+@transaction.atomic
+def voice_launch_task(task, actor, worker="", model="", start=True):
+    """Queue a task's planning card and optionally Play its project queue."""
+    if task.status in TERMINAL_STATUSES:
+        raise TaskError(f"Task #{task.pk} is {task.status}; create a new task instead", 409)
+    if task.status != Task.Status.PENDING or task.claimed_by_id:
+        raise TaskError(f"Task #{task.pk} is already {task.status} and owned; not relaunched", 409)
+    if not task.is_ready:
+        raise TaskError(f"Task #{task.pk} has unfinished dependencies, so it cannot start", 409)
+    plan, _ = ProjectPlan.objects.get_or_create(project=task.project)
+    plan = locked(ProjectPlan.objects.filter(pk=plan.pk)).get()
+    card = PlanningCard.objects.filter(task=task, archived=False).first()
+    if card is None:
+        card = attach_planning_card(task)
+    if card.plan_id != plan.pk:
+        raise TaskError("Task's planning card belongs to another project", 409)
+    if worker:
+        card.worker = _resolve_worker(worker)
+    if model:
+        runner = card.worker or plan.default_worker
+        if not runner:
+            raise TaskError("Choose a worker: the project has no default worker", 400)
+        card.model = _parse_model(runner, model)
+    runner, agent, effective_model = _card_runner(plan, card)
+    active = list(
+        plan.jobs.filter(status__in=["queued", "running"]).select_related("worker__agent")
+    )
+    if start:
+        _require_no_blocking_failure(plan)
+        _require_ready_worker(runner, f"task #{task.pk}")
+        if active:
+            _require_ready_worker(active[0].worker, "the queue")
+    if worker or model:
+        card.save(update_fields=["worker", "model", "updated_at"])
+    mutate_planning(
+        plan.project,
+        actor,
+        {"revision": plan.revision, "operation": "enqueue", "card_id": card.pk},
+    )
+    plan.refresh_from_db()
+    if start and not plan.playing:
+        mutate_planning(plan.project, actor, {"revision": plan.revision, "operation": "play"})
+        plan.refresh_from_db()
+    job = plan.jobs.filter(card=card, status="queued").select_related("worker").get()
+    ahead = [row for row in active if row.position < job.position]
+    log_human(
+        task,
+        TaskEvent.Type.NOTE,
+        None,
+        f"Queued for execution by PM router on worker {runner.name}, model "
+        f"{model_label(effective_model) or 'worker default'}"
+        + ("; queue playing" if plan.playing else "; queue not started"),
+        actor,
+    )
+    return {
+        "task": task.pk,
+        "title": task.title,
+        "project": plan.project.slug,
+        "job": job.pk,
+        "job_status": job.status,
+        "jobs_ahead": len(ahead),
+        "worker": runner.name,
+        "worker_online": worker_ready(runner),
+        "model": model_label(effective_model) or "worker default",
+        "agent": agent or "worker default",
+        "directory": job.snapshot.get("directory", ""),
+        "queue_playing": plan.playing,
+        "state": (
+            "accepted and queued; the worker starts it on its next sync. Not started or "
+            "completed yet"
+            if plan.playing
+            else "added to the queue but the queue is not playing; nothing will start"
+        ),
+    }
+
+
+@transaction.atomic
+def voice_play_queue(project, actor):
+    plan = ProjectPlan.objects.filter(project=project).first()
+    if plan is None:
+        raise TaskError(f"Project {project.slug} has no queue yet; queue a task first", 409)
+    plan = locked(ProjectPlan.objects.filter(pk=plan.pk)).get()
+    active = list(
+        plan.jobs.filter(status__in=["queued", "running"]).select_related(
+            "worker__agent", "attempt__task", "card__task"
+        )
+    )
+    if not active:
+        raise TaskError(f"The {project.slug} queue is empty; nothing to play", 409)
+    head = active[0]
+    _require_no_blocking_failure(plan)
+    _require_ready_worker(head.worker, "the queue")
+    previous_reason = plan.pause_reason
+    already = plan.playing
+    if not already:
+        mutate_planning(project, actor, {"revision": plan.revision, "operation": "play"})
+        plan.refresh_from_db()
+        task = head.attempt.task if head.attempt_id else head.card.task
+        if task:
+            log_human(task, TaskEvent.Type.NOTE, None, "Project queue played by PM router", actor)
+    return {
+        **queue_summary(plan),
+        "already_playing": already,
+        "cleared_pause_reason": "" if already else previous_reason,
+        "state": (
+            "queue playing; the next queued job starts on the worker's next sync. "
+            "Nothing has completed yet"
+        ),
+    }
+
+
 def _card_snapshot(card):
     return {
         "title": card.title,
