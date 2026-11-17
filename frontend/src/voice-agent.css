@@ -29,6 +29,29 @@
   background: transparent;
   color: var(--secondary);
 }
+.voice-agent .voice-hold {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  min-height: 48px;
+  width: 290px;
+  max-width: 100%;
+  flex: none;
+}
+.voice-agent .voice-hold[data-state="recording"] {
+  background: var(--amber);
+  border-color: var(--amber);
+  outline: 2px solid var(--text);
+  outline-offset: 3px;
+}
+.voice-agent .voice-hold[data-state="error"] {
+  border-color: var(--amber);
+}
+.voice-buttons [role="status"] {
+  width: 230px;
+  flex: none;
+}
 .voice-heading {
   display: flex;
   justify-content: space-between;

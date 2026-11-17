@@ -6,6 +6,13 @@ import { microphoneWav } from "./voice-audio";
 export type PMStatus = Schemas["VoiceStatusOutput"];
 type Entry = { role: "user" | "assistant" | "tool"; text: string };
 type Grant = { id: string; tool_token: string };
+type Capture = {
+  recorder: MediaRecorder;
+  chunks: Blob[];
+  generation: number;
+  release?: "send" | "cancel";
+  finished: boolean;
+};
 
 export class PMConversation {
   entries: Entry[] = [];
@@ -14,7 +21,10 @@ export class PMConversation {
   textOnly = true;
   muted = false;
   micMuted = false;
+  capturing = false;
+  captureReady = false;
   error = "";
+  notice = "";
   pending = false;
   private grant?: Grant;
   private generation = 0;
@@ -22,8 +32,11 @@ export class PMConversation {
   private controller = new AbortController();
   private stream?: MediaStream;
   private context?: AudioContext;
-  private recorder?: MediaRecorder;
-  private timer?: ReturnType<typeof setInterval>;
+  private capture?: Capture;
+  private samples?: Float32Array<ArrayBuffer>;
+  private mime?: string;
+  private maxTimer?: ReturnType<typeof setTimeout>;
+  private monitor?: ReturnType<typeof setInterval>;
   private speechController?: AbortController;
   private starting?: Promise<void>;
 
@@ -39,10 +52,14 @@ export class PMConversation {
     if (this.status !== "connected") return "Ready to talk";
     if (this.pending)
       return this.mode === "transcribing" ? "Transcribing" : "Thinking";
+    if (this.capturing)
+      return this.captureReady
+        ? "Recording — release to send"
+        : "Starting microphone…";
     if (this.textOnly) return "Text conversation connected";
     if (this.mode === "speaking") return "Speaking";
     if (this.mode === "synthesizing") return "Preparing speech";
-    return this.micMuted ? "Microphone muted" : "Listening";
+    return this.micMuted ? "Microphone muted" : "Ready for push-to-talk";
   }
   private options() {
     return {
@@ -120,7 +137,7 @@ export class PMConversation {
     const analyser = context.createAnalyser();
     context.createMediaStreamSource(stream).connect(analyser);
     analyser.fftSize = 2048;
-    const samples = new Float32Array(analyser.fftSize);
+    this.samples = new Float32Array(analyser.fftSize);
     const mime = ["audio/webm", "audio/mp4", "audio/ogg"].find((type) =>
       MediaRecorder.isTypeSupported(type),
     );
@@ -128,53 +145,147 @@ export class PMConversation {
       throw new Error(
         "This browser cannot record a supported audio format. Use typed chat.",
       );
-    let heard = false,
-      lastVoice = 0,
-      began = 0;
-    const record = () => {
-      if (this.pending || this.micMuted || !this.current(generation)) return;
-      const recorder = new MediaRecorder(stream, { mimeType: mime });
-      this.recorder = recorder;
-      const chunks: Blob[] = [];
-      heard = false;
-      began = performance.now();
-      recorder.ondataavailable = (event) => {
-        if (event.data.size) chunks.push(event.data);
-      };
-      recorder.onstop = () => {
-        if (
-          this.current(generation) &&
-          heard &&
-          !this.micMuted &&
-          !this.pending
-        )
-          void this.transcribe(new Blob(chunks, { type: mime }), generation);
-      };
-      recorder.start();
-    };
-    record();
-    this.timer = setInterval(() => {
-      if (!this.current(generation) || this.pending || this.micMuted) return;
-      if (this.recorder?.state !== "recording") {
-        record();
+    this.mime = mime;
+    this.monitor = setInterval(() => {
+      if (
+        !this.current(generation) ||
+        this.micMuted ||
+        this.pending ||
+        this.mode !== "speaking"
+      )
         return;
-      }
+      const samples = this.samples;
+      if (!samples) return;
       analyser.getFloatTimeDomainData(samples);
       const rms = Math.sqrt(
         samples.reduce((sum, value) => sum + value * value, 0) / samples.length,
       );
-      const now = performance.now();
-      if (rms > 0.025) {
-        heard = true;
-        lastVoice = now;
-        this.interrupt();
-      }
-      if ((heard && now - lastVoice > 900) || now - began > 15000)
-        this.recorder?.stop();
+      if (rms > 0.025) this.interrupt();
     }, 100);
   }
-  finishVoiceTurn() {
-    if (this.recorder?.state === "recording") this.recorder.stop();
+  /** Press-and-hold capture; the existing MediaRecorder/WAV upload path is unchanged. */
+  async beginPushToTalk() {
+    if (this.closed || this.capture || this.pending || this.micMuted) return;
+    if (this.status === "connecting") return;
+    const generation = this.generation;
+    this.error = "";
+    this.notice = "";
+    this.interrupt();
+    this.capturing = true;
+    this.captureReady = false;
+    this.update();
+    try {
+      if (
+        this.status !== "connected" ||
+        this.textOnly ||
+        !this.stream ||
+        !this.mime
+      )
+        await this.start(false);
+      if (!this.capturing || !this.current(generation)) return;
+      if (
+        this.status !== "connected" ||
+        this.textOnly ||
+        !this.stream ||
+        !this.mime
+      ) {
+        this.capturing = false;
+        this.update();
+        return;
+      }
+      const recorder = new MediaRecorder(this.stream, { mimeType: this.mime });
+      const capture: Capture = {
+        recorder,
+        chunks: [],
+        generation,
+        finished: false,
+      };
+      this.capture = capture;
+      recorder.onstart = () => {
+        if (this.capture !== capture || capture.release) return;
+        this.captureReady = true;
+        this.update();
+      };
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) capture.chunks.push(event.data);
+      };
+      recorder.onstop = () => this.finishCapture(capture);
+      recorder.onerror = () => {
+        capture.release = "cancel";
+        this.finishCapture(capture);
+        if (this.current(generation))
+          this.fail(
+            new Error(
+              "Microphone recording failed. Hold to retry or use typed chat.",
+            ),
+          );
+      };
+      recorder.start(100);
+      this.maxTimer = setTimeout(() => {
+        if (this.capture !== capture || capture.release) return;
+        this.notice = "Maximum 15-second clip reached; sending.";
+        this.endPushToTalk();
+      }, 15000);
+      this.update();
+    } catch (error) {
+      this.capture = undefined;
+      this.capturing = false;
+      this.clearCaptureTimers();
+      if (this.current(generation)) this.fail(error);
+    }
+  }
+  endPushToTalk() {
+    this.releasePushToTalk("send");
+  }
+  cancelPushToTalk() {
+    this.releasePushToTalk("cancel");
+  }
+  private releasePushToTalk(release: "send" | "cancel") {
+    if (!this.capturing) return;
+    const capture = this.capture;
+    if (!capture) {
+      this.capturing = false;
+      if (release === "send")
+        this.notice =
+          "The clip was too short to send. Hold the button while you speak.";
+      this.update();
+      return;
+    }
+    if (capture.release) return;
+    capture.release = release;
+    this.clearCaptureTimers();
+    if (capture.recorder.state === "inactive") this.finishCapture(capture);
+    else capture.recorder.stop();
+    this.update();
+  }
+  private finishCapture(capture: Capture) {
+    if (capture.finished) return;
+    capture.finished = true;
+    this.clearCaptureTimers();
+    if (this.capture === capture) this.capture = undefined;
+    this.capturing = false;
+    this.captureReady = false;
+    this.update();
+    if (
+      capture.release !== "send" ||
+      !this.current(capture.generation) ||
+      this.pending
+    )
+      return;
+    if (!capture.chunks.length) {
+      this.notice = "No audio was captured. Hold the button and speak.";
+      this.update();
+      return;
+    }
+    const type = capture.chunks[0]?.type || this.mime;
+    void this.transcribe(
+      new Blob(capture.chunks, { type }),
+      capture.generation,
+    );
+  }
+  private clearCaptureTimers() {
+    if (this.maxTimer) clearTimeout(this.maxTimer);
+    this.maxTimer = undefined;
   }
   private async transcribe(blob: Blob, generation: number) {
     this.pending = true;
@@ -211,7 +322,7 @@ export class PMConversation {
     if (!this.grant || this.closed || this.pending) return;
     const generation = this.generation;
     this.pending = true;
-    this.finishVoiceTurn();
+    this.cancelPushToTalk();
     try {
       await this.turn(text.trim(), generation);
     } catch (error) {
@@ -326,7 +437,7 @@ export class PMConversation {
     this.stream?.getTracks().forEach((track) => {
       track.enabled = !this.micMuted;
     });
-    if (this.micMuted) this.finishVoiceTurn();
+    if (this.micMuted) this.cancelPushToTalk();
     this.update();
   }
   private async revoke(grant?: Grant) {
@@ -341,10 +452,14 @@ export class PMConversation {
     ++this.generation;
     this.controller.abort();
     this.controller = new AbortController();
-    clearInterval(this.timer);
-    this.finishVoiceTurn();
+    clearInterval(this.monitor);
+    this.releasePushToTalk("cancel");
+    this.capturing = false;
+    this.notice = "";
     this.stream?.getTracks().forEach((track) => track.stop());
     this.stream = undefined;
+    this.samples = undefined;
+    this.mime = undefined;
     void this.context?.close();
     this.context = undefined;
     this.interrupt();

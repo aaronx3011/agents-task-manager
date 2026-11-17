@@ -263,14 +263,17 @@ needed for notifications across multiple ASGI workers.
 ### Talk to the PM agent
 
 Owners can open **Voice agent** in desktop/mobile navigation, or
-`/?section=voice`. Use **Start voice conversation** for hands-free conversation, or type
+`/?section=voice`. Hold **Push to talk** (or hold Space/Enter on the focused button), or type
 in the composer. Spoken replies can be muted or interrupted; starting to speak
 interrupts playback. Mention the project when asking the agent to create a task.
 Ask for a task's status to get a fresh coordinator lookup. Tool results invalidate
 the dashboard's task views. Conversation history is page-local and clears on
 navigation/reload; **Clear conversation** also stops capture and playback and revokes
-the backend conversation. Voice turns submit after a pause (or **Send voice turn**),
-with a maximum 15-second clip. Microphone access needs HTTPS or localhost.
+the backend conversation. Releasing the hold sends one voice turn; releasing outside
+the button, Escape, Cancel recording, focus loss or hiding the page discards it.
+Push-to-talk replaces automatic pause-to-send and **Send voice turn**; there is one
+voice send path. A hold interrupts spoken replies, and acoustic barge-in remains available.
+The maximum 15-second clip sends automatically at the limit. Microphone access needs HTTPS or localhost.
 
 The browser connects only to Django. **Fireworks AI** handles all PM reasoning
 and function calling; Django owns the system prompt, bounded conversation history,

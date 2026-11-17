@@ -4,6 +4,9 @@ import functools
 import http.server
 import io
 import json
+import math
+import struct
+import tempfile
 import threading
 import wave
 from pathlib import Path
@@ -121,11 +124,29 @@ def main():
             body = dict(count=0, items=[])
         route.fulfill(json=body)
 
-    with sync_playwright() as playwright:
+    with (
+        tempfile.TemporaryDirectory(prefix="pm-voice-") as temporary,
+        sync_playwright() as playwright,
+    ):
+        # Deterministic non-silent capture input; Chromium's default fake device
+        # can begin with silence. Keep all actual decoded WAV assertions above.
+        microphone = Path(temporary) / "microphone.wav"
+        with wave.open(str(microphone), "wb") as output:
+            output.setnchannels(1)
+            output.setsampwidth(2)
+            output.setframerate(48000)
+            output.writeframes(
+                b"".join(
+                    struct.pack("<h", int(12000 * math.sin(2 * math.pi * 440 * i / 48000)))
+                    for i in range(48000)
+                )
+                * 120
+            )
         browser = playwright.chromium.launch(
             args=[
                 "--use-fake-device-for-media-stream",
                 "--use-fake-ui-for-media-stream",
+                f"--use-file-for-fake-audio-capture={microphone}",
                 "--autoplay-policy=no-user-gesture-required",
             ]
         )
@@ -149,11 +170,21 @@ def main():
           window.pmTracks = [];
           const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
           navigator.mediaDevices.getUserMedia = async (options) => {
+            if (window.pmMicrophoneGate) await window.pmMicrophoneGate;
             const stream = await original(options);
             window.pmTracks.push(...stream.getTracks());
             return stream;
           };
           window.pmPlayed = 0;
+          window.pmRecorderChunks = 0;
+          const start = MediaRecorder.prototype.start;
+          MediaRecorder.prototype.start = function(...args) {
+            window.pmRecorderChunks = 0;
+            this.addEventListener('dataavailable', e => {
+              if(e.data.size) window.pmRecorderChunks++;
+            });
+            return start.apply(this, args);
+          };
           const play = HTMLMediaElement.prototype.play;
           HTMLMediaElement.prototype.play = function() {
             window.pmPlayed++;
@@ -175,16 +206,100 @@ def main():
         expect(page.get_by_text("Created task 987 in agents-task-manager.")).to_be_visible()
         page.get_by_role("button", name="Start voice conversation", exact=True).click()
         page.wait_for_function(
-            "document.querySelector('.voice-buttons [role=status]').textContent === 'Listening'"
+            "document.querySelector('.voice-buttons [role=status]').textContent "
+            "=== 'Ready for push-to-talk'"
         )
         assert len(issued) == 1 and not revoked  # text-to-voice preserves context
-        page.wait_for_timeout(700)
-        page.get_by_role("button", name="Send voice turn", exact=True).click()
+        hold = page.get_by_role("button", name="Push to talk", exact=True)
+        hold.hover()
+        page.mouse.down()
+        expect(hold).to_have_attribute("aria-pressed", "true")
+        expect(hold).to_have_attribute("data-capture-ready", "true")
+        page.wait_for_function("window.pmRecorderChunks >= 2")
+        page.mouse.up()
         expect(
             page.get_by_text("Tell me the status of task 302 from voice.", exact=True)
         ).to_be_visible()
         page.wait_for_function("window.pmPlayed > 0")
         assert clips and speeches
+        print("PASS: pointer capture upload and playback", flush=True)
+        page.get_by_label("Mute spoken replies").click()
+        before = len(clips)
+        hold.hover()
+        page.mouse.down()
+        page.wait_for_timeout(1200)
+        page.mouse.move(1, 1)
+        page.mouse.up()
+        expect(hold).to_have_attribute("aria-pressed", "false")
+        page.wait_for_timeout(300)
+        assert len(clips) == before
+        hold.focus()
+        page.keyboard.down("Space")
+        expect(hold).to_have_attribute("data-capture-ready", "true")
+        page.wait_for_function("window.pmRecorderChunks >= 2")
+        page.keyboard.up("Space")
+        page.wait_for_function(
+            "document.querySelector('.voice-buttons [role=status]').textContent "
+            "=== 'Ready for push-to-talk'"
+        )
+        assert len(clips) == before + 1
+        print("PASS: keyboard capture", flush=True)
+        # Pointer cancellation, capture loss, blur, and hiding cannot send a clip.
+        for action in ["pointercancel", "lostpointercapture", "blur", "hidden"]:
+            hold.hover()
+            page.mouse.down()
+            expect(hold).to_have_attribute("aria-pressed", "true")
+            if action == "hidden":
+                page.evaluate(
+                    "Object.defineProperty(document, 'hidden', {configurable:true,value:true}); "
+                    "document.dispatchEvent(new Event('visibilitychange')); delete document.hidden"
+                )
+            elif action == "blur":
+                page.get_by_label("Message PM agent").focus()
+            else:
+                hold.dispatch_event(action)
+            page.mouse.up()
+            expect(hold).to_have_attribute("aria-pressed", "false")
+        page.wait_for_timeout(300)
+        assert len(clips) == before + 1
+        hold.focus()
+        page.keyboard.down("Enter")
+        expect(hold).to_have_attribute("aria-pressed", "true")
+        page.keyboard.press("Escape")
+        page.keyboard.up("Enter")
+        expect(hold).to_have_attribute("aria-pressed", "false")
+        page.wait_for_timeout(300)
+        assert len(clips) == before + 1
+        assert hold.evaluate(
+            "el => { const e = new MouseEvent('contextmenu', {bubbles:true,cancelable:true}); "
+            "el.dispatchEvent(e); return e.defaultPrevented; }"
+        )
+        assert hold.evaluate("el => getComputedStyle(el).touchAction") == "none"
+        assert hold.evaluate("el => getComputedStyle(el).userSelect") == "none"
+        page.set_viewport_size(dict(width=390, height=844))
+        hold.scroll_into_view_if_needed()
+        box = hold.bounding_box()
+        touch = context.new_cdp_session(page)
+        touch.send(
+            "Input.dispatchTouchEvent",
+            {"type": "touchStart", "touchPoints": [{"x": box["x"] + 50, "y": box["y"] + 24}]},
+        )
+        expect(hold).to_have_attribute("data-capture-ready", "true")
+        page.wait_for_function("window.pmRecorderChunks >= 2")
+        touch.send(
+            "Input.dispatchTouchEvent",
+            {"type": "touchMove", "touchPoints": [{"x": box["x"] + 60, "y": box["y"] + 24}]},
+        )
+        touch.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        page.wait_for_function(
+            "document.querySelector('.voice-buttons [role=status]').textContent "
+            "=== 'Ready for push-to-talk'"
+        )
+        assert len(clips) == before + 2
+        print("PASS: mobile touch capture", flush=True)
+        assert page.evaluate("getSelection().toString()") == ""
+        page.set_viewport_size(dict(width=1280, height=720))
+        page.get_by_label("Enable spoken replies").click()
         page.get_by_label("Mute spoken replies").click()
         page.get_by_label("Mute microphone").click()
         expect(page.get_by_role("button", name="Unmute microphone", exact=True)).to_be_visible()
@@ -222,6 +337,33 @@ def main():
         page.wait_for_function("window.pmTracks.every(track => track.readyState === 'ended')")
         expect(page.get_by_role("button", name="End conversation", exact=True)).to_be_disabled()
         assert revoked
+        print("PASS: playback queue, mute and stop", flush=True)
+        # Release while permission/device acquisition is pending must never
+        # resurrect a recording when the async microphone setup finishes.
+        before = len(clips)
+        page.evaluate(
+            "() => { window.pmMicrophoneGate = "
+            "new Promise(resolve => window.pmReleaseMic = resolve); }"
+        )
+        hold.focus()
+        page.keyboard.down("Space")
+        expect(hold).to_have_attribute("aria-pressed", "true")
+        page.keyboard.up("Space")
+        page.evaluate("window.pmReleaseMic(); window.pmMicrophoneGate = undefined")
+        expect(hold).to_have_attribute("aria-pressed", "false")
+        page.wait_for_function(
+            "document.querySelector('.voice-buttons [role=status]').textContent "
+            "=== 'Ready for push-to-talk'"
+        )
+        assert len(clips) == before
+        hold.focus()
+        page.keyboard.down("Space")
+        expect(hold).to_have_attribute("data-capture-ready", "true")
+        page.get_by_role("button", name="All tasks 0", exact=True).click()
+        page.keyboard.up("Space")
+        page.wait_for_function("window.pmTracks.every(track => track.readyState === 'ended')")
+        assert len(clips) == before
+        page.get_by_role("button", name="Voice agent", exact=True).click()
         page.get_by_role("button", name="Clear conversation", exact=True).click()
         expect(page.get_by_role("heading", name="What would you like to work on?")).to_be_visible()
         page.set_viewport_size(dict(width=390, height=844))

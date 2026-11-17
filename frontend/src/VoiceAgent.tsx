@@ -5,6 +5,7 @@ import { api, unwrap } from "./api-client";
 import { PMConversation } from "./voice-client";
 import type { PMStatus } from "./voice-client";
 import { refreshTaskViews } from "./task-sync";
+import { HoldToTalk, pointerWithinRect } from "./voice-hold";
 import "./voice-agent.css";
 
 export default function VoiceAgent() {
@@ -12,6 +13,7 @@ export default function VoiceAgent() {
   const [draft, setDraft] = useState("");
   const [client, setClient] = useState<PMConversation>();
   const transcript = useRef<HTMLDivElement>(null);
+  const hold = useRef(new HoldToTalk());
   const queries = useQueryClient();
   useEffect(() => {
     const connection = new PMConversation(
@@ -36,6 +38,26 @@ export default function VoiceAgent() {
   const connected = client?.status === "connected";
   const busy = client?.status === "connecting" || Boolean(client?.pending);
   const ready = Boolean(status.data?.configured);
+  const recording = Boolean(client?.capturing);
+  const cancelHold = () => {
+    hold.current.cancel();
+    client?.cancelPushToTalk();
+  };
+  useEffect(() => {
+    const cancel = () => {
+      hold.current.cancel();
+      client?.cancelPushToTalk();
+    };
+    const visibility = () => {
+      if (document.hidden) cancel();
+    };
+    window.addEventListener("blur", cancel);
+    document.addEventListener("visibilitychange", visibility);
+    return () => {
+      window.removeEventListener("blur", cancel);
+      document.removeEventListener("visibilitychange", visibility);
+    };
+  }, [client]);
   return (
     <section className="voice-agent" aria-label="Voice agent">
       <header className="voice-heading">
@@ -148,26 +170,112 @@ export default function VoiceAgent() {
           >
             <Square size={15} /> End conversation
           </button>
-          {connected && !client?.textOnly && (
-            <button
-              className="secondary-button"
-              disabled={busy || client?.micMuted}
-              onClick={() => client?.finishVoiceTurn()}
-            >
-              Send voice turn
-            </button>
-          )}
-          {connected && !client?.textOnly && (
-            <button
-              className="icon-button"
-              aria-label={
-                client?.micMuted ? "Unmute microphone" : "Mute microphone"
+          <button
+            type="button"
+            className="primary-button voice-hold"
+            aria-label="Push to talk"
+            aria-pressed={recording}
+            data-capture-ready={Boolean(client?.captureReady)}
+            aria-describedby="voice-hold-help"
+            data-state={
+              recording
+                ? "recording"
+                : busy
+                  ? "processing"
+                  : client?.error
+                    ? "error"
+                    : "idle"
+            }
+            disabled={
+              !ready ||
+              !status.data?.speech_configured ||
+              Boolean(client?.micMuted) ||
+              (busy && !recording)
+            }
+            onPointerDown={(event) => {
+              if (
+                event.button !== 0 ||
+                !event.isPrimary ||
+                !hold.current.beginPointer(event.pointerId)
+              )
+                return;
+              event.preventDefault();
+              event.currentTarget.focus({ preventScroll: true });
+              event.currentTarget.setPointerCapture(event.pointerId);
+              void client?.beginPushToTalk();
+            }}
+            onPointerUp={(event) => {
+              const outcome = hold.current.endPointer(
+                event.pointerId,
+                pointerWithinRect(
+                  event.currentTarget.getBoundingClientRect(),
+                  event.clientX,
+                  event.clientY,
+                ),
+              );
+              if (outcome === "none") return;
+              event.preventDefault();
+              if (event.currentTarget.hasPointerCapture(event.pointerId))
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              if (outcome === "send") client?.endPushToTalk();
+              else client?.cancelPushToTalk();
+            }}
+            onPointerCancel={cancelHold}
+            onLostPointerCapture={() => {
+              if (hold.current.active) cancelHold();
+            }}
+            onBlur={cancelHold}
+            onContextMenu={(event) => event.preventDefault()}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                cancelHold();
               }
-              onClick={() => client?.toggleMic()}
-            >
-              {client?.micMuted ? <MicOff size={18} /> : <Mic size={18} />}
-            </button>
-          )}
+              if (event.key !== " " && event.key !== "Enter") return;
+              event.preventDefault();
+              if (!event.repeat && hold.current.beginKeyboard())
+                void client?.beginPushToTalk();
+            }}
+            onKeyUp={(event) => {
+              if (event.key !== " " && event.key !== "Enter") return;
+              event.preventDefault();
+              if (hold.current.endKeyboard() === "send")
+                client?.endPushToTalk();
+            }}
+          >
+            <Mic size={17} />{" "}
+            {recording
+              ? client?.captureReady
+                ? "Recording — release to send"
+                : "Starting microphone…"
+              : busy
+                ? "Processing…"
+                : client?.error
+                  ? "Hold to retry"
+                  : "Hold to talk"}
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            style={{ visibility: recording ? "visible" : "hidden" }}
+            disabled={!recording}
+            onClick={cancelHold}
+          >
+            Cancel recording
+          </button>
+          <button
+            className="icon-button"
+            style={{
+              visibility: connected && !client?.textOnly ? "visible" : "hidden",
+            }}
+            disabled={!connected || client?.textOnly}
+            aria-label={
+              client?.micMuted ? "Unmute microphone" : "Mute microphone"
+            }
+            onClick={() => client?.toggleMic()}
+          >
+            {client?.micMuted ? <MicOff size={18} /> : <Mic size={18} />}
+          </button>
           <button
             className="icon-button"
             aria-label={
@@ -204,9 +312,14 @@ export default function VoiceAgent() {
             <Send size={17} /> Send
           </button>
         </form>
+        {client?.notice && <p role="status">{client.notice}</p>}
+        <p id="voice-hold-help" className="voice-footnote">
+          Hold the button, Space or Enter to talk; release to send. Release
+          outside or press Escape to discard.
+        </p>
         <p className="voice-footnote">
           Fireworks reasoning · ElevenLabs transcription and speech · Speak to
-          interrupt · Task changes are handled by Task Manager
+          interrupt with push-to-talk · Task changes are handled by Task Manager
         </p>
       </footer>
     </section>
