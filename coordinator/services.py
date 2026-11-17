@@ -785,7 +785,7 @@ def planning_read(project):
     cards = []
     jobs = []
     if plan:
-        for card in plan.cards.filter(archived=False).select_related("task"):
+        for card in plan.cards.filter(archived=False).select_related("task", "worker"):
             cards.append(
                 {
                     "id": card.pk,
@@ -796,6 +796,7 @@ def planning_read(project):
                     "labels": card.labels,
                     "checklist": card.checklist,
                     "instructions": card.instructions,
+                    "worker": card.worker.name if card.worker_id else "",
                     "agent": card.agent,
                     "model": card.model,
                     "task": card.task_id,
@@ -871,15 +872,20 @@ def mutate_planning(project, actor, data):
             raise TaskError("Card not found", 404)
         if values["column"] not in plan.columns:
             raise TaskError("Unknown board column", 400)
+        if "worker" in values:
+            values["worker"] = Worker.objects.filter(name=values["worker"]).first()
         if "agent" in values:
             values["agent"] = (values["agent"] or "").strip()
+        effective_worker = (
+            values.get("worker", card.worker if card else None) or plan.default_worker
+        )
         effective_agent = values.get("agent", card.agent if card else "")
         effective_model = values.get("model", card.model if card else None)
-        if plan.default_worker_id:
-            if effective_agent and not _agent_allowed(plan.default_worker, effective_agent):
-                raise TaskError("Agent is not available on the project worker", 400)
-            if effective_model and not _model_allowed(plan.default_worker, effective_model):
-                raise TaskError("Model is not available on the project worker", 400)
+        if effective_worker:
+            if effective_agent and not _agent_allowed(effective_worker, effective_agent):
+                raise TaskError("Agent is not available on the card's worker", 400)
+            if effective_model and not _model_allowed(effective_worker, effective_model):
+                raise TaskError("Model is not available on the card's worker", 400)
         if card is None:
             card = PlanningCard(plan=plan, position=plan.cards.count())
         for field, value in values.items():
@@ -900,19 +906,25 @@ def mutate_planning(project, actor, data):
             raise TaskError("Project queue is full (100 jobs)", 429)
         if operation == "run" and plan.jobs.filter(status__in=["queued", "running"]).exists():
             raise TaskError("Use Play to run the existing queue first", 409)
-        worker = plan.default_worker
-        if not worker or not worker.is_enabled or not worker.agent_id or not worker.agent.is_active:
-            raise TaskError("Configure an enabled project worker first", 400)
+        # A card's own worker overrides the project default for this launch (#314).
+        worker = card.worker or plan.default_worker
+        if not worker:
+            raise TaskError("Configure a project worker or choose one for this card", 400)
+        if not worker.is_enabled or not worker.agent_id or not worker.agent.is_active:
+            raise TaskError(f"Worker {worker.name} is not enabled", 400)
         if card.task_id and card.task.status in {Task.Status.DONE, Task.Status.CANCELLED}:
             raise TaskError(
                 "This card's task is terminal. Create a new card for follow-up work.", 409
             )
-        agent = (card.agent or plan.agent or "").strip()
+        # Project agent/model defaults belong to the project worker; another worker
+        # falls back to its own defaults unless the card names its own.
+        inherit = worker.pk == plan.default_worker_id
+        agent = (card.agent or (plan.agent if inherit else "") or "").strip()
         if agent and not _agent_allowed(worker, agent):
-            raise TaskError("Agent is not available on the project worker", 400)
-        model = card.model or plan.model or worker.default_model
+            raise TaskError(f"Agent is not available on worker {worker.name}", 400)
+        model = card.model or (plan.model if inherit else None) or worker.default_model
         if model and not _model_allowed(worker, model):
-            raise TaskError("Model is not available on the project worker", 400)
+            raise TaskError(f"Model is not available on worker {worker.name}", 400)
         snapshot = {
             "title": card.title,
             "description": card.description,

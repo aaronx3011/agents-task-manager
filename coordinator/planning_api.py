@@ -91,8 +91,15 @@ class CardInput(serializers.Serializer):
     labels = serializers.ListField(child=serializers.CharField(max_length=50), max_length=20)
     checklist = ChecklistItem(many=True, max_length=100)
     instructions = serializers.CharField(max_length=8000, allow_blank=True)
+    # Blank runs the card on the project's default worker.
+    worker = serializers.CharField(max_length=100, allow_blank=True, required=False)
     agent = serializers.CharField(max_length=100, allow_blank=True, required=False)
     model = ModelChoice(allow_null=True, required=False)
+
+    def validate_worker(self, value):
+        if value and not Worker.objects.filter(name=value).exists():
+            raise serializers.ValidationError("Unknown worker")
+        return value
 
 
 class PlanningMutation(serializers.Serializer):

@@ -39,6 +39,8 @@ interface Card {
   labels: string[];
   checklist: { text: string; done: boolean }[];
   instructions: string;
+  /** Blank runs on the project's default worker. */
+  worker?: string;
   agent: string;
   model: ModelChoice | null;
   task?: number | null;
@@ -428,11 +430,23 @@ function ProjectPlanning({
     );
   const queued = data.jobs.filter((j) => j.status === "queued");
   const active = data.jobs.find((j) => j.status === "running");
-  const projectWorker = workers.data?.items.find(
-    (w) => w.name === data.settings.worker,
-  );
-  const workerAgents = projectWorker?.agents || [];
-  const workerModels = projectWorker?.models || [];
+  const workerList = workers.data?.items || [];
+  // A card's own worker overrides the project default; agent/model choices
+  // and their inherited defaults follow whichever worker the card runs on.
+  const editorWorkerName = editor?.worker || data.settings.worker;
+  const editorInherits = editorWorkerName === data.settings.worker;
+  const editorWorker = workerList.find((w) => w.name === editorWorkerName);
+  const workerAgents = editorWorker?.agents || [];
+  const workerModels = editorWorker?.models || [];
+  const launchWorker = launch?.worker || data.settings.worker;
+  const launchInherits = launchWorker === data.settings.worker;
+  const chooseLaunchWorker = (name: string) => {
+    if (!launch) return;
+    const next = { ...launch, worker: name, agent: "", model: null };
+    void mutate({ operation: "card", card: editableCard(next) }).then(
+      (ok) => ok && setLaunch(next),
+    );
+  };
   const edit = (card: Card) => {
     setEditor({ ...card });
     setEditorRevision(data.revision);
@@ -996,6 +1010,27 @@ function ProjectPlanning({
                 </fieldset>
                 <div className="planning-settings-grid">
                   <label>
+                    Worker for this task
+                    <select
+                      aria-label="Task worker"
+                      value={editor.worker || ""}
+                      onChange={(e) =>
+                        setEditor({
+                          ...editor,
+                          worker: e.target.value,
+                          agent: "",
+                          model: null,
+                        })
+                      }
+                    >
+                      <WorkerOptions
+                        workers={workerList}
+                        projectWorker={data.settings.worker}
+                        current={editor.worker}
+                      />
+                    </select>
+                  </label>
+                  <label>
                     Agent for this task
                     <select
                       aria-label="Task agent"
@@ -1005,7 +1040,9 @@ function ProjectPlanning({
                       }
                     >
                       <option value="">
-                        {`Project default (${data.settings.agent || "worker default"})`}
+                        {editorInherits
+                          ? `Project default (${data.settings.agent || "worker default"})`
+                          : "Worker default"}
                       </option>
                       {editor.agent &&
                         !workerAgents.some((a) => a.name === editor.agent) && (
@@ -1045,7 +1082,9 @@ function ProjectPlanning({
                       }
                     >
                       <option value="">
-                        {`Project default (${data.settings.model?.modelID || "worker default"})`}
+                        {editorInherits
+                          ? `Project default (${data.settings.model?.modelID || "worker default"})`
+                          : `Worker default (${editorWorker?.default_model?.modelID || "unknown"})`}
                       </option>
                       {editor.model &&
                         !workerModels.some(
@@ -1134,13 +1173,30 @@ function ProjectPlanning({
                   <X size={18} />
                 </button>
               </header>
+              <label>
+                Worker
+                <select
+                  aria-label="Launch worker"
+                  disabled={busy}
+                  value={launch.worker || ""}
+                  onChange={(e) => chooseLaunchWorker(e.target.value)}
+                >
+                  <WorkerOptions
+                    workers={workerList}
+                    projectWorker={data.settings.worker}
+                    current={launch.worker}
+                  />
+                </select>
+              </label>
               <p>
-                {data.settings.worker || "No worker configured"} ·{" "}
+                {launchWorker || "No worker configured"} ·{" "}
                 {data.settings.directory || "Worker default directory"} ·{" "}
-                {launch.agent || data.settings.agent || "Worker default agent"}{" "}
+                {launch.agent ||
+                  (launchInherits && data.settings.agent) ||
+                  "Worker default agent"}{" "}
                 ·{" "}
-                {(launch.model || data.settings.model)?.modelID ||
-                  "Worker default model"}
+                {(launch.model || (launchInherits ? data.settings.model : null))
+                  ?.modelID || "Worker default model"}
               </p>
               <label>
                 Prompt template
@@ -1194,7 +1250,7 @@ function ProjectPlanning({
                     key={operation}
                     disabled={
                       busy ||
-                      !data.settings.worker ||
+                      !launchWorker ||
                       (operation === "run" && (!!active || !!queued.length))
                     }
                     onClick={() =>
@@ -1234,9 +1290,39 @@ function editableCard(card: Card) {
     labels: [...new Set(card.labels.filter(Boolean))],
     checklist: card.checklist,
     instructions: card.instructions,
+    worker: card.worker || "",
     agent: card.agent,
     model: card.model,
   };
+}
+
+/** Options for a per-card worker select; blank means the project default. */
+function WorkerOptions({
+  workers,
+  projectWorker,
+  current,
+}: {
+  workers: Worker[];
+  projectWorker: string;
+  current?: string;
+}) {
+  return (
+    <>
+      <option value="">
+        {projectWorker
+          ? `Project default (${projectWorker})`
+          : "Project default (none configured)"}
+      </option>
+      {current && !workers.some((w) => w.name === current) && (
+        <option value={current}>{current} (not reported)</option>
+      )}
+      {workers.map((w) => (
+        <option key={w.name} value={w.name}>
+          {w.name} · {w.online ? "online" : "offline"}
+        </option>
+      ))}
+    </>
+  );
 }
 
 function SettingsForm({

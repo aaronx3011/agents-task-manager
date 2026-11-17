@@ -239,6 +239,82 @@ def test_unknown_agent_is_rejected_for_project_and_task(setup):
     assert response.status_code == 200
 
 
+def test_card_worker_overrides_project_default_worker(setup, agent_clients):
+    staff, worker, plan = setup
+    plan.agent = "plan"  # a project default that worker-b does not report
+    plan.save()
+    other = services.provision_worker("worker-b", Agent.objects.get(name="beta"))
+    other.connected = other.stream_connected = True
+    other.last_sync_at = timezone.now()
+    other.default_model = {"providerID": "codex", "modelID": "gpt"}
+    other.model_catalog = [other.default_model]
+    other.agent_catalog = [{"name": "review", "mode": "primary"}]
+    other.save()
+    c = card(plan, "Run on the other worker")
+    # Agent and model are validated against the card's worker, not the project's.
+    rejected = mutate(
+        staff,
+        plan,
+        "card",
+        card={**editable_card_values(c), "worker": other.name, "agent": "build"},
+    )
+    assert rejected.status_code == 400
+    assert "card's worker" in rejected.json()["detail"]
+    unknown = mutate(staff, plan, "card", card={**editable_card_values(c), "worker": "nope"})
+    assert unknown.status_code == 400
+    response = mutate(
+        staff,
+        plan,
+        "card",
+        card={**editable_card_values(c), "worker": other.name, "agent": "review"},
+    )
+    assert response.status_code == 200, response.content
+    row = next(r for r in response.json()["cards"] if r["id"] == c.pk)
+    assert row["worker"] == "worker-b"
+    inherited = card(plan, "Run on the project worker")
+    defaults = card(plan, "Worker-b with its own defaults")
+    defaults.worker = other
+    defaults.save()
+    for pk in (c.pk, inherited.pk, defaults.pk):
+        assert mutate(staff, plan, "enqueue", card_id=pk).status_code == 200
+    jobs = {job.card_id: job for job in PlanningJob.objects.all()}
+    assert jobs[c.pk].worker == other
+    assert jobs[c.pk].snapshot["model"] == other.default_model
+    assert jobs[c.pk].snapshot["agent"] == "review"
+    assert jobs[inherited.pk].worker == worker
+    assert jobs[inherited.pk].snapshot["agent"] == "plan"
+    # Project agent/model defaults don't leak onto another worker.
+    assert jobs[defaults.pk].snapshot["agent"] == ""
+    assert jobs[defaults.pk].snapshot["model"] == other.default_model
+    # The project default is untouched by the per-card choice.
+    plan.refresh_from_db()
+    assert plan.default_worker == worker
+    # The queue launches the first job on its own worker, owned by that worker's agent.
+    assert mutate(staff, plan, "play").status_code == 200
+    assert sync(agent_clients[0]).json()["commands"] == []
+    command = sync(agent_clients[1], worker="worker-b").json()["commands"][0]
+    assert command["action"] == "create"
+    task = PlanningCard.objects.get(pk=c.pk).task
+    assert task.claimed_by.name == "beta"
+
+
+def test_card_worker_runs_without_a_project_default(setup):
+    staff, worker, plan = setup
+    plan.default_worker = None
+    plan.save()
+    c = card(plan)
+    response = mutate(staff, plan, "enqueue", card_id=c.pk)
+    assert response.status_code == 400
+    assert (
+        mutate(
+            staff, plan, "card", card={**editable_card_values(c), "worker": worker.name}
+        ).status_code
+        == 200
+    )
+    assert mutate(staff, plan, "enqueue", card_id=c.pk).status_code == 200
+    assert PlanningJob.objects.get().worker == worker
+
+
 def editable_card_values(c):
     return {
         "id": c.pk,
