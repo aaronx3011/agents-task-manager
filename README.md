@@ -430,8 +430,7 @@ npm run format:check --prefix frontend
 npm run build --prefix frontend
 node --test bridge/bridge.test.mjs
 node --test frontend/tests/session-live.test.mjs
-node --test frontend/tests/voice-client.test.mjs frontend/tests/voice-proxy.test.mjs
-# Optional Caddy proxy coverage: CADDY_BIN=/path/to/caddy node --test frontend/tests/voice-proxy.test.mjs
+node --test frontend/tests/*.test.mjs
 # Built interface, fixture APIs and microphone: python scripts/verify_voice_agent_browser.py
 ```
 
