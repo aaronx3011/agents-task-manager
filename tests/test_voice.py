@@ -175,7 +175,7 @@ def test_provider_rejection_never_leaks_secret(settings, monkeypatch):
 
 def test_tool_definitions_keep_auth_outside_model():
     configs = tool_configs()
-    assert len(configs) == 10
+    assert len(configs) == 14
     for config in configs:
         assert config["type"] == "function"
         properties = config["function"]["parameters"]["properties"]

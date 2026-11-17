@@ -232,6 +232,9 @@ def heartbeat(agent, task_id, human_actor=None):
 @retry_sqlite
 @transaction.atomic
 def update_status(agent, task_id, status, reason="", result_summary="", human_actor=None):
+    # Match dispatch's plan -> task lock order so cancellation cannot race a start.
+    if status == Task.Status.CANCELLED:
+        _lock_task_plans(task_id)
     task = get_locked(task_id)
     require_owner(task, agent, human_actor)
     if human_actor is None and task.status not in {
@@ -260,6 +263,8 @@ def update_status(agent, task_id, status, reason="", result_summary="", human_ac
     elif status == Task.Status.IN_PROGRESS:
         task.heartbeat_at = timezone.now()
     task.save()
+    if status == Task.Status.CANCELLED:
+        _cancel_task_queue(task, agent, human_actor)
     sync_planning_card(task)
     log_human(
         task,
@@ -367,6 +372,8 @@ def edit_task(agent, task_id, changes, human_actor=None):
 def admin_save_task(instance, changed_fields, dependencies, username):
     """Apply only human-edited fields to current locked state, preserving live heartbeats."""
     creating = instance.pk is None
+    if not creating:
+        _lock_task_plans(instance.pk)
     task = instance if creating else get_locked(instance.pk)
     before = (
         {}
@@ -390,6 +397,8 @@ def admin_save_task(instance, changed_fields, dependencies, username):
     validate_status_details(task.status, task.blocked_reason, task.result_summary)
     task.full_clean(exclude=["depends_on"])
     task.save()
+    if task.status == Task.Status.CANCELLED:
+        _cancel_task_queue(task, None, username)
     if creating or "depends_on" in changed_fields:
         validate_dependencies(task.pk, dependencies)
         task.depends_on.set(dependencies)
@@ -955,8 +964,23 @@ def mutate_planning(project, actor, data):
         for offset, pk in enumerate(ids):
             plan.jobs.filter(pk=pk).update(position=base + offset)
     elif operation == "remove":
-        if not plan.jobs.filter(pk=data.get("job_id"), status="queued").update(status="cancelled"):
+        job = plan.jobs.filter(pk=data.get("job_id")).select_related("card__task").first()
+        if not job:
+            raise TaskError("Queue job not found", 404)
+        if job.status != "queued":
             raise TaskError("Only queued jobs can be removed", 409)
+        job.status = "cancelled"
+        job.detail = f"Removed from queue by {actor}; task status unchanged"
+        job.completed_at = timezone.now()
+        job.save(update_fields=["status", "detail", "completed_at"])
+        if job.card.task_id:
+            log_human(
+                job.card.task,
+                TaskEvent.Type.NOTE,
+                None,
+                f"Queue job #{job.pk}: {job.detail}",
+                actor,
+            )
     elif operation == "archive":
         card = plan.cards.filter(pk=data.get("card_id")).first()
         if not card or card.jobs.filter(status__in=["queued", "running"]).exists():
@@ -1140,7 +1164,9 @@ def _job_brief(job):
         "title": job.snapshot.get("title", job.card.title),
         "status": job.status,
         "task": attempt.task_id if attempt else job.card.task_id,
-        "task_status": attempt.task.status if attempt else None,
+        "task_status": attempt.task.status
+        if attempt
+        else (job.card.task.status if job.card.task_id else None),
         "session": attempt.remote_session_id if attempt else "",
         "worker": job.worker.name,
         "worker_online": worker_ready(job.worker),
@@ -1282,6 +1308,16 @@ def voice_play_queue(project, actor):
         raise TaskError(f"The {project.slug} queue is empty; nothing to play", 409)
     head = active[0]
     _require_no_blocking_failure(plan)
+    if head.status == "running" and (
+        not head.attempt_id
+        or head.attempt.task.status != Task.Status.IN_PROGRESS
+        or head.attempt.task.claimed_by_id != head.attempt.owner_id
+    ):
+        raise TaskError(
+            f"Queue job #{head.pk} is unresolved; resolve its task before resuming. "
+            "Nothing was changed.",
+            409,
+        )
     _require_ready_worker(head.worker, "the queue")
     previous_reason = plan.pause_reason
     already = plan.playing
@@ -1299,6 +1335,129 @@ def voice_play_queue(project, actor):
             "queue playing; the next queued job starts on the worker's next sync. "
             "Nothing has completed yet"
         ),
+    }
+
+
+def _lock_task_plans(task_id):
+    list(
+        locked(
+            ProjectPlan.objects.filter(
+                pk__in=PlanningCard.objects.filter(task_id=task_id).values("plan_id")
+            ).order_by("pk")
+        )
+    )
+
+
+def _cancel_task_queue(task, agent=None, actor=None):
+    """Caller holds plan then task locks. Running work requires explicit Stop."""
+    for job in PlanningJob.objects.filter(card__task=task, status="queued"):
+        job.status = "cancelled"
+        job.detail = f"Task #{task.pk} cancelled; queued execution invalidated"
+        job.completed_at = timezone.now()
+        job.save(update_fields=["status", "detail", "completed_at"])
+        ProjectPlan.objects.filter(pk=job.plan_id).update(revision=F("revision") + 1)
+        log_human(task, TaskEvent.Type.NOTE, agent, f"Queue job #{job.pk}: {job.detail}", actor)
+        transaction.on_commit(
+            lambda: dispatch_notification("planning.changed", subject="planning"), robust=True
+        )
+
+
+@transaction.atomic
+def voice_edit_queue(project, actor, operation, job_id=None, worker="", model="", agent=None):
+    """Owner voice gate lives at the capability boundary; reuse board mutations."""
+    plan = ProjectPlan.objects.filter(project=project).first()
+    if not plan:
+        raise TaskError(f"The {project.slug} queue is empty", 409)
+    plan = locked(ProjectPlan.objects.filter(pk=plan.pk)).get()
+    job = None
+    if operation in {"remove", "retarget"}:
+        job = (
+            plan.jobs.select_related("card__task", "worker__agent", "attempt__task")
+            .filter(pk=job_id)
+            .first()
+        )
+        if not job:
+            raise TaskError(f"Unknown queue job #{job_id} in project {project.slug}", 404)
+        if job.status != "queued":
+            raise TaskError(
+                f"Job #{job.pk} is {job.status}; {operation} is only allowed for queued jobs", 409
+            )
+        if operation == "retarget":
+            card = job.card
+            if card.task_id and card.task.status in TERMINAL_STATUSES:
+                raise TaskError(
+                    f"Task #{card.task_id} is {card.task.status}; remove its stale job instead", 409
+                )
+            if worker:
+                card.worker = _resolve_worker(worker)
+            runner = card.worker or plan.default_worker
+            if not runner:
+                raise TaskError("Choose a worker; no project default is configured", 400)
+            _require_ready_worker(runner, "retargeting the queued job")
+            if model:
+                card.model = _parse_model(runner, model)
+            if agent is not None:
+                if agent and (not runner.agent_catalog or not _agent_allowed(runner, agent)):
+                    raise TaskError(
+                        f"Agent {agent} is not in worker {runner.name}'s agent catalog", 400
+                    )
+                card.agent = agent
+            # Validate the complete effective runner before persisting any field.
+            _card_runner(plan, card)
+            card.save(update_fields=["worker", "model", "agent", "updated_at"])
+            _refresh_queued_job(plan, card)
+            plan.revision += 1
+            plan.save(update_fields=["revision"])
+            transaction.on_commit(
+                lambda: dispatch_notification("planning.changed", subject="planning"), robust=True
+            )
+            job.refresh_from_db()
+            job.detail = f"Retargeted by PM router ({actor}); still queued, not started"
+            job.save(update_fields=["detail"])
+        else:
+            mutate_planning(
+                project, actor, {"revision": plan.revision, "operation": "remove", "job_id": job.pk}
+            )
+            job.refresh_from_db()
+    else:
+        active = list(
+            plan.jobs.filter(status__in=["queued", "running"]).select_related(
+                "card__task", "worker__agent", "attempt__task"
+            )
+        )
+        if not active:
+            raise TaskError(f"The {project.slug} queue is empty; nothing to {operation}", 409)
+        job = next((j for j in active if j.status == "running"), active[0])
+        if operation == "stop" and job.status == "running":
+            _require_ready_worker(job.worker, "stopping the current session")
+        mutate_planning(project, actor, {"revision": plan.revision, "operation": operation})
+        job.refresh_from_db()
+    plan.refresh_from_db()
+    affected = _job_brief(job)
+    task = job.attempt.task if job.attempt_id else job.card.task
+    message = (
+        f"PM router {operation}: job #{job.pk}, task #{affected['task']}, "
+        f"worker {affected['worker']}, model {affected['model']}, "
+        f"agent {affected['agent']}, directory {affected['directory']}"
+    )
+    if task:
+        log_human(task, TaskEvent.Type.NOTE, None, message, actor)
+    return {
+        **queue_summary(plan),
+        "action": operation,
+        "affected": affected,
+        "state": {
+            "remove": (
+                "Removed from the execution queue; task status unchanged. "
+                "Not executed or completed."
+            ),
+            "retarget": "Retargeted and still queued; not started or completed.",
+            "pause": "Queue paused; current work may continue, no next job will launch.",
+            "stop": (
+                "Queue paused; interrupt queued for current session if present. "
+                "Interruption is not confirmed; task is not completed or released."
+            ),
+        }[operation],
     }
 
 
@@ -1377,6 +1536,13 @@ def _pause_planning(plan, reason):
 
 
 def _advance_planning(plan, worker):
+    # Repair historical/out-of-band cancellations even while paused. Never dispatch them.
+    for task in Task.objects.filter(
+        planningcard__jobs__plan=plan,
+        planningcard__jobs__status="queued",
+        status=Task.Status.CANCELLED,
+    ).distinct():
+        _cancel_task_queue(task)
     job = (
         plan.jobs.filter(status="running").select_related("attempt__task", "card", "worker").first()
     )

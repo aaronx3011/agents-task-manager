@@ -761,6 +761,7 @@ export interface paths {
     };
     get?: never;
     put?: never;
+    /** @description Owner-scoped PM capability tool. Queue operations: get_queue/play_queue/pause_queue/stop_queue require project; remove_queued_job requires project and job_id; retarget_queued_job also requires at least one of worker, agent, model (provider/model). Only queued jobs can be removed/retargeted. Responses contain result.action, affected job/task/worker/agent/model/directory and truthful state. Stop accepts a durable interrupt, not confirmed completion. Cancellation invalidates queued execution. Every call rechecks capability and owner access. */
     post: operations["voice_tools_create"];
     delete?: never;
     options?: never;
@@ -3087,21 +3088,158 @@ export interface operations {
       query?: never;
       header?: never;
       path: {
-        operation: string;
+        operation:
+          | "add_task_note"
+          | "create_task"
+          | "get_project"
+          | "get_queue"
+          | "get_task"
+          | "launch_task"
+          | "list_projects"
+          | "list_tasks"
+          | "pause_queue"
+          | "play_queue"
+          | "remove_queued_job"
+          | "retarget_queued_job"
+          | "stop_queue"
+          | "update_task_status";
       };
       cookie?: never;
     };
     requestBody?: {
       content: {
-        "application/json": {
-          [key: string]: unknown;
-        };
-        "application/x-www-form-urlencoded": {
-          [key: string]: unknown;
-        };
-        "multipart/form-data": {
-          [key: string]: unknown;
-        };
+        "application/json":
+          | {
+              conversation_id: string;
+            }
+          | {
+              conversation_id: string;
+              /** @description Registered project slug. */
+              project: string;
+            }
+          | {
+              conversation_id: string;
+              /** @description Registered project slug; omit for all projects. */
+              project?: string;
+              /**
+               * @description Status filter; omit for all statuses.
+               * @enum {string}
+               */
+              status?:
+                | "pending"
+                | "in_progress"
+                | "blocked"
+                | "review"
+                | "done"
+                | "cancelled";
+              /** @description Search task titles/descriptions or numeric task ID. */
+              q?: string;
+              /** @description Page size between1 and20; default10. */
+              limit?: number;
+              /** @description Pagination offset, default0. */
+              offset?: number;
+            }
+          | {
+              conversation_id: string;
+              /** @description Existing task ID. */
+              id: number;
+            }
+          | {
+              conversation_id: string;
+              /** @description Exact registered project slug. */
+              project: string;
+              /** @description Concise action-oriented task title, max300 characters. */
+              title: string;
+              /** @description Objective, context, outcome and acceptance criteria. */
+              description?: string;
+              /** @description Smaller means earlier; default100. */
+              priority?: number;
+              /** @description Verified prerequisite task IDs; omit if none. */
+              depends_on?: number[];
+            }
+          | {
+              conversation_id: string;
+              /** @description Existing task ID. */
+              id: number;
+              /**
+               * @description Requested lifecycle status.
+               * @enum {string}
+               */
+              status:
+                "in_progress" | "blocked" | "review" | "done" | "cancelled";
+              /** @description Reason, required when blocked. */
+              reason?: string;
+              /** @description Concrete outcome or user confirmation; required for done/review. */
+              result_summary?: string;
+            }
+          | {
+              conversation_id: string;
+              /** @description Existing task ID. */
+              id: number;
+              /** @description Note to add. */
+              message: string;
+            }
+          | {
+              conversation_id: string;
+              /** @description Registered project slug. */
+              project: string;
+            }
+          | {
+              conversation_id: string;
+              /** @description Existing pending task ID; omit when creating a new task. */
+              id?: number;
+              /** @description Project slug for a new task; omit with id. */
+              project?: string;
+              /** @description New task title, max300 characters; omit with id. */
+              title?: string;
+              /** @description New task objective and acceptance criteria. */
+              description?: string;
+              /** @description New task priority; smaller means earlier. */
+              priority?: number;
+              /** @description Verified prerequisite task IDs for a new task; omit if none. */
+              depends_on?: number[];
+              /** @description Worker name, only when the user names one. */
+              worker?: string;
+              /** @description provider/model from get_queue, only when the user asks. */
+              model?: string;
+              /** @description Play the queue after queueing; default true. */
+              start?: boolean;
+            }
+          | {
+              conversation_id: string;
+              /** @description Registered project slug. */
+              project: string;
+            }
+          | {
+              conversation_id: string;
+              /** @description Registered project slug. */
+              project: string;
+              /** @description Queued job ID from get_queue, not task ID. */
+              job_id: number;
+            }
+          | {
+              conversation_id: string;
+              /** @description Registered project slug. */
+              project: string;
+              /** @description Queued job ID from get_queue, not task ID. */
+              job_id: number;
+              /** @description Registered worker name requested by the user. */
+              worker?: string;
+              /** @description Exact provider/model from that worker's catalog. */
+              model?: string;
+              /** @description Agent on the selected worker; empty resets to defaults. */
+              agent?: string;
+            }
+          | {
+              conversation_id: string;
+              /** @description Registered project slug. */
+              project: string;
+            }
+          | {
+              conversation_id: string;
+              /** @description Registered project slug. */
+              project: string;
+            };
       };
     };
     responses: {

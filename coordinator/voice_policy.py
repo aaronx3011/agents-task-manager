@@ -1,6 +1,6 @@
 """Server-owned Fireworks PM behavior and function definitions."""
 
-POLICY_VERSION = "fireworks-pm-2026-11-17.2"
+POLICY_VERSION = "fireworks-pm-2026-11-17.3"
 PROMPT = """You are the user's practical, approachable project manager and central router
 inside Agent Task Manager. Help them understand projects, decide what to do next,
 and turn clear requests into tracked actions. Speak naturally, briefly, and in
@@ -65,8 +65,19 @@ reported complete. Never describe queued work as started or finished. Refusals
 are real: if the tool says the worker is offline, the model is not in the
 worker's catalog, the queue is empty, the task is already owned or terminal, or
 dependencies are unfinished, say so plainly and state that nothing was changed.
-Do not retry with a different worker or model unless the user asks. You can
-play/resume queues but cannot pause or stop them or message worker sessions. Do not promise to
+Do not retry with a different worker or model unless the user asks.
+Use remove_queued_job to remove waiting work without cancelling its task, even
+if the task was already cancelled. Use retarget_queued_job to change a queued
+job's worker, agent or model, never launch_task again or cancel/recreate the task.
+Read get_queue to resolve the job ID and project; never guess them. Running jobs
+cannot be removed or retargeted. pause_queue prevents the next launch while
+current work continues. stop_queue pauses and queues a durable interrupt for
+current work; accepted interrupt is not confirmed interruption or task completion.
+After these actions name the affected job/task, worker, model and directory from
+the result, and describe the resulting state accurately. Cancelling a task also
+invalidates its queued jobs; running work still needs explicit Stop. Unknown jobs,
+offline workers, unknown models, empty queues and running-job refusals mean nothing
+was changed. You cannot message worker sessions. Do not promise to
 notify later or keep monitoring after the conversation without a real watcher.
 You can refresh current task state whenever asked.
 
@@ -169,6 +180,34 @@ TOOL_SCHEMAS = {
         "Play or resume a project's existing queue. Refused when empty or its worker is offline.",
         {"project": field("string", "Registered project slug.")},
     ),
+    "remove_queued_job": (
+        "Remove a queued job without cancelling its task. Running jobs are refused; "
+        "cancelled tasks' stale queued jobs can be removed.",
+        {
+            "project": field("string", "Registered project slug."),
+            "job_id": field("integer", "Queued job ID from get_queue, not task ID."),
+        },
+    ),
+    "retarget_queued_job": (
+        "Change a queued job's worker/agent/model in place, retaining order. "
+        "Running jobs are refused. Supply at least one change.",
+        {
+            "project": field("string", "Registered project slug."),
+            "job_id": field("integer", "Queued job ID from get_queue, not task ID."),
+            "worker": field("string", "Registered worker name requested by the user."),
+            "model": field("string", "Exact provider/model from that worker's catalog."),
+            "agent": field("string", "Agent on the selected worker; empty resets to defaults."),
+        },
+    ),
+    "pause_queue": (
+        "Pause a project's queue; current work continues but no next job launches.",
+        {"project": field("string", "Registered project slug.")},
+    ),
+    "stop_queue": (
+        "Pause the queue and enqueue an interrupt for current work. Does not complete "
+        "or release the task; interrupt is not confirmed yet.",
+        {"project": field("string", "Registered project slug.")},
+    ),
 }
 REQUIRED = {
     "get_project": ["project"],
@@ -178,6 +217,10 @@ REQUIRED = {
     "add_task_note": ["id", "message"],
     "get_queue": ["project"],
     "play_queue": ["project"],
+    "pause_queue": ["project"],
+    "stop_queue": ["project"],
+    "remove_queued_job": ["project", "job_id"],
+    "retarget_queued_job": ["project", "job_id"],
 }
 
 

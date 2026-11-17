@@ -2,6 +2,7 @@ import hashlib
 import json
 import secrets
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.contrib.sessions.models import Session
@@ -12,7 +13,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import authentication, exceptions, permissions, serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -31,7 +32,7 @@ from .serializers import (
     TaskDetailSerializer,
     TaskSerializer,
 )
-from .voice_policy import POLICY_VERSION, TOOL_SCHEMAS
+from .voice_policy import POLICY_VERSION, REQUIRED, TOOL_SCHEMAS
 
 
 def configured():
@@ -151,6 +152,11 @@ class VoiceSessionDetailView(OwnerVoiceView):
 
 class VoiceTokenAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request):
+        origin = request.headers.get("Origin")
+        if origin:
+            expected = urlsplit(request.build_absolute_uri("/"))
+            if origin != f"{expected.scheme}://{expected.netloc}":
+                raise exceptions.PermissionDenied("Foreign-origin voice access is not allowed")
         token = request.headers.get("X-ATM-Voice-Token", "")
         if not 32 <= len(token) <= 128:
             raise exceptions.AuthenticationFailed("Invalid voice conversation access")
@@ -199,6 +205,14 @@ class TaskListInput(serializers.Serializer):
     offset = serializers.IntegerField(default=0, min_value=0, max_value=10000)
 
 
+class QueueEditInput(serializers.Serializer):
+    project = serializers.SlugField()
+    job_id = serializers.IntegerField(min_value=1)
+    worker = serializers.CharField(max_length=100, required=False)
+    model = serializers.CharField(max_length=300, required=False)
+    agent = serializers.CharField(max_length=100, required=False, allow_blank=True)
+
+
 class LaunchInput(serializers.Serializer):
     id = serializers.IntegerField(min_value=1, required=False)
     project = serializers.SlugField(required=False)
@@ -243,12 +257,16 @@ def validated_tool(operation, data):
         serializer = NoteSerializer(data=payload)
     elif operation == "launch_task":
         serializer = LaunchInput(data=payload)
+    elif operation in {"remove_queued_job", "retarget_queued_job"}:
+        serializer = QueueEditInput(data=payload)
+        if operation == "retarget_queued_job" and not {"worker", "model", "agent"} & set(payload):
+            raise serializers.ValidationError("Choose a worker, model or agent to retarget")
     else:
         serializer = None
     if "id" in allowed and operation != "launch_task":
         task_id = serializers.IntegerField(min_value=1).run_validation(payload.get("id"))
         payload["id"] = task_id
-    if operation in {"get_project", "get_queue", "play_queue"}:
+    if operation in {"get_project", "get_queue", "play_queue", "pause_queue", "stop_queue"}:
         payload["project"] = serializers.SlugField().run_validation(payload.get("project"))
     if serializer:
         serializer.is_valid(raise_exception=True)
@@ -307,6 +325,15 @@ def run_tool(operation, args, user):
     if operation == "get_queue":
         return services.voice_queue_read(get_object_or_404(Project, slug=args["project"]))
     actor = {"agent": None, "human_actor": user.get_username()}
+    if operation in {"remove_queued_job", "retarget_queued_job", "pause_queue", "stop_queue"}:
+        project = get_object_or_404(Project, slug=args.pop("project"))
+        action = {
+            "remove_queued_job": "remove",
+            "retarget_queued_job": "retarget",
+            "pause_queue": "pause",
+            "stop_queue": "stop",
+        }[operation]
+        return services.voice_edit_queue(project, actor["human_actor"], action, **args)
     if operation == "play_queue":
         project = get_object_or_404(Project, slug=args["project"])
         return services.voice_play_queue(project, actor["human_actor"])
@@ -397,7 +424,42 @@ class VoiceToolView(APIView):
     authentication_classes = [VoiceTokenAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
-    @extend_schema(request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("operation", str, OpenApiParameter.PATH, enum=list(TOOL_SCHEMAS))
+        ],
+        request={
+            "application/json": {
+                "anyOf": [
+                    {
+                        "type": "object",
+                        "description": f"{name}: {description}",
+                        "properties": {
+                            "conversation_id": {
+                                "type": "string",
+                                "pattern": "^conv_",
+                                "maxLength": 128,
+                            },
+                            **properties,
+                        },
+                        "required": ["conversation_id", *REQUIRED.get(name, [])],
+                        "additionalProperties": False,
+                    }
+                    for name, (description, properties) in TOOL_SCHEMAS.items()
+                ]
+            }
+        },
+        responses=OpenApiTypes.OBJECT,
+        description=(
+            "Owner-scoped PM capability tool. Queue operations: get_queue/play_queue/"
+            "pause_queue/stop_queue require project; remove_queued_job requires project and "
+            "job_id; retarget_queued_job also requires at least one of worker, agent, model "
+            "(provider/model). Only queued jobs can be removed/retargeted. Responses contain "
+            "result.action, affected job/task/worker/agent/model/directory and truthful state. "
+            "Stop accepts a durable interrupt, not confirmed completion. Cancellation "
+            "invalidates queued execution. Every call rechecks capability and owner access."
+        ),
+    )
     def post(self, request, operation):
         if len(request.body) > 65536 or not isinstance(request.data, dict):
             raise serializers.ValidationError("Expected bounded JSON object")

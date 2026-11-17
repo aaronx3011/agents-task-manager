@@ -303,8 +303,33 @@ by the signed-in owner, and execution still starts only when the worker syncs
 and jobs ahead, and says "queued" rather than started or done. Requests are refused
 with no change when the worker is offline, a named model is not in the worker's
 reported catalog (or no catalog was reported), the queue is empty, or the task is
-owned, terminal or has unfinished dependencies. The PM cannot pause/stop queues or
-message worker sessions. No new configuration is needed.
+owned, terminal or has unfinished dependencies.
+
+Queue corrections (task #336 / GH #111) use the same Planning mutation and dispatch paths:
+
+- “Remove that queued task” → `remove_queued_job(project, job_id)` removes its waiting
+  execution without cancelling the task. Even a cancelled task's stale queued job can
+  be removed; running jobs are refused.
+- “Switch that queued task to <worker> with <provider/model>” →
+  `retarget_queued_job(project, job_id, worker?, model?, agent?)` edits the card and
+  refreshes the existing queued snapshot, preserving order and frozen project context.
+  At least one change is required. The selected worker must be online and named
+  models/agents must be in its reported catalog. Running jobs cannot be retargeted.
+- “Pause the <project> queue” → `pause_queue(project)` prevents the next launch;
+  current work continues.
+- “Stop the <project> queue” → `stop_queue(project)` pauses and enqueues the existing
+  durable interrupt for current work. An interrupt is accepted/queued, not confirmed
+  stopped or completed. Task ownership and busy-lease rules remain in force.
+
+Use `get_queue` to resolve job IDs (distinct from task IDs). Replies include the
+affected job/task, worker, agent, model, directory and resulting state; refusals
+leave no partial mutation. Queue controls always recheck live state. Cancelling a
+task atomically invalidates its queued execution; it does not silently interrupt
+running work. Migration **0021** repairs old cancelled tasks' stale queued jobs with
+audit notes; worker sync also defensively invalidates such entries before dispatch.
+Only explicit task done advances successful work. Owner/capability checks apply to
+every call, and foreign browser origins are refused. The PM cannot message worker
+sessions. No Compose/env changes or new configuration are required.
 
 Set these on the **Django API** container/service, not the frontend:
 
@@ -328,7 +353,7 @@ Fireworks model/deployment that supports OpenAI-compatible function calling and
 an ElevenLabs account/model that supports the speech API; both identifiers are
 configurable. The earlier `LOCAL_SPEECH_ORIGIN`, `LOCAL_TTS_ORIGIN`, the Voice Lab
 speech adapters and the old `configure_voice_agent` command are no longer used.
-The PM policy and ten function schemas live in `coordinator/voice_policy.py`;
+The PM policy and fourteen function schemas live in `coordinator/voice_policy.py`;
 browser messages cannot replace the system prompt or supply conversation history.
 The page is owner-only because tool calls act with the owner's authority.
 Provider calls are not automatically retried. A failed reply can follow a committed

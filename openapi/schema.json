@@ -2752,12 +2752,29 @@
         "/api/v1/voice/tools/{operation}": {
             "post": {
                 "operationId": "voice_tools_create",
+                "description": "Owner-scoped PM capability tool. Queue operations: get_queue/play_queue/pause_queue/stop_queue require project; remove_queued_job requires project and job_id; retarget_queued_job also requires at least one of worker, agent, model (provider/model). Only queued jobs can be removed/retargeted. Responses contain result.action, affected job/task/worker/agent/model/directory and truthful state. Stop accepts a durable interrupt, not confirmed completion. Cancellation invalidates queued execution. Every call rechecks capability and owner access.",
                 "parameters": [
                     {
                         "in": "path",
                         "name": "operation",
                         "schema": {
-                            "type": "string"
+                            "type": "string",
+                            "enum": [
+                                "add_task_note",
+                                "create_task",
+                                "get_project",
+                                "get_queue",
+                                "get_task",
+                                "launch_task",
+                                "list_projects",
+                                "list_tasks",
+                                "pause_queue",
+                                "play_queue",
+                                "remove_queued_job",
+                                "retarget_queued_job",
+                                "stop_queue",
+                                "update_task_status"
+                            ]
                         },
                         "required": true
                     }
@@ -2769,20 +2786,409 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "type": "object",
-                                "additionalProperties": {}
-                            }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "type": "object",
-                                "additionalProperties": {}
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "type": "object",
-                                "additionalProperties": {}
+                                "anyOf": [
+                                    {
+                                        "type": "object",
+                                        "description": "list_projects: List registered projects and live task counts; resolve names to slugs.",
+                                        "properties": {
+                                            "conversation_id": {
+                                                "type": "string",
+                                                "pattern": "^conv_",
+                                                "maxLength": 128
+                                            }
+                                        },
+                                        "required": [
+                                            "conversation_id"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "description": "get_project: Read a registered project's context, instructions, repository and documentation links.",
+                                        "properties": {
+                                            "conversation_id": {
+                                                "type": "string",
+                                                "pattern": "^conv_",
+                                                "maxLength": 128
+                                            },
+                                            "project": {
+                                                "type": "string",
+                                                "description": "Registered project slug."
+                                            }
+                                        },
+                                        "required": [
+                                            "conversation_id",
+                                            "project"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "description": "list_tasks: Read current tasks. Optional filters; returns count and a bounded page.",
+                                        "properties": {
+                                            "conversation_id": {
+                                                "type": "string",
+                                                "pattern": "^conv_",
+                                                "maxLength": 128
+                                            },
+                                            "project": {
+                                                "type": "string",
+                                                "description": "Registered project slug; omit for all projects."
+                                            },
+                                            "status": {
+                                                "type": "string",
+                                                "description": "Status filter; omit for all statuses.",
+                                                "enum": [
+                                                    "pending",
+                                                    "in_progress",
+                                                    "blocked",
+                                                    "review",
+                                                    "done",
+                                                    "cancelled"
+                                                ]
+                                            },
+                                            "q": {
+                                                "type": "string",
+                                                "description": "Search task titles/descriptions or numeric task ID."
+                                            },
+                                            "limit": {
+                                                "type": "integer",
+                                                "description": "Page size between1 and20; default10."
+                                            },
+                                            "offset": {
+                                                "type": "integer",
+                                                "description": "Pagination offset, default0."
+                                            }
+                                        },
+                                        "required": [
+                                            "conversation_id"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "description": "get_task: Read a task's current status, details and recent audit evidence.",
+                                        "properties": {
+                                            "conversation_id": {
+                                                "type": "string",
+                                                "pattern": "^conv_",
+                                                "maxLength": 128
+                                            },
+                                            "id": {
+                                                "type": "integer",
+                                                "description": "Existing task ID."
+                                            }
+                                        },
+                                        "required": [
+                                            "conversation_id",
+                                            "id"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "description": "create_task: Create a backlog task only when the user requests it. Does not launch execution.",
+                                        "properties": {
+                                            "conversation_id": {
+                                                "type": "string",
+                                                "pattern": "^conv_",
+                                                "maxLength": 128
+                                            },
+                                            "project": {
+                                                "type": "string",
+                                                "description": "Exact registered project slug."
+                                            },
+                                            "title": {
+                                                "type": "string",
+                                                "description": "Concise action-oriented task title, max300 characters."
+                                            },
+                                            "description": {
+                                                "type": "string",
+                                                "description": "Objective, context, outcome and acceptance criteria."
+                                            },
+                                            "priority": {
+                                                "type": "integer",
+                                                "description": "Smaller means earlier; default100."
+                                            },
+                                            "depends_on": {
+                                                "type": "array",
+                                                "description": "Verified prerequisite task IDs; omit if none.",
+                                                "items": {
+                                                    "type": "integer",
+                                                    "description": "Existing prerequisite task ID."
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "conversation_id",
+                                            "project",
+                                            "title"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "description": "update_task_status: Change status only at the user's request; do not infer completed execution.",
+                                        "properties": {
+                                            "conversation_id": {
+                                                "type": "string",
+                                                "pattern": "^conv_",
+                                                "maxLength": 128
+                                            },
+                                            "id": {
+                                                "type": "integer",
+                                                "description": "Existing task ID."
+                                            },
+                                            "status": {
+                                                "type": "string",
+                                                "description": "Requested lifecycle status.",
+                                                "enum": [
+                                                    "in_progress",
+                                                    "blocked",
+                                                    "review",
+                                                    "done",
+                                                    "cancelled"
+                                                ]
+                                            },
+                                            "reason": {
+                                                "type": "string",
+                                                "description": "Reason, required when blocked."
+                                            },
+                                            "result_summary": {
+                                                "type": "string",
+                                                "description": "Concrete outcome or user confirmation; required for done/review."
+                                            }
+                                        },
+                                        "required": [
+                                            "conversation_id",
+                                            "id",
+                                            "status"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "description": "add_task_note: Add an audited note to a task when the user requests it.",
+                                        "properties": {
+                                            "conversation_id": {
+                                                "type": "string",
+                                                "pattern": "^conv_",
+                                                "maxLength": 128
+                                            },
+                                            "id": {
+                                                "type": "integer",
+                                                "description": "Existing task ID."
+                                            },
+                                            "message": {
+                                                "type": "string",
+                                                "description": "Note to add."
+                                            }
+                                        },
+                                        "required": [
+                                            "conversation_id",
+                                            "id",
+                                            "message"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "description": "get_queue: Read a project's execution queue, its jobs and the workers/models available to run it.",
+                                        "properties": {
+                                            "conversation_id": {
+                                                "type": "string",
+                                                "pattern": "^conv_",
+                                                "maxLength": 128
+                                            },
+                                            "project": {
+                                                "type": "string",
+                                                "description": "Registered project slug."
+                                            }
+                                        },
+                                        "required": [
+                                            "conversation_id",
+                                            "project"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "description": "launch_task: Queue a task for execution on its project's durable queue and, by default, play the queue. Give id for an existing task, or project+title to create and queue a new one.",
+                                        "properties": {
+                                            "conversation_id": {
+                                                "type": "string",
+                                                "pattern": "^conv_",
+                                                "maxLength": 128
+                                            },
+                                            "id": {
+                                                "type": "integer",
+                                                "description": "Existing pending task ID; omit when creating a new task."
+                                            },
+                                            "project": {
+                                                "type": "string",
+                                                "description": "Project slug for a new task; omit with id."
+                                            },
+                                            "title": {
+                                                "type": "string",
+                                                "description": "New task title, max300 characters; omit with id."
+                                            },
+                                            "description": {
+                                                "type": "string",
+                                                "description": "New task objective and acceptance criteria."
+                                            },
+                                            "priority": {
+                                                "type": "integer",
+                                                "description": "New task priority; smaller means earlier."
+                                            },
+                                            "depends_on": {
+                                                "type": "array",
+                                                "description": "Verified prerequisite task IDs for a new task; omit if none.",
+                                                "items": {
+                                                    "type": "integer",
+                                                    "description": "Existing prerequisite task ID."
+                                                }
+                                            },
+                                            "worker": {
+                                                "type": "string",
+                                                "description": "Worker name, only when the user names one."
+                                            },
+                                            "model": {
+                                                "type": "string",
+                                                "description": "provider/model from get_queue, only when the user asks."
+                                            },
+                                            "start": {
+                                                "type": "boolean",
+                                                "description": "Play the queue after queueing; default true."
+                                            }
+                                        },
+                                        "required": [
+                                            "conversation_id"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "description": "play_queue: Play or resume a project's existing queue. Refused when empty or its worker is offline.",
+                                        "properties": {
+                                            "conversation_id": {
+                                                "type": "string",
+                                                "pattern": "^conv_",
+                                                "maxLength": 128
+                                            },
+                                            "project": {
+                                                "type": "string",
+                                                "description": "Registered project slug."
+                                            }
+                                        },
+                                        "required": [
+                                            "conversation_id",
+                                            "project"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "description": "remove_queued_job: Remove a queued job without cancelling its task. Running jobs are refused; cancelled tasks' stale queued jobs can be removed.",
+                                        "properties": {
+                                            "conversation_id": {
+                                                "type": "string",
+                                                "pattern": "^conv_",
+                                                "maxLength": 128
+                                            },
+                                            "project": {
+                                                "type": "string",
+                                                "description": "Registered project slug."
+                                            },
+                                            "job_id": {
+                                                "type": "integer",
+                                                "description": "Queued job ID from get_queue, not task ID."
+                                            }
+                                        },
+                                        "required": [
+                                            "conversation_id",
+                                            "project",
+                                            "job_id"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "description": "retarget_queued_job: Change a queued job's worker/agent/model in place, retaining order. Running jobs are refused. Supply at least one change.",
+                                        "properties": {
+                                            "conversation_id": {
+                                                "type": "string",
+                                                "pattern": "^conv_",
+                                                "maxLength": 128
+                                            },
+                                            "project": {
+                                                "type": "string",
+                                                "description": "Registered project slug."
+                                            },
+                                            "job_id": {
+                                                "type": "integer",
+                                                "description": "Queued job ID from get_queue, not task ID."
+                                            },
+                                            "worker": {
+                                                "type": "string",
+                                                "description": "Registered worker name requested by the user."
+                                            },
+                                            "model": {
+                                                "type": "string",
+                                                "description": "Exact provider/model from that worker's catalog."
+                                            },
+                                            "agent": {
+                                                "type": "string",
+                                                "description": "Agent on the selected worker; empty resets to defaults."
+                                            }
+                                        },
+                                        "required": [
+                                            "conversation_id",
+                                            "project",
+                                            "job_id"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "description": "pause_queue: Pause a project's queue; current work continues but no next job launches.",
+                                        "properties": {
+                                            "conversation_id": {
+                                                "type": "string",
+                                                "pattern": "^conv_",
+                                                "maxLength": 128
+                                            },
+                                            "project": {
+                                                "type": "string",
+                                                "description": "Registered project slug."
+                                            }
+                                        },
+                                        "required": [
+                                            "conversation_id",
+                                            "project"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "description": "stop_queue: Pause the queue and enqueue an interrupt for current work. Does not complete or release the task; interrupt is not confirmed yet.",
+                                        "properties": {
+                                            "conversation_id": {
+                                                "type": "string",
+                                                "pattern": "^conv_",
+                                                "maxLength": 128
+                                            },
+                                            "project": {
+                                                "type": "string",
+                                                "description": "Registered project slug."
+                                            }
+                                        },
+                                        "required": [
+                                            "conversation_id",
+                                            "project"
+                                        ],
+                                        "additionalProperties": false
+                                    }
+                                ]
                             }
                         }
                     }
