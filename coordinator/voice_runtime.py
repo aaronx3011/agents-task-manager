@@ -143,6 +143,7 @@ def reason(session, text):
                     "messages": [{"role": "system", "content": PROMPT}, *messages],
                     "tools": tool_configs(),
                     "tool_choice": "auto",
+                    "reasoning_effort": "none",
                     "temperature": 0.2,
                     "max_tokens": 2048,
                 },

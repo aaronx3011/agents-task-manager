@@ -355,6 +355,8 @@ configurable. The earlier `LOCAL_SPEECH_ORIGIN`, `LOCAL_TTS_ORIGIN`, the Voice L
 speech adapters and the old `configure_voice_agent` command are no longer used.
 The PM policy and fourteen function schemas live in `coordinator/voice_policy.py`;
 browser messages cannot replace the system prompt or supply conversation history.
+PM completions explicitly send `reasoning_effort: "none"` to Fireworks to disable
+extended thinking, including follow-up completions after tool results.
 The page is owner-only because tool calls act with the owner's authority.
 Provider calls are not automatically retried. A failed reply can follow a committed
 tool action. The PM has no fixed reasoning-round or tool-call-count limit: it

@@ -249,6 +249,9 @@ def test_fireworks_owns_reasoning_and_server_history(voice, project, owner, monk
         url == "https://api.fireworks.ai/inference/v1/chat/completions" for url, _ in requests
     )
     assert requests[0][1]["headers"]["Authorization"] == f"Bearer {settings.FIREWORKS_API_KEY}"
+    # Disable extended thinking on the initial, post-tool and follow-up completions.
+    assert all(request["json"]["reasoning_effort"] == "none" for _, request in requests)
+    assert all("thinking" not in request["json"] for _, request in requests)
     messages = requests[-1][1]["json"]["messages"]
     assert messages[0]["role"] == "system"
     assert any(item["role"] == "tool" for item in messages)
@@ -303,6 +306,7 @@ def test_tool_chain_exceeds_old_round_limit_and_renews_busy_lease(voice, monkeyp
 
     def provider(*args, **kwargs):
         completions.append(kwargs["json"])
+        assert kwargs["json"]["reasoning_effort"] == "none"
         if len(completions) <= 12:
             # A long chain lasts beyond the original five-minute busy lease.
             clock[0] += timedelta(seconds=40)
