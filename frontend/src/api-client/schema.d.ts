@@ -672,6 +672,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/voice/chat": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["voice_chat_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/voice/sessions": {
     parameters: {
       query?: never;
@@ -704,6 +720,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/voice/speech": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["voice_speech_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/voice/status": {
     parameters: {
       query?: never;
@@ -730,6 +762,22 @@ export interface paths {
     get?: never;
     put?: never;
     post: operations["voice_tools_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/voice/transcriptions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["voice_transcriptions_create"];
     delete?: never;
     options?: never;
     head?: never;
@@ -982,6 +1030,13 @@ export interface components {
       worker?: string;
       agent?: string;
       model?: components["schemas"]["ModelChoiceRequest"] | null;
+    };
+    ChatInputRequest: {
+      text: string;
+    };
+    ChatOutput: {
+      text: string;
+      events: components["schemas"]["ToolEvent"][];
     };
     ChecklistItemRequest: {
       text: string;
@@ -1356,7 +1411,6 @@ export interface components {
     SessionOutput: {
       /** Format: uuid */
       id: string;
-      signed_url: string;
       tool_token: string;
       /** Format: date-time */
       expires_at: string;
@@ -1364,6 +1418,9 @@ export interface components {
     SessionPage: {
       count: number;
       items: unknown[];
+    };
+    SpeechInputRequest: {
+      text: string;
     };
     StateProject: {
       slug: string;
@@ -1499,6 +1556,20 @@ export interface components {
       /** @description Device label, e.g. 'Ana's iPhone'. */
       name: string;
     };
+    ToolEvent: {
+      tool: string;
+      is_error: boolean;
+    };
+    TranscriptionInputRequest: {
+      /**
+       * Format: binary
+       * @description Mono 24 kHz PCM16 WAV audio, at most 30 seconds / 4 MiB
+       */
+      file: string;
+    };
+    TranscriptionOutput: {
+      text: string;
+    };
     User: {
       id: number;
       username: string;
@@ -1516,6 +1587,10 @@ export interface components {
       provider: string;
       configured: boolean;
       policy_version: string;
+      speech_configured: boolean;
+      speech_provider: string;
+      transcription_configured: boolean;
+      tts_configured: boolean;
     };
     WorkerCommandPage: {
       count: number;
@@ -2870,6 +2945,31 @@ export interface operations {
       };
     };
   };
+  voice_chat_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ChatInputRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["ChatInputRequest"];
+        "multipart/form-data": components["schemas"]["ChatInputRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ChatOutput"];
+        };
+      };
+    };
+  };
   voice_sessions_create: {
     parameters: {
       query?: never;
@@ -2938,6 +3038,31 @@ export interface operations {
       };
     };
   };
+  voice_speech_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SpeechInputRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["SpeechInputRequest"];
+        "multipart/form-data": components["schemas"]["SpeechInputRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "audio/wav": string;
+        };
+      };
+    };
+  };
   voice_status_retrieve: {
     parameters: {
       query?: never;
@@ -2988,6 +3113,30 @@ export interface operations {
           "application/json": {
             [key: string]: unknown;
           };
+        };
+      };
+    };
+  };
+  voice_transcriptions_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "multipart/form-data": components["schemas"]["TranscriptionInputRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["TranscriptionInputRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TranscriptionOutput"];
         };
       };
     };

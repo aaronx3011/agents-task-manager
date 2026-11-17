@@ -3,7 +3,6 @@ import json
 import secrets
 from datetime import timedelta
 
-import httpx
 from django.conf import settings
 from django.contrib.sessions.models import Session
 from django.core.serializers.json import DjangoJSONEncoder
@@ -35,32 +34,8 @@ from .serializers import (
 from .voice_policy import POLICY_VERSION, TOOL_SCHEMAS
 
 
-def provider_request(method, path, payload=None):
-    if not settings.ELEVENLABS_API_KEY:
-        raise services.TaskError("ElevenLabs is not configured", 503)
-    try:
-        response = httpx.request(
-            method,
-            f"https://api.elevenlabs.io/v1/convai/{path}",
-            headers={"xi-api-key": settings.ELEVENLABS_API_KEY},
-            json=payload,
-            timeout=20,
-            follow_redirects=False,
-        )
-    except httpx.HTTPError:
-        raise services.TaskError(
-            "ElevenLabs could not be reached; no automatic retry was made", 502
-        ) from None
-    if not response.is_success:
-        # Never include provider request headers, signed URLs or raw error bodies.
-        raise services.TaskError(
-            f"ElevenLabs rejected the request (HTTP {response.status_code})", 502
-        )
-    return response.json()
-
-
 def configured():
-    return bool(settings.ELEVENLABS_API_KEY and settings.ELEVENLABS_AGENT_ID)
+    return bool(settings.FIREWORKS_API_KEY and settings.FIREWORKS_MODEL)
 
 
 class SessionInput(serializers.Serializer):
@@ -69,7 +44,6 @@ class SessionInput(serializers.Serializer):
 
 class SessionOutput(serializers.Serializer):
     id = serializers.UUIDField()
-    signed_url = serializers.CharField()
     tool_token = serializers.CharField()
     expires_at = serializers.DateTimeField()
 
@@ -78,6 +52,10 @@ class VoiceStatusOutput(serializers.Serializer):
     provider = serializers.CharField()
     configured = serializers.BooleanField()
     policy_version = serializers.CharField()
+    speech_configured = serializers.BooleanField()
+    speech_provider = serializers.CharField()
+    transcription_configured = serializers.BooleanField()
+    tts_configured = serializers.BooleanField()
 
 
 class OwnerVoiceView(APIView):
@@ -94,7 +72,15 @@ class VoiceStatusView(OwnerVoiceView):
     @extend_schema(responses=VoiceStatusOutput)
     def get(self, request):
         return Response(
-            {"provider": "elevenlabs", "configured": configured(), "policy_version": POLICY_VERSION}
+            {
+                "provider": "fireworks",
+                "configured": configured(),
+                "speech_provider": "voice-lab",
+                "speech_configured": bool(settings.LOCAL_SPEECH_ORIGIN),
+                "transcription_configured": bool(settings.LOCAL_SPEECH_ORIGIN),
+                "tts_configured": bool(settings.LOCAL_SPEECH_ORIGIN),
+                "policy_version": POLICY_VERSION,
+            }
         )
 
 
@@ -104,19 +90,12 @@ class VoiceSessionView(OwnerVoiceView):
         serializer = SessionInput(data=request.data)
         serializer.is_valid(raise_exception=True)
         if not configured():
-            raise services.TaskError("ElevenLabs PM agent is not configured", 503)
+            raise services.TaskError("Fireworks PM reasoning is not configured", 503)
         active = VoiceConversation.objects.filter(
             user=request.user, revoked_at=None, expires_at__gt=timezone.now()
         )
         if active.count() >= 3:
             raise services.TaskError("End an existing PM conversation before starting another", 429)
-        # Provider endpoint is a read; failure must not leave an active local grant.
-        data = provider_request(
-            "GET", f"conversation/get-signed-url?agent_id={settings.ELEVENLABS_AGENT_ID}"
-        )
-        signed_url = data.get("signed_url", "")
-        if not signed_url.startswith("wss://api.elevenlabs.io/"):
-            raise services.TaskError("ElevenLabs returned an invalid conversation connection", 502)
         token = secrets.token_urlsafe(32)
         session = VoiceConversation.objects.create(
             user=request.user,
@@ -128,7 +107,6 @@ class VoiceSessionView(OwnerVoiceView):
         return Response(
             {
                 "id": session.pk,
-                "signed_url": signed_url,
                 "tool_token": token,
                 "expires_at": session.expires_at,
             },
@@ -154,7 +132,8 @@ class VoiceSessionDetailView(OwnerVoiceView):
     def delete(self, request, pk):
         session = get_object_or_404(VoiceConversation, pk=pk, user=request.user)
         session.revoked_at = timezone.now()
-        session.save(update_fields=["revoked_at"])
+        session.messages = []
+        session.save(update_fields=["revoked_at", "messages"])
         return Response(status=204)
 
 

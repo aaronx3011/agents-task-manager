@@ -1,6 +1,6 @@
-"""Versioned ElevenLabs PM behavior and webhook tool definitions."""
+"""Server-owned Fireworks PM behavior and function definitions."""
 
-POLICY_VERSION = "elevenlabs-pm-2026-11-16.1"
+POLICY_VERSION = "fireworks-pm-2026-11-17.1"
 PROMPT = """You are the user's practical, approachable project manager and central router
 inside Agent Task Manager. Help them understand projects, decide what to do next,
 and turn clear requests into tracked actions. Speak naturally, briefly, and in
@@ -133,35 +133,20 @@ REQUIRED = {
 }
 
 
-def tool_configs(origin):
-    tools = []
-    for name, (description, properties) in TOOL_SCHEMAS.items():
-        tools.append(
-            {
-                "type": "webhook",
+def tool_configs():
+    return [
+        {
+            "type": "function",
+            "function": {
                 "name": name,
                 "description": description,
-                "response_timeout_secs": 20,
-                "pre_tool_speech": "auto",
-                "tool_error_handling_mode": "passthrough",
-                "api_schema": {
-                    "url": f"{origin.rstrip('/')}/api/v1/voice/tools/{name}",
-                    "method": "POST",
-                    "request_headers": {
-                        "X-ATM-Voice-Token": {"variable_name": "secret__atm_voice_token"}
-                    },
-                    "request_body_schema": {
-                        "type": "object",
-                        "required": [*REQUIRED.get(name, []), "conversation_id"],
-                        "properties": {
-                            **properties,
-                            "conversation_id": {
-                                "type": "string",
-                                "dynamic_variable": "system__conversation_id",
-                            },
-                        },
-                    },
+                "parameters": {
+                    "type": "object",
+                    "properties": properties,
+                    "required": REQUIRED.get(name, []),
+                    "additionalProperties": False,
                 },
-            }
-        )
-    return tools
+            },
+        }
+        for name, (description, properties) in TOOL_SCHEMAS.items()
+    ]

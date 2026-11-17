@@ -10,11 +10,13 @@ load_dotenv(BASE_DIR / ".env")
 
 # Provider credentials are server-only. The optional file is useful for local
 # development; deployment injects the key via the private backend environment.
-ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
-if not ELEVENLABS_API_KEY and os.environ.get("ELEVENLABS_API_KEY_FILE"):
-    ELEVENLABS_API_KEY = Path(os.environ["ELEVENLABS_API_KEY_FILE"]).read_text().strip()
-ELEVENLABS_AGENT_ID = os.environ.get("ELEVENLABS_AGENT_ID", "")
-ELEVENLABS_LLM = os.environ.get("ELEVENLABS_LLM", "gpt-4.1")
+LOCAL_SPEECH_ORIGIN = os.environ.get(
+    "LOCAL_SPEECH_ORIGIN", "https://voice.aaron-henriquez.com"
+).rstrip("/")
+FIREWORKS_API_KEY = os.environ.get("FIREWORKS_API_KEY", "")
+if not FIREWORKS_API_KEY and os.environ.get("FIREWORKS_API_KEY_FILE"):
+    FIREWORKS_API_KEY = Path(os.environ["FIREWORKS_API_KEY_FILE"]).read_text().strip()
+FIREWORKS_MODEL = os.environ.get("FIREWORKS_MODEL", "accounts/fireworks/models/minimax-m3p1-flash")
 VOICE_PUBLIC_ORIGIN = os.environ.get("VOICE_PUBLIC_ORIGIN", "https://atm.aaron-henriquez.com")
 
 

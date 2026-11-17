@@ -1,9 +1,11 @@
-"""Built ElevenLabs UI + real SDK, with isolated HTTP/WebSocket fixtures."""
+"""Built PM UI: real microphone capture/playback, isolated same-origin API fixtures."""
 
 import functools
 import http.server
+import io
 import json
 import threading
+import wave
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -18,8 +20,15 @@ def main():
     )
     threading.Thread(target=server.serve_forever, daemon=True).start()
     origin = f"http://127.0.0.1:{server.server_port}"
-    state = {"role": "owner", "configured": True, "fail": False}
-    issued, revoked, turns, errors, initializations, audio = [], [], [], [], [], []
+    state = {"role": "owner", "configured": True, "speech": True, "fail": False}
+    issued, revoked, turns, errors, clips, speeches, external = [], [], [], [], [], [], []
+    long_reply = "Here is a detailed answer. " * 220 + "This is the final sentence."
+    audio = io.BytesIO()
+    with wave.open(audio, "wb") as output:
+        output.setnchannels(1)
+        output.setsampwidth(2)
+        output.setframerate(24000)
+        output.writeframes(b"\x00\x00" * 24000)
 
     def api(route):
         request = route.request
@@ -32,7 +41,7 @@ def main():
             body = dict(statuses=[], priorities=[])
         elif path == "/api/v1/dashboard/workspace":
             body = dict(
-                server_time="2026-11-16T00:00:00Z",
+                server_time="2026-11-17T00:00:00Z",
                 projects=[],
                 agents=[],
                 events=[],
@@ -41,94 +50,75 @@ def main():
             )
         elif path == "/api/v1/voice/status":
             body = dict(
-                provider="elevenlabs", configured=state["configured"], policy_version="fixture"
+                provider="fireworks",
+                configured=state["configured"],
+                speech_provider="voice-lab",
+                speech_configured=state["speech"],
+                transcription_configured=state["speech"],
+                tts_configured=True,
+                policy_version="fixture",
             )
         elif path == "/api/v1/voice/sessions" and request.method == "POST":
-            if state["fail"]:
-                route.fulfill(status=502, json={"detail": "ElevenLabs is temporarily unavailable"})
-                return
             assert request.headers.get("x-csrftoken") == "fixture-csrf"
             issued.append(request.post_data_json)
-            body = dict(
-                id=f"00000000-0000-0000-0000-{len(issued):012}",
-                signed_url="wss://api.elevenlabs.io/v1/convai/conversation?fixture=true",
-                tool_token="short-lived-fixture-only",
-                expires_at="2099-01-01T00:00:00Z",
+            route.fulfill(
+                status=201,
+                json=dict(
+                    id=f"00000000-0000-0000-0000-{len(issued):012}",
+                    tool_token="short-lived-fixture-only",
+                    expires_at="2099-01-01T00:00:00Z",
+                ),
             )
-            route.fulfill(status=201, json=body)
             return
         elif path.startswith("/api/v1/voice/sessions/") and request.method == "DELETE":
             revoked.append(path)
             route.fulfill(status=204)
             return
+        elif path in {"/api/v1/voice/chat", "/api/v1/voice/transcriptions", "/api/v1/voice/speech"}:
+            assert request.headers["x-atm-voice-token"] == "short-lived-fixture-only"
+            if path.endswith("/chat"):
+                if state["fail"]:
+                    route.fulfill(
+                        status=502, json={"detail": "Fireworks is temporarily unavailable"}
+                    )
+                    return
+                turns.append(request.post_data_json)
+                text = turns[-1]["text"]
+                assert set(turns[-1]) == {"text"}  # browser cannot supply system/history/tools
+                body = dict(
+                    text=long_reply
+                    if "detail" in text
+                    else "Created task 987 in agents-task-manager."
+                    if "Create" in text
+                    else "Task 302 is in progress.",
+                    events=[
+                        dict(tool="create_task" if "Create" in text else "get_task", is_error=False)
+                    ],
+                )
+            elif path.endswith("/transcriptions"):
+                clips.append(request.post_data_buffer)
+                assert "multipart/form-data" in request.headers["content-type"]
+                assert len(clips[-1]) > 200
+                assert b"recording.wav" in clips[-1]
+                start = clips[-1].index(b"RIFF")
+                size = int.from_bytes(clips[-1][start + 4 : start + 8], "little") + 8
+                with wave.open(io.BytesIO(clips[-1][start : start + size]), "rb") as clip:
+                    assert (clip.getnchannels(), clip.getsampwidth(), clip.getframerate()) == (
+                        1,
+                        2,
+                        24000,
+                    )
+                    assert clip.getnframes() > 100
+                    assert any(clip.readframes(clip.getnframes()))
+                body = dict(text="Tell me the status of task 302 from voice.")
+            else:
+                speeches.append(request.post_data_json)
+                assert len(speeches[-1]["text"].encode("utf-16-le")) // 2 <= 180
+                route.fulfill(content_type="audio/wav", body=audio.getvalue())
+                return
         else:
             body = dict(count=0, items=[])
         route.fulfill(json=body)
-
-    def provider(socket):
-        def incoming(message):
-            event = json.loads(message)
-            if event.get("type") == "conversation_initiation_client_data":
-                initializations.append(event)
-                socket.send(
-                    json.dumps(
-                        dict(
-                            type="conversation_initiation_metadata",
-                            conversation_initiation_metadata_event=dict(
-                                conversation_id=f"conv_fixture_{len(initializations)}",
-                                agent_output_audio_format="pcm_16000",
-                                user_input_audio_format="pcm_16000",
-                            ),
-                        )
-                    )
-                )
-            if event.get("type") == "user_message":
-                turns.append(event["text"])
-                answer = (
-                    "Task 302 is in progress."
-                    if "status" in event["text"].lower()
-                    else "Created task 987 in agents-task-manager."
-                )
-                event_id = len(turns)
-                tool = dict(
-                    type="agent_tool_response",
-                    agent_tool_response=dict(
-                        tool_name="get_task",
-                        tool_call_id=f"tool_{event_id}",
-                        tool_type="webhook",
-                        is_error=False,
-                        is_called=True,
-                        event_id=event_id,
-                    ),
-                )
-                socket.send(json.dumps(tool))
-                socket.send(json.dumps(tool))  # replay must not duplicate the tool card
-                for kind, text in [
-                    ("start", ""),
-                    ("delta", answer[:10]),
-                    ("delta", answer[10:]),
-                    ("stop", ""),
-                ]:
-                    socket.send(
-                        json.dumps(
-                            dict(
-                                type="agent_chat_response_part",
-                                text_response_part=dict(type=kind, text=text, event_id=event_id),
-                            )
-                        )
-                    )
-                socket.send(
-                    json.dumps(
-                        dict(
-                            type="agent_response",
-                            agent_response_event=dict(agent_response=answer, event_id=event_id),
-                        )
-                    )
-                )
-            if "user_audio_chunk" in event:
-                audio.append(len(event["user_audio_chunk"]))
-
-        socket.on_message(incoming)
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
@@ -141,67 +131,127 @@ def main():
         context = browser.new_context(permissions=["microphone"])
         context.add_cookies([dict(name="csrftoken", value="fixture-csrf", url=origin)])
         context.route("**/api/**", api)
-        context.route_web_socket("wss://api.elevenlabs.io/**", provider)
+        context.route(
+            "https://api.elevenlabs.io/**", lambda route: external.append(route.request.url)
+        )
+        context.route(
+            "https://api.fireworks.ai/**", lambda route: external.append(route.request.url)
+        )
+        context.route(
+            "https://voice.aaron-henriquez.com/**", lambda route: external.append(route.request.url)
+        )
         context.route_web_socket(
             "**/ws/dashboard/**", lambda socket: socket.send(json.dumps(dict(type="connected")))
         )
+        # Keep references to real tracks so cleanup can be asserted after Stop.
+        context.add_init_script("""
+          window.pmTracks = [];
+          const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+          navigator.mediaDevices.getUserMedia = async (options) => {
+            const stream = await original(options);
+            window.pmTracks.push(...stream.getTracks());
+            return stream;
+          };
+          window.pmPlayed = 0;
+          const play = HTMLMediaElement.prototype.play;
+          HTMLMediaElement.prototype.play = function() {
+            window.pmPlayed++;
+            return play.call(this);
+          };
+        """)
         page = context.new_page()
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.goto(origin + "/?section=voice")
         expect(page.get_by_role("heading", name="PM router", exact=True)).to_be_visible()
-        expect(page.get_by_text("ElevenLabs · configured", exact=True)).to_be_visible()
+        expect(page.get_by_text("Fireworks reasoning · configured", exact=True)).to_be_visible()
         page.get_by_label("Message PM agent").fill("Tell me the status of task 302.")
         page.get_by_label("Send message", exact=True).click()
         expect(page.get_by_text("Task 302 is in progress.", exact=True)).to_have_count(1)
         expect(page.get_by_text("get_task · result received", exact=True)).to_have_count(1)
-        expect(page.locator(".voice-error")).to_have_count(0)
-        assert not revoked
-        assert issued[0]["text_only"] is True
-        assert (
-            initializations[0]["dynamic_variables"]["secret__atm_voice_token"]
-            == "short-lived-fixture-only"
-        )
+        assert not speeches
         page.get_by_label("Message PM agent").fill("Create a task in agents-task-manager")
         page.get_by_label("Send message", exact=True).click()
-        expect(
-            page.get_by_text("Created task 987 in agents-task-manager.", exact=True)
-        ).to_have_count(1)
-        expect(page.locator(".voice-error")).to_have_count(0)
-        assert not revoked
-        assert len(issued) == 1  # same conversation, not a new session for every turn
+        expect(page.get_by_text("Created task 987 in agents-task-manager.")).to_be_visible()
         page.get_by_role("button", name="Start voice conversation", exact=True).click()
         page.wait_for_function(
             "document.querySelector('.voice-buttons [role=status]').textContent === 'Listening'"
         )
-        assert issued[-1]["text_only"] is False
-        assert revoked
-        page.wait_for_timeout(500)
-        assert audio, "Real SDK did not capture/send microphone audio"
+        assert len(issued) == 1 and not revoked  # text-to-voice preserves context
+        page.wait_for_timeout(700)
+        page.get_by_role("button", name="Send voice turn", exact=True).click()
+        expect(
+            page.get_by_text("Tell me the status of task 302 from voice.", exact=True)
+        ).to_be_visible()
+        page.wait_for_function("window.pmPlayed > 0")
+        assert clips and speeches
+        page.get_by_label("Mute spoken replies").click()
         page.get_by_label("Mute microphone").click()
         expect(page.get_by_role("button", name="Unmute microphone", exact=True)).to_be_visible()
+        page.get_by_label("Enable spoken replies").click()
+        # Long replies pass through every queued chunk, including text after character 4000.
+        first_chunk = len(speeches)
+        played = page.evaluate("window.pmPlayed")
+        page.get_by_label("Message PM agent").fill("Explain in detail")
+        page.get_by_label("Send message", exact=True).click()
+        expect(page.get_by_text(long_reply, exact=True)).to_be_visible()
+        page.wait_for_function(
+            "(count) => window.pmPlayed > count && "
+            "document.querySelector('.voice-buttons [role=status]').textContent "
+            "=== 'Microphone muted'",
+            arg=played,
+            timeout=90000,
+        )
+        long_chunks = speeches[first_chunk:]
+        assert len(long_chunks) > 4
+        assert "".join(chunk["text"] for chunk in long_chunks) == long_reply
+        assert page.evaluate("window.pmPlayed") == played + len(long_chunks)
+        # Mute stops both the current audio and queued/prefetched future chunks.
+        first_chunk = len(speeches)
+        played = page.evaluate("window.pmPlayed")
+        page.get_by_label("Message PM agent").fill("More detail please")
+        page.get_by_label("Send message", exact=True).click()
+        page.wait_for_function("(count) => window.pmPlayed > count", arg=played)
+        page.get_by_label("Mute spoken replies").click()
+        stopped_at = len(speeches)
+        page.wait_for_timeout(800)
+        assert len(speeches) == stopped_at
+        assert 1 <= stopped_at - first_chunk <= 2, (stopped_at, first_chunk, played)
+        assert page.evaluate("window.pmPlayed") == played + 1
         page.get_by_role("button", name="End conversation", exact=True).click()
+        page.wait_for_function("window.pmTracks.every(track => track.readyState === 'ended')")
         expect(page.get_by_role("button", name="End conversation", exact=True)).to_be_disabled()
+        assert revoked
         page.get_by_role("button", name="Clear conversation", exact=True).click()
         expect(page.get_by_role("heading", name="What would you like to work on?")).to_be_visible()
         page.set_viewport_size(dict(width=390, height=844))
         expect(page.get_by_label("Message PM agent")).to_be_visible()
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        state["speech"] = False
         page.reload()
-        expect(page.get_by_role("heading", name="PM router", exact=True)).to_be_visible()
+        expect(
+            page.get_by_role("button", name="Start voice conversation", exact=True)
+        ).to_be_disabled()
+        # Typed fallback works with only Fireworks configured.
+        page.get_by_label("Message PM agent").fill("Task status?")
+        page.get_by_label("Send message", exact=True).click()
+        expect(page.get_by_text("Task 302 is in progress.", exact=True)).to_be_visible()
         state["fail"] = True
         page.get_by_label("Message PM agent").fill("hello")
         page.get_by_label("Send message", exact=True).click()
-        expect(page.get_by_role("alert")).to_contain_text("ElevenLabs is temporarily unavailable")
+        expect(page.get_by_role("alert")).to_contain_text("Fireworks is temporarily unavailable")
         state["role"] = "viewer"
         page.reload()
         expect(page.get_by_text("Owner access required", exact=True)).to_be_visible()
         expect(page.get_by_label("Message PM agent")).to_have_count(0)
+        assert not external, external
         assert not errors, errors
         browser.close()
     server.shutdown()
     print(
-        "PASS: real ElevenLabs SDK text/voice protocol, streamed/final dedupe, tool replay, "
-        "microphone/mute/stop, session cleanup, errors, mobile and viewer gate; zero page errors"
+        "PASS: same-origin PM chat/tools, real microphone STT upload and speech playback, "
+        "full long-reply queued playback/prefetch/cancellation, context preservation, "
+        "mute/stop/cleanup, typed fallback, errors, mobile and viewer gate; "
+        "zero page errors or direct provider requests"
     )
 
 

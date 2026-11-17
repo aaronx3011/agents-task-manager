@@ -2525,6 +2525,51 @@
                 }
             }
         },
+        "/api/v1/voice/chat": {
+            "post": {
+                "operationId": "voice_chat_create",
+                "tags": [
+                    "voice"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ChatInputRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ChatInputRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ChatInputRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "voiceConversationToken": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ChatOutput"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/voice/sessions": {
             "post": {
                 "operationId": "voice_sessions_create",
@@ -2633,6 +2678,52 @@
                 }
             }
         },
+        "/api/v1/voice/speech": {
+            "post": {
+                "operationId": "voice_speech_create",
+                "tags": [
+                    "voice"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SpeechInputRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SpeechInputRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SpeechInputRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "voiceConversationToken": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "audio/wav": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/voice/status": {
             "get": {
                 "operationId": "voice_status_retrieve",
@@ -2708,6 +2799,46 @@
                                 "schema": {
                                     "type": "object",
                                     "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/voice/transcriptions": {
+            "post": {
+                "operationId": "voice_transcriptions_create",
+                "tags": [
+                    "voice"
+                ],
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TranscriptionInputRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TranscriptionInputRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "voiceConversationToken": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TranscriptionOutput"
                                 }
                             }
                         },
@@ -3484,6 +3615,37 @@
                     "instructions",
                     "labels",
                     "title"
+                ]
+            },
+            "ChatInputRequest": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4000
+                    }
+                },
+                "required": [
+                    "text"
+                ]
+            },
+            "ChatOutput": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string"
+                    },
+                    "events": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ToolEvent"
+                        }
+                    }
+                },
+                "required": [
+                    "events",
+                    "text"
                 ]
             },
             "ChecklistItemRequest": {
@@ -4721,9 +4883,6 @@
                         "type": "string",
                         "format": "uuid"
                     },
-                    "signed_url": {
-                        "type": "string"
-                    },
                     "tool_token": {
                         "type": "string"
                     },
@@ -4735,7 +4894,6 @@
                 "required": [
                     "expires_at",
                     "id",
-                    "signed_url",
                     "tool_token"
                 ]
             },
@@ -4753,6 +4911,19 @@
                 "required": [
                     "count",
                     "items"
+                ]
+            },
+            "SpeechInputRequest": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1000
+                    }
+                },
+                "required": [
+                    "text"
                 ]
             },
             "StateProject": {
@@ -5268,6 +5439,45 @@
                     "username"
                 ]
             },
+            "ToolEvent": {
+                "type": "object",
+                "properties": {
+                    "tool": {
+                        "type": "string"
+                    },
+                    "is_error": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "is_error",
+                    "tool"
+                ]
+            },
+            "TranscriptionInputRequest": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "format": "binary",
+                        "description": "Mono 24 kHz PCM16 WAV audio, at most 30 seconds / 4 MiB"
+                    }
+                },
+                "required": [
+                    "file"
+                ]
+            },
+            "TranscriptionOutput": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "text"
+                ]
+            },
             "User": {
                 "type": "object",
                 "properties": {
@@ -5323,12 +5533,28 @@
                     },
                     "policy_version": {
                         "type": "string"
+                    },
+                    "speech_configured": {
+                        "type": "boolean"
+                    },
+                    "speech_provider": {
+                        "type": "string"
+                    },
+                    "transcription_configured": {
+                        "type": "boolean"
+                    },
+                    "tts_configured": {
+                        "type": "boolean"
                     }
                 },
                 "required": [
                     "configured",
                     "policy_version",
-                    "provider"
+                    "provider",
+                    "speech_configured",
+                    "speech_provider",
+                    "transcription_configured",
+                    "tts_configured"
                 ]
             },
             "WorkerCommandPage": {

@@ -15,6 +15,7 @@ from .views import (
     worker_sync,
 )
 from .voice import VoiceSessionDetailView, VoiceSessionView, VoiceStatusView, VoiceToolView
+from .voice_runtime import VoiceChatView, VoiceSpeechView, VoiceTranscriptionView
 
 router = DefaultRouter(trailing_slash=False)
 router.register("agents", AgentRegistrationViewSet, basename="agent-registration")
@@ -24,6 +25,9 @@ router.register("commands", CommandViewSet, basename="command")
 
 urlpatterns = [
     path("voice/status", VoiceStatusView.as_view(), name="voice-status"),
+    path("voice/chat", VoiceChatView.as_view(), name="voice-chat"),
+    path("voice/transcriptions", VoiceTranscriptionView.as_view(), name="voice-transcription"),
+    path("voice/speech", VoiceSpeechView.as_view(), name="voice-speech"),
     path("voice/sessions", VoiceSessionView.as_view(), name="voice-sessions"),
     path("voice/sessions/<uuid:pk>", VoiceSessionDetailView.as_view(), name="voice-session"),
     path("voice/tools/<str:operation>", VoiceToolView.as_view(), name="voice-tool"),

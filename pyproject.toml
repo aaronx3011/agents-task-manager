@@ -9,6 +9,7 @@ dependencies = [
   "dj-database-url>=2.3,<4",
   "psycopg[binary]>=3.2,<4",
   "httpx>=0.28,<1",
+  "websockets>=15,<18",
   "mcp>=1.12,<2",
   "python-dotenv>=1.1,<2",
   "gunicorn>=23,<24",

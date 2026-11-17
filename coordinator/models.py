@@ -28,7 +28,7 @@ class Project(models.Model):
 
 
 class VoiceConversation(models.Model):
-    """Short-lived delegation to ElevenLabs; no provider key or audio is stored."""
+    """Short-lived backend PM conversation; no provider key or audio is stored."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
@@ -36,6 +36,8 @@ class VoiceConversation(models.Model):
     auth_hash = models.CharField(max_length=128, editable=False)
     token_hash = models.CharField(max_length=64, unique=True, editable=False)
     provider_conversation = models.CharField(max_length=128, blank=True)
+    messages = models.JSONField(default=list)
+    busy_until = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(db_index=True)
     revoked_at = models.DateTimeField(null=True, blank=True)

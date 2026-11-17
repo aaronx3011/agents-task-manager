@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mic, MicOff, Send, Square, Volume2, VolumeX } from "lucide-react";
 import { api, unwrap } from "./api-client";
-import { PMConversation } from "./eleven-client";
-import type { PMStatus } from "./eleven-client";
+import { PMConversation } from "./voice-client";
+import type { PMStatus } from "./voice-client";
 import { refreshTaskViews } from "./task-sync";
 import "./voice-agent.css";
 
@@ -34,7 +34,7 @@ export default function VoiceAgent() {
     transcript.current?.scrollTo({ top: transcript.current.scrollHeight });
   });
   const connected = client?.status === "connected";
-  const busy = client?.status === "connecting";
+  const busy = client?.status === "connecting" || Boolean(client?.pending);
   const ready = Boolean(status.data?.configured);
   return (
     <section className="voice-agent" aria-label="Voice agent">
@@ -56,8 +56,16 @@ export default function VoiceAgent() {
       </header>
       <div className="voice-services" aria-label="Agent services">
         <span data-ready={ready}>
-          ElevenLabs ·{" "}
+          Fireworks reasoning ·{" "}
           {status.isPending ? "checking" : ready ? "configured" : "unavailable"}
+        </span>
+        <span data-ready={status.data?.transcription_configured}>
+          Parakeet transcription ·{" "}
+          {status.data?.transcription_configured ? "configured" : "unavailable"}
+        </span>
+        <span data-ready={status.data?.tts_configured}>
+          Pocket TTS ·{" "}
+          {status.data?.tts_configured ? "configured" : "unavailable"}
         </span>
         <span data-ready={connected}>
           PM agent ·{" "}
@@ -71,7 +79,7 @@ export default function VoiceAgent() {
         <div className="voice-error" role="alert">
           {client?.error ||
             status.error?.message ||
-            "The ElevenLabs PM agent is not configured on the backend yet."}
+            "Fireworks PM reasoning is not configured on the backend yet."}
         </div>
       )}
       <div
@@ -123,7 +131,12 @@ export default function VoiceAgent() {
         <div className="voice-buttons">
           <button
             className="primary-button"
-            disabled={!ready || busy || (connected && !client?.textOnly)}
+            disabled={
+              !ready ||
+              !status.data?.speech_configured ||
+              busy ||
+              (connected && !client?.textOnly)
+            }
             onClick={() => void client?.start(false)}
           >
             <Mic size={17} /> Start voice conversation
@@ -135,6 +148,15 @@ export default function VoiceAgent() {
           >
             <Square size={15} /> End conversation
           </button>
+          {connected && !client?.textOnly && (
+            <button
+              className="secondary-button"
+              disabled={busy || client?.micMuted}
+              onClick={() => client?.finishVoiceTurn()}
+            >
+              Send voice turn
+            </button>
+          )}
           {connected && !client?.textOnly && (
             <button
               className="icon-button"
@@ -183,9 +205,8 @@ export default function VoiceAgent() {
           </button>
         </form>
         <p className="voice-footnote">
-          Powered by ElevenLabs · Starting voice from text begins a new agent
-          session · Speak to interrupt · Task changes are handled by Task
-          Manager
+          Fireworks reasoning · Local Parakeet transcription · Local Pocket TTS
+          · Speak to interrupt · Task changes are handled by Task Manager
         </p>
       </footer>
     </section>
