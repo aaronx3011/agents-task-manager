@@ -12,6 +12,7 @@ type Capture = {
   generation: number;
   release?: "send" | "cancel";
   finished: boolean;
+  stopped: boolean;
 };
 
 export class PMConversation {
@@ -23,6 +24,7 @@ export class PMConversation {
   micMuted = false;
   capturing = false;
   captureReady = false;
+  captureLimited = false;
   error = "";
   notice = "";
   pending = false;
@@ -53,9 +55,11 @@ export class PMConversation {
     if (this.pending)
       return this.mode === "transcribing" ? "Transcribing" : "Thinking";
     if (this.capturing)
-      return this.captureReady
-        ? "Recording — release to send"
-        : "Starting microphone…";
+      return this.captureLimited
+        ? "Clip limit — release to send"
+        : this.captureReady
+          ? "Recording — release to send"
+          : "Starting microphone…";
     if (this.textOnly) return "Text conversation connected";
     if (this.mode === "speaking") return "Speaking";
     if (this.mode === "synthesizing") return "Preparing speech";
@@ -79,7 +83,12 @@ export class PMConversation {
   async start(textOnly: boolean) {
     if (this.closed) return;
     if (this.starting) return this.starting;
-    if (this.grant && this.textOnly === textOnly) return;
+    if (
+      this.grant &&
+      this.textOnly === textOnly &&
+      (textOnly || this.stream?.active)
+    )
+      return;
     const generation = this.generation;
     this.starting = (async () => {
       this.status = "connecting";
@@ -118,6 +127,11 @@ export class PMConversation {
     return this.starting;
   }
   private async microphone(generation: number) {
+    clearInterval(this.monitor);
+    this.stream?.getTracks().forEach((track) => track.stop());
+    void this.context?.close();
+    this.stream = undefined;
+    this.context = undefined;
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
@@ -173,12 +187,13 @@ export class PMConversation {
     this.interrupt();
     this.capturing = true;
     this.captureReady = false;
+    this.captureLimited = false;
     this.update();
     try {
       if (
         this.status !== "connected" ||
         this.textOnly ||
-        !this.stream ||
+        !this.stream?.active ||
         !this.mime
       )
         await this.start(false);
@@ -186,7 +201,7 @@ export class PMConversation {
       if (
         this.status !== "connected" ||
         this.textOnly ||
-        !this.stream ||
+        !this.stream?.active ||
         !this.mime
       ) {
         this.capturing = false;
@@ -199,6 +214,7 @@ export class PMConversation {
         chunks: [],
         generation,
         finished: false,
+        stopped: false,
       };
       this.capture = capture;
       recorder.onstart = () => {
@@ -209,7 +225,16 @@ export class PMConversation {
       recorder.ondataavailable = (event) => {
         if (event.data.size) capture.chunks.push(event.data);
       };
-      recorder.onstop = () => this.finishCapture(capture);
+      recorder.onstop = () => {
+        capture.stopped = true;
+        // At the duration limit, retain the bounded clip until the gesture
+        // chooses send or cancel. Never send merely because a hold timed out.
+        if (this.captureLimited && !capture.release) {
+          this.update();
+          return;
+        }
+        this.finishCapture(capture);
+      };
       recorder.onerror = () => {
         capture.release = "cancel";
         this.finishCapture(capture);
@@ -223,8 +248,9 @@ export class PMConversation {
       recorder.start(100);
       this.maxTimer = setTimeout(() => {
         if (this.capture !== capture || capture.release) return;
-        this.notice = "Maximum 15-second clip reached; sending.";
-        this.endPushToTalk();
+        this.captureLimited = true;
+        if (recorder.state !== "inactive") recorder.stop();
+        this.update();
       }, 15000);
       this.update();
     } catch (error) {
@@ -254,8 +280,8 @@ export class PMConversation {
     if (capture.release) return;
     capture.release = release;
     this.clearCaptureTimers();
-    if (capture.recorder.state === "inactive") this.finishCapture(capture);
-    else capture.recorder.stop();
+    if (capture.stopped) this.finishCapture(capture);
+    else if (capture.recorder.state !== "inactive") capture.recorder.stop();
     this.update();
   }
   private finishCapture(capture: Capture) {
@@ -265,6 +291,7 @@ export class PMConversation {
     if (this.capture === capture) this.capture = undefined;
     this.capturing = false;
     this.captureReady = false;
+    this.captureLimited = false;
     this.update();
     if (
       capture.release !== "send" ||

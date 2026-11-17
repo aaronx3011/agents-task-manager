@@ -273,7 +273,8 @@ the backend conversation. Releasing the hold sends one voice turn; releasing out
 the button, Escape, Cancel recording, focus loss or hiding the page discards it.
 Push-to-talk replaces automatic pause-to-send and **Send voice turn**; there is one
 voice send path. A hold interrupts spoken replies, and acoustic barge-in remains available.
-The maximum 15-second clip sends automatically at the limit. Microphone access needs HTTPS or localhost.
+Capture stops at 15 seconds; release inside to send that bounded clip, or cancel
+to discard it. Microphone access needs HTTPS or localhost.
 
 The browser connects only to Django. **Fireworks AI** handles all PM reasoning
 and function calling; Django owns the system prompt, bounded conversation history,

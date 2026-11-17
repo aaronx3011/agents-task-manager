@@ -112,6 +112,7 @@ def main():
                         24000,
                     )
                     assert clip.getnframes() > 100
+                    assert clip.getnframes() <= 24000 * 16
                     assert any(clip.readframes(clip.getnframes()))
                 body = dict(text="Tell me the status of task 302 from voice.")
             else:
@@ -299,6 +300,18 @@ def main():
         print("PASS: mobile touch capture", flush=True)
         assert page.evaluate("getSelection().toString()") == ""
         page.set_viewport_size(dict(width=1280, height=720))
+        # A bounded hold must still wait for release: reaching the limit is not
+        # permission to send while the owner may still choose to cancel.
+        hold.focus()
+        page.keyboard.down("Enter")
+        expect(hold).to_contain_text("Limit reached", timeout=20000)
+        assert len(clips) == before + 2
+        page.keyboard.up("Enter")
+        page.wait_for_function(
+            "document.querySelector('.voice-buttons [role=status]').textContent "
+            "=== 'Ready for push-to-talk'"
+        )
+        assert len(clips) == before + 3
         page.get_by_label("Enable spoken replies").click()
         page.get_by_label("Mute spoken replies").click()
         page.get_by_label("Mute microphone").click()
