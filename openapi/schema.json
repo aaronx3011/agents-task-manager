@@ -3460,6 +3460,10 @@
                         "type": "string",
                         "maxLength": 8000
                     },
+                    "worker": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
                     "agent": {
                         "type": "string",
                         "maxLength": 100

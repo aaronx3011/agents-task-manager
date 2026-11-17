@@ -979,6 +979,7 @@ export interface components {
       labels: string[];
       checklist: components["schemas"]["ChecklistItemRequest"][];
       instructions: string;
+      worker?: string;
       agent?: string;
       model?: components["schemas"]["ModelChoiceRequest"] | null;
     };

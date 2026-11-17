@@ -597,6 +597,9 @@ class PlanningCard(models.Model):
     position = models.PositiveIntegerField(default=0)
     instructions = models.TextField(blank=True)
     # Per-task overrides; blank/None inherit the project defaults.
+    worker = models.ForeignKey(
+        Worker, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     agent = models.CharField(max_length=100, blank=True)
     model = models.JSONField(null=True, blank=True)
     task = models.OneToOneField(Task, null=True, blank=True, on_delete=models.PROTECT)
