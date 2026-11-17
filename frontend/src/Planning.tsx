@@ -800,9 +800,10 @@ function ProjectPlanning({
         ) : (
           <div className="planning-queue">
             <p>
-              One task at a time. Each gets a fresh session and frozen
-              project/card context. Explicit task completion advances the queue;
-              idle sessions do not.
+              One task at a time. Each gets a fresh session. Project context is
+              frozen when a task is queued; editing a card (worker, agent,
+              model, content) updates its queued task until it starts. Explicit
+              task completion advances the queue; idle sessions do not.
             </p>
             {!data.jobs.length && (
               <p>
@@ -1241,8 +1242,9 @@ function ProjectPlanning({
                 </pre>
               </details>
               <p>
-                Settings are captured when you add this task. Previous completed
-                queue results are added when its session starts.
+                Project settings are captured when you add this task; card edits
+                still apply until it starts. Previous completed queue results
+                are added when its session starts.
               </p>
               <footer>
                 {["enqueue", "run"].map((operation) => (
@@ -1368,7 +1370,7 @@ function SettingsForm({
       <h2>Project configuration</h2>
       <p>
         Defaults are inherited by new launches. Existing queued jobs retain
-        their captured settings.
+        their captured project settings.
       </p>
       <div className="planning-settings-grid">
         <label>

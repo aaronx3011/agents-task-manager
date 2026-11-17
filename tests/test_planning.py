@@ -298,6 +298,72 @@ def test_card_worker_overrides_project_default_worker(setup, agent_clients):
     assert task.claimed_by.name == "beta"
 
 
+def test_card_edits_reach_queued_job_but_not_running_job(setup, agent_clients):
+    """#321: a card queued before its worker/model was chosen runs with the choice."""
+    staff, worker, plan = setup
+    other = services.provision_worker("worker-b", Agent.objects.get(name="beta"))
+    other.connected = other.stream_connected = True
+    other.last_sync_at = timezone.now()
+    chosen = {"providerID": "openai", "modelID": "gpt"}
+    other.default_model = {"providerID": "codex", "modelID": "default"}
+    other.model_catalog = [other.default_model, chosen]
+    other.save()
+    first, later = card(plan, "Already running"), card(plan, "Queued then edited")
+    for c in (first, later):
+        assert mutate(staff, plan, "enqueue", card_id=c.pk).status_code == 200
+    assert PlanningJob.objects.get(card=later).worker == worker
+    assert mutate(staff, plan, "play").status_code == 200
+    create = sync(agent_clients[0]).json()["commands"][0]
+    assert create["action"] == "create"
+    accept(agent_clients[0], create)
+    running = PlanningJob.objects.get(card=first)
+    assert running.status == "running"
+    # Choose another worker/model on both cards after they were queued.
+    for c in (first, later):
+        response = mutate(
+            staff,
+            plan,
+            "card",
+            card={
+                **editable_card_values(c),
+                "title": f"{c.title} (edited)",
+                "worker": other.name,
+                "model": chosen,
+            },
+        )
+        assert response.status_code == 200, response.content
+    queued = PlanningJob.objects.get(card=later)
+    assert queued.status == "queued"
+    assert queued.worker == other
+    assert queued.snapshot["model"] == chosen
+    assert queued.snapshot["title"] == "Queued then edited (edited)"
+    # Project settings captured at enqueue stay frozen.
+    assert queued.snapshot["directory"] == "/workspace"
+    assert queued.snapshot["context"] == "Project architecture"
+    # The running job keeps the worker/model its session was started with.
+    running.refresh_from_db()
+    assert running.worker == worker
+    assert running.snapshot["model"] == worker.default_model
+    # Once the first job completes, the edited job starts on worker-b with the model.
+    services.update_status(worker.agent, running.attempt.task_id, "done", result_summary="ok")
+    sync(agent_clients[0])
+    command = sync(agent_clients[1], worker="worker-b").json()["commands"][0]
+    assert command["action"] == "create"
+    assert command["payload"]["model"] == chosen
+
+
+def test_card_edit_rejected_when_queued_job_cannot_use_it(setup):
+    staff, worker, plan = setup
+    c = card(plan)
+    assert mutate(staff, plan, "enqueue", card_id=c.pk).status_code == 200
+    worker.is_enabled = False
+    worker.save()
+    response = mutate(staff, plan, "card", card={**editable_card_values(c), "title": "New"})
+    assert response.status_code == 400
+    assert "not enabled" in response.json()["detail"]
+    assert PlanningCard.objects.get(pk=c.pk).title == "Build feature"
+
+
 def test_card_worker_runs_without_a_project_default(setup):
     staff, worker, plan = setup
     plan.default_worker = None
