@@ -2,7 +2,12 @@
 // voice-client.ts. The server owns history and reasoning; this client holds a
 // short-lived conversation grant, captures push-to-talk clips as 24 kHz WAV,
 // and plays spoken replies.
-import { createAudioPlayer, requestRecordingPermissionsAsync, setAudioModeAsync } from "expo-audio";
+import {
+  createAudioPlayer,
+  getRecordingPermissionsAsync,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+} from "expo-audio";
 import type { AudioStream, AudioStreamBuffer } from "expo-audio";
 import { File, Paths } from "expo-file-system";
 import { unwrap } from "@/api/client";
@@ -71,6 +76,7 @@ export class PMConversation {
   private maxTimer?: ReturnType<typeof setTimeout>;
   private speechController?: AbortController;
   private starting?: Promise<void>;
+  private askingPermission = false;
 
   constructor(
     private api: Api,
@@ -166,7 +172,7 @@ export class PMConversation {
     this.captureLimited = false;
     this.update();
     try {
-      const permission = await requestRecordingPermissionsAsync();
+      const permission = await this.microphonePermission();
       if (!permission.granted)
         throw new Error(
           "Microphone access is off. Allow it in Settings, or type to chat with the PM agent.",
@@ -205,6 +211,26 @@ export class PMConversation {
       this.finishCapture(capture);
       if (this.current(generation)) this.fail(error);
     }
+  }
+
+  /**
+   * Ask only when not yet granted: on Android the request opens a system
+   * activity that briefly backgrounds the app even when access exists.
+   */
+  private async microphonePermission() {
+    const current = await getRecordingPermissionsAsync();
+    if (current.granted) return current;
+    this.askingPermission = true;
+    try {
+      return await requestRecordingPermissionsAsync();
+    } finally {
+      this.askingPermission = false;
+    }
+  }
+
+  /** Leaving the app discards a clip in progress, but not the permission prompt. */
+  appStateChanged(state: string) {
+    if (state === "background" && !this.askingPermission) this.cancelPushToTalk();
   }
 
   endPushToTalk() {
@@ -273,16 +299,14 @@ export class PMConversation {
     this.pending = true;
     this.mode = "transcribing";
     this.update();
-    // React Native uploads files by URI, so the clip is staged in the cache.
-    const file = cacheFile("wav");
     try {
-      file.create({ overwrite: true });
-      file.write(wav);
+      // Expo's global fetch encodes multipart parts from name/type/bytes();
+      // React Native's { uri } file parts are rejected before any request is sent.
       const form = new FormData();
       form.append("file", {
-        uri: file.uri,
         name: "recording.wav",
         type: "audio/wav",
+        bytes: async () => wav,
       } as unknown as Blob);
       const result = await unwrap(
         this.api.POST("/api/v1/voice/transcriptions", {
@@ -296,7 +320,6 @@ export class PMConversation {
     } catch (error) {
       if (this.current(generation)) this.fail(error);
     } finally {
-      discard(file);
       if (this.current(generation)) {
         this.pending = false;
         if (this.mode === "transcribing" || this.mode === "thinking") this.mode = "listening";
@@ -387,11 +410,17 @@ export class PMConversation {
     }
   }
 
-  private play(audio: ArrayBuffer, signal: AbortSignal): Promise<void> {
+  private async play(audio: ArrayBuffer, signal: AbortSignal): Promise<void> {
     stopIfAborted(signal);
     const file = cacheFile("mp3");
     file.create({ overwrite: true });
-    file.write(new Uint8Array(audio));
+    try {
+      await file.write(new Uint8Array(audio));
+      stopIfAborted(signal);
+    } catch (error) {
+      discard(file);
+      throw error;
+    }
     const player = createAudioPlayer({ uri: file.uri });
     return new Promise<void>((resolve, reject) => {
       let settled = false;

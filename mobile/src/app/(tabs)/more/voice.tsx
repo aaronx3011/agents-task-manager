@@ -102,7 +102,7 @@ export default function VoiceAgent() {
   // Leaving the app discards a clip in progress, like the web on blur.
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state !== "active") client?.cancelPushToTalk();
+      client?.appStateChanged(state);
     });
     return () => subscription.remove();
   }, [client]);
