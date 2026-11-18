@@ -2598,6 +2598,9 @@
                 "security": [
                     {
                         "cookieAuth": []
+                    },
+                    {
+                        "deviceToken": []
                     }
                 ],
                 "responses": {
@@ -2634,6 +2637,9 @@
                 "security": [
                     {
                         "cookieAuth": []
+                    },
+                    {
+                        "deviceToken": []
                     }
                 ],
                 "responses": {
@@ -2669,6 +2675,9 @@
                 "security": [
                     {
                         "cookieAuth": []
+                    },
+                    {
+                        "deviceToken": []
                     }
                 ],
                 "responses": {
@@ -2733,6 +2742,9 @@
                 "security": [
                     {
                         "cookieAuth": []
+                    },
+                    {
+                        "deviceToken": []
                     }
                 ],
                 "responses": {

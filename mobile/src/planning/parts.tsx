@@ -414,8 +414,8 @@ export function LaunchSheet({
         />
       </Disclosure>
       <Label tone="muted" size={12}>
-        Settings are captured when you add this task. Previous completed queue results are added
-        when its session starts.
+        Project settings are captured when you add this task; card edits still apply until it
+        starts. Previous completed queue results are added when its session starts.
       </Label>
       {!settings.worker ? (
         <Notice>Choose a default worker in Settings before running cards.</Notice>
@@ -507,8 +507,9 @@ export function QueueView({
   return (
     <View style={{ gap: 10 }}>
       <Label tone="secondary" size={13}>
-        One task at a time. Each gets a fresh session and frozen project/card context. Explicit task
-        completion advances the queue; idle sessions do not.
+        One task at a time. Each gets a fresh session. Project context is frozen when a task is
+        queued; editing a card (worker, agent, model, content) updates its queued task until it
+        starts. Explicit task completion advances the queue; idle sessions do not.
       </Label>
       {!plan.jobs.length ? (
         <Label tone="muted">
@@ -627,7 +628,8 @@ export function SettingsForm({
         Project configuration
       </Label>
       <Label tone="secondary" size={13}>
-        Defaults are inherited by new launches. Existing queued jobs retain their captured settings.
+        Defaults are inherited by new launches. Existing queued jobs retain their captured project
+        settings.
       </Label>
       <Picker
         label="Default worker"

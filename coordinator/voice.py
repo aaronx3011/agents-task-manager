@@ -18,7 +18,8 @@ from rest_framework import authentication, exceptions, permissions, serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.models import Role
+from accounts.authentication import UserTokenAuthentication
+from accounts.models import Role, UserToken
 from accounts.services import role_of
 
 from . import services
@@ -72,7 +73,8 @@ class VoiceStatusOutput(serializers.Serializer):
 
 
 class OwnerVoiceView(APIView):
-    authentication_classes = [authentication.SessionAuthentication]
+    # Browser session (CSRF-checked) or a mobile device token; never agent keys.
+    authentication_classes = [authentication.SessionAuthentication, UserTokenAuthentication]
     permission_classes = [IsOwner]
 
     def finalize_response(self, request, response, *args, **kwargs):
@@ -110,9 +112,14 @@ class VoiceSessionView(OwnerVoiceView):
         if active.count() >= 3:
             raise services.TaskError("End an existing PM conversation before starting another", 429)
         token = secrets.token_urlsafe(32)
+        # Bind the conversation to the credential that asked for it.
+        if isinstance(request.auth, UserToken):
+            credential = {"auth_token": request.auth}
+        else:
+            credential = {"auth_session": Session.objects.get(pk=request.session.session_key)}
         session = VoiceConversation.objects.create(
             user=request.user,
-            auth_session=Session.objects.get(pk=request.session.session_key),
+            **credential,
             auth_hash=request.user.get_session_auth_hash(),
             token_hash=hashlib.sha256(token.encode()).hexdigest(),
             expires_at=timezone.now() + timedelta(minutes=30),
@@ -161,7 +168,7 @@ class VoiceTokenAuthentication(authentication.BaseAuthentication):
         if not 32 <= len(token) <= 128:
             raise exceptions.AuthenticationFailed("Invalid voice conversation access")
         session = (
-            VoiceConversation.objects.select_related("user", "auth_session")
+            VoiceConversation.objects.select_related("user", "auth_session", "auth_token")
             .filter(token_hash=hashlib.sha256(token.encode()).hexdigest())
             .first()
         )
@@ -182,16 +189,28 @@ class VoiceTokenScheme(OpenApiAuthenticationExtension):
         return {"type": "apiKey", "in": "header", "name": "X-ATM-Voice-Token"}
 
 
+def credential_live(session):
+    """The browser session or device token that issued the conversation still holds."""
+    user = session.user
+    if session.auth_token_id:
+        token = session.auth_token
+        return token.revoked_at is None and token.user_id == user.pk
+    if session.auth_session_id is None:
+        return False
+    return (
+        session.auth_session.expire_date > timezone.now()
+        and session.auth_session.get_decoded().get("_auth_user_id") == str(user.pk)
+    )
+
+
 def validate_session(session):
     user = session.user
-    auth = session.auth_session.get_decoded()
     if (
         session.revoked_at
         or session.expires_at <= timezone.now()
-        or session.auth_session.expire_date <= timezone.now()
         or not user.is_active
         or role_of(user) != Role.OWNER
-        or auth.get("_auth_user_id") != str(user.pk)
+        or not credential_live(session)
         or not secrets.compare_digest(session.auth_hash, user.get_session_auth_hash())
     ):
         raise exceptions.AuthenticationFailed("Voice conversation access expired; reconnect")
@@ -383,7 +402,7 @@ def run_tool(operation, args, user):
 def execute_tool(conversation, operation, body):
     # Serialize on the capability before both dedupe and task mutation. The
     # task/audit write and cached response commit together, including on PG.
-    session = services.locked(VoiceConversation.objects.select_related("user", "auth_session")).get(
+    session = services.locked(VoiceConversation.objects.select_related("user")).get(
         pk=conversation.pk
     )
     validate_session(session)

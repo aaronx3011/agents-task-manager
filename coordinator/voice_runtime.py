@@ -90,7 +90,7 @@ def speech_request(path, **kwargs):
 @retry_sqlite
 @transaction.atomic
 def begin_turn(conversation):
-    session = services.locked(VoiceConversation.objects.select_related("user", "auth_session")).get(
+    session = services.locked(VoiceConversation.objects.select_related("user")).get(
         pk=conversation.pk
     )
     validate_session(session)
@@ -108,7 +108,7 @@ def begin_turn(conversation):
 def renew_turn(session):
     """Keep long tool chains exclusive without renewing expired or replaced ownership."""
     current = (
-        services.locked(VoiceConversation.objects.select_related("user", "auth_session"))
+        services.locked(VoiceConversation.objects.select_related("user"))
         .filter(pk=session.pk)
         .first()
     )
@@ -270,11 +270,7 @@ class VoiceChatView(VoiceRuntimeView):
         session = begin_turn(request.auth)
         try:
             messages, text, events = reason(session, serializer.validated_data["text"])
-            fresh = (
-                VoiceConversation.objects.select_related("user", "auth_session")
-                .filter(pk=session.pk)
-                .first()
-            )
+            fresh = VoiceConversation.objects.select_related("user").filter(pk=session.pk).first()
             if fresh is None:
                 raise exceptions.AuthenticationFailed(
                     "Voice conversation access expired; reconnect"

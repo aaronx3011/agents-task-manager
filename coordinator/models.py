@@ -32,7 +32,14 @@ class VoiceConversation(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    auth_session = models.ForeignKey("sessions.Session", on_delete=models.CASCADE)
+    # The credential that issued the conversation: a browser session or a
+    # mobile device token. Ending either one ends the conversation.
+    auth_session = models.ForeignKey(
+        "sessions.Session", on_delete=models.CASCADE, null=True, blank=True
+    )
+    auth_token = models.ForeignKey(
+        "accounts.UserToken", on_delete=models.CASCADE, null=True, blank=True
+    )
     auth_hash = models.CharField(max_length=128, editable=False)
     token_hash = models.CharField(max_length=64, unique=True, editable=False)
     provider_conversation = models.CharField(max_length=128, blank=True)
@@ -41,6 +48,15 @@ class VoiceConversation(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(db_index=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(auth_session__isnull=False, auth_token__isnull=True)
+                | models.Q(auth_session__isnull=True, auth_token__isnull=False),
+                name="voice_conversation_one_credential",
+            )
+        ]
 
 
 class VoiceToolResult(models.Model):

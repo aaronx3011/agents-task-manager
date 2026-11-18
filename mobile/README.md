@@ -12,10 +12,20 @@ revoke devices from **Account** in either app.
 | Planning | Projects, new project, board cards (labels, checklist, instructions), run/queue, queue order and completion, project settings, play/pause/stop |
 | Sessions | Session library (pinned and recent, kept on the device), workers and their health, new sessions, live chat with prompts, interrupt, permission and question replies |
 | Activity | Recent worker commands and task activity |
-| More | Approvals, Account (password, devices), and for owners Users & invites and agent Configuration |
+| More | Approvals, Account (password, devices), and for owners the Voice agent, Users & invites and agent Configuration |
 
 Live updates come from `/ws/dashboard/` with a one-time ticket
 (`POST /api/v1/realtime/ticket`); the device token never goes over the socket.
+
+### Voice agent
+
+Owners can talk or type to the PM router (**More → Voice agent**), as on the
+web. Hold the button to talk and release to send; slide off it to discard.
+Clips are captured as raw PCM with `expo-audio`'s `useAudioStream` and sent as
+the mono 24 kHz WAV the server requires; spoken replies are played back unless
+muted. The conversation is bound to this device's token, so revoking the device
+(or a password change) ends it. Ending or clearing the conversation revokes it
+on the server.
 
 ## Run it
 
@@ -71,6 +81,7 @@ for the Play Store. Revert the `android`/`ios` scripts prebuild rewrites in
 - `src/live/` — the app-wide live connection and focused-session streaming.
 - `src/auth/` — session (token, server) and role access.
 - `src/tasks/`, `src/sessions/`, `src/planning/` — data hooks and parts per area.
+- `src/voice/` — the PM voice conversation client and pure audio helpers.
 - `src/ui/` — shared kit, Markdown renderer, formatting and theme.
 
 ## API types

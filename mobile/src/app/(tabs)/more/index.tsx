@@ -26,6 +26,12 @@ export default function More() {
   ];
   if (canManage)
     destinations.push({
+      href: "/more/voice",
+      title: "Voice agent",
+      detail: "Talk to the PM router about projects and tasks",
+    });
+  if (canManage)
+    destinations.push({
       href: "/more/users",
       title: "Users & invites",
       detail: "Roles, access and single-use invite links",
