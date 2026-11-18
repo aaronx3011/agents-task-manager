@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import { ApiError } from "./api";
 import { ApprovalNotifications } from "./ApprovalNotifications";
+import { ReportTask } from "./ReportTask";
 import { api, unwrap } from "./api-client";
 import { workspaceQuery } from "./workspace-query";
 import { ROLE_LABELS, useAccess, useSignOut } from "./auth";
@@ -1022,6 +1023,12 @@ export default function App() {
             </>
           )}
         </main>
+        {canWrite && (
+          <ReportTask
+            projects={data?.projects || []}
+            project={filters.project}
+          />
+        )}
         {location.task && (
           <ModalBoundary close={closeTask}>
             <Suspense
