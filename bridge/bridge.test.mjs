@@ -408,6 +408,13 @@ test("coordinator credentials cannot be redirected to a foreign sync origin", ()
   assert.throws(() => workerSettings({ ...options, messageLimit: 301 }), /window limit/)
 })
 
+test("conversation observation window exceeds the previous default and remains configurable", () => {
+  const options = { worker: "fixture", key: "secret", coordinatorURL: "https://coordinator.example" }
+  assert.equal(workerSettings(options).messageLimit, 120)
+  assert.equal(workerSettings({ ...options, messageLimit: 300 }).messageLimit, 300)
+  assert.throws(() => workerSettings({ ...options, messageLimit: 301 }), /window limit/)
+})
+
 test("workspace aliases are canonicalized to match OpenCode session directories", async (t) => {
   const directory = await state(t)
   const alias = join(directory, "workspace-alias")

@@ -19,6 +19,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import services
+from .conversation_limits import check_context, check_history
 from .dbretry import retry_sqlite
 from .models import VoiceConversation
 from .voice import VoiceTokenAuthentication, execute_tool, validate_session
@@ -96,8 +97,7 @@ def begin_turn(conversation):
     validate_session(session)
     if session.busy_until and session.busy_until > timezone.now():
         raise services.TaskError("A PM reply is already in progress", 409)
-    if len(session.messages) > 100 or len(json.dumps(session.messages)) > 120000:
-        raise services.TaskError("This conversation is full; clear it to start another", 409)
+    check_history(session.messages, reserve=2)
     session.busy_until = timezone.now() + timedelta(minutes=5)
     session.save(update_fields=["busy_until"])
     return session
@@ -132,21 +132,22 @@ def reason(session, text):
     events = []
     while True:
         renew_turn(session)
-        if len(json.dumps(messages)) > 120000:
-            raise services.TaskError("This conversation is full; clear it to start another", 409)
+        check_history(messages, reserve=1)
+        payload = {
+            "model": settings.FIREWORKS_MODEL,
+            "messages": [{"role": "system", "content": PROMPT}, *messages],
+            "tools": tool_configs(),
+            "tool_choice": "auto",
+            "reasoning_effort": "none",
+            "temperature": 0.2,
+            "max_tokens": settings.PM_MAX_OUTPUT_TOKENS,
+        }
+        check_context(payload)
         data = response_json(
             provider_request(
                 "Fireworks",
                 "chat/completions",
-                json={
-                    "model": settings.FIREWORKS_MODEL,
-                    "messages": [{"role": "system", "content": PROMPT}, *messages],
-                    "tools": tool_configs(),
-                    "tool_choice": "auto",
-                    "reasoning_effort": "none",
-                    "temperature": 0.2,
-                    "max_tokens": 2048,
-                },
+                json=payload,
             ),
             "Fireworks",
         )
@@ -158,6 +159,20 @@ def reason(session, text):
             content = message.get("content") or ""
             if not isinstance(content, str) or not isinstance(calls, list):
                 raise ValueError
+            if choice.get("finish_reason") == "length":
+                # Never execute truncated tool arguments. Preserve received text
+                # and earlier confirmed tool outcomes without implying completion.
+                if content:
+                    save_progress(
+                        session,
+                        [*messages, {"role": "assistant", "content": content}],
+                    )
+                raise services.TaskError(
+                    "Fireworks reached the configured output token limit; the reply is "
+                    "incomplete. Received text and completed tool actions are preserved; "
+                    "check task state before continuing.",
+                    502,
+                )
             if choice.get("finish_reason") not in {"stop", "tool_calls"}:
                 raise ValueError
             parsed = []
@@ -180,6 +195,9 @@ def reason(session, text):
             ) from None
         assistant = {"role": "assistant", "content": content}
         if calls:
+            # Leave room for every tool result and a final assistant response.
+            # Reject before executing any side effects, never midway through a batch.
+            check_history(messages, reserve=len(calls) + 2)
             assistant["tool_calls"] = [
                 {
                     "id": call_id,
@@ -195,6 +213,8 @@ def reason(session, text):
         if not calls:
             if not content.strip():
                 raise services.TaskError("Fireworks returned an empty reply", 502)
+            # Keep the complete received reply even if it crosses the storage
+            # budget. The next turn is refused, rather than deleting that reply.
             return messages, content, events
         for call_id, name, args in parsed:
             renew_turn(session)
@@ -230,12 +250,16 @@ def reason(session, text):
             )
             events.append({"tool": name, "is_error": failed})
         # Keep confirmed tool outcomes even if the next provider completion fails.
-        VoiceConversation.objects.filter(
-            pk=session.pk,
-            busy_until=session.busy_until,
-            revoked_at__isnull=True,
-            expires_at__gt=timezone.now(),
-        ).update(messages=messages)
+        save_progress(session, messages)
+
+
+def save_progress(session, messages):
+    VoiceConversation.objects.filter(
+        pk=session.pk,
+        busy_until=session.busy_until,
+        revoked_at__isnull=True,
+        expires_at__gt=timezone.now(),
+    ).update(messages=messages)
 
 
 class VoiceRuntimeView(APIView):

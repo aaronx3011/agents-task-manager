@@ -211,6 +211,43 @@ def test_retention_command_prunes_but_keeps_recent(workers, settings):
     call_command("prune_worker_data")  # command surface
 
 
+def test_increased_retention_keeps_old_limit_and_reports_boundary_gap(workers, settings):
+    assert settings.WORKER_MESSAGE_KEEP == 600
+    worker_a, _ = workers
+    (session,) = services.store_sessions(worker_a, [{"id": "ses_long", "directory": "/a"}])
+    # Several sync windows accumulate durably; the old 120-row cap is exceeded.
+    for start in range(0, 600, 120):
+        services.store_messages(
+            worker_a,
+            "ses_long",
+            [
+                {"info": {"id": f"m{n}", "role": "user", "time": {"created": n}}, "parts": []}
+                for n in range(start, start + 120)
+            ],
+        )
+    assert services.apply_observation_retention()["messages"] == 0
+    assert session.messages.count() == 600
+    cursor = 0
+    seen = []
+    while True:
+        page = services.messages_read(session, after=cursor, limit=100)
+        seen.extend(page["messages"])
+        cursor = page["cursor"]
+        if not page["hasMore"]:
+            break
+    assert len(seen) == 600
+    assert page["retentionLimit"] == 600
+    services.store_messages(
+        worker_a,
+        "ses_long",
+        [{"info": {"id": "m600", "role": "user", "time": {"created": 600}}, "parts": []}],
+    )
+    assert services.apply_observation_retention()["messages"] == 1
+    page = services.messages_read(session, after=0)
+    assert page["gap"] is True
+    assert session.messages.count() == 600
+
+
 def test_persistence_after_restart(workers):
     worker_a, _ = workers
     services.store_sessions(worker_a, [{"id": "ses_m", "directory": "/a", "title": "kept"}])

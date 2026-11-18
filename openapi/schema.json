@@ -4140,6 +4140,33 @@
                 "type": "string",
                 "description": "* `done` - done\n* `error` - error"
             },
+            "ConversationLimitsOutput": {
+                "type": "object",
+                "properties": {
+                    "max_messages": {
+                        "type": "integer"
+                    },
+                    "max_history_bytes": {
+                        "type": "integer"
+                    },
+                    "max_output_tokens": {
+                        "type": "integer"
+                    },
+                    "context_window_tokens": {
+                        "type": "integer"
+                    },
+                    "context_accounting": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "context_accounting",
+                    "context_window_tokens",
+                    "max_history_bytes",
+                    "max_messages",
+                    "max_output_tokens"
+                ]
+            },
             "CreatedInvite": {
                 "type": "object",
                 "properties": {
@@ -5963,10 +5990,14 @@
                     },
                     "tts_configured": {
                         "type": "boolean"
+                    },
+                    "limits": {
+                        "$ref": "#/components/schemas/ConversationLimitsOutput"
                     }
                 },
                 "required": [
                     "configured",
+                    "limits",
                     "policy_version",
                     "provider",
                     "speech_configured",

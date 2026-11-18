@@ -24,6 +24,7 @@ from accounts.services import role_of
 
 from . import services
 from .auth import IsOwner
+from .conversation_limits import limits
 from .dbretry import retry_sqlite
 from .models import Project, ProjectPlan, Task, VoiceConversation, VoiceToolResult
 from .queries import filter_tasks, task_queryset
@@ -62,6 +63,14 @@ class SessionOutput(serializers.Serializer):
     expires_at = serializers.DateTimeField()
 
 
+class ConversationLimitsOutput(serializers.Serializer):
+    max_messages = serializers.IntegerField()
+    max_history_bytes = serializers.IntegerField()
+    max_output_tokens = serializers.IntegerField()
+    context_window_tokens = serializers.IntegerField()
+    context_accounting = serializers.CharField()
+
+
 class VoiceStatusOutput(serializers.Serializer):
     provider = serializers.CharField()
     configured = serializers.BooleanField()
@@ -70,6 +79,7 @@ class VoiceStatusOutput(serializers.Serializer):
     speech_provider = serializers.CharField()
     transcription_configured = serializers.BooleanField()
     tts_configured = serializers.BooleanField()
+    limits = ConversationLimitsOutput()
 
 
 class OwnerVoiceView(APIView):
@@ -95,6 +105,7 @@ class VoiceStatusView(OwnerVoiceView):
                 "transcription_configured": transcription_configured(),
                 "tts_configured": tts_configured(),
                 "policy_version": POLICY_VERSION,
+                "limits": limits(),
             }
         )
 

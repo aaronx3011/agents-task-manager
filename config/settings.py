@@ -23,6 +23,25 @@ ELEVENLABS_TTS_MODEL = os.environ.get("ELEVENLABS_TTS_MODEL", "eleven_v4_turbo")
 VOICE_PUBLIC_ORIGIN = os.environ.get("VOICE_PUBLIC_ORIGIN", "https://atm.aaron-henriquez.com")
 
 
+def positive_env_int(name, default):
+    try:
+        value = int(os.environ.get(name, default))
+    except ValueError:
+        raise ImproperlyConfigured(f"{name} must be a positive integer") from None
+    if value < 1:
+        raise ImproperlyConfigured(f"{name} must be a positive integer")
+    return value
+
+
+PM_MAX_MESSAGES = positive_env_int("PM_MAX_MESSAGES", 1000)
+PM_MAX_HISTORY_BYTES = positive_env_int("PM_MAX_HISTORY_BYTES", 1200000)
+PM_MAX_OUTPUT_TOKENS = positive_env_int("PM_MAX_OUTPUT_TOKENS", 8192)
+# Application budget, not a claim about an arbitrary configured provider/model.
+PM_CONTEXT_WINDOW_TOKENS = positive_env_int("PM_CONTEXT_WINDOW_TOKENS", 524288)
+if PM_MAX_OUTPUT_TOKENS >= PM_CONTEXT_WINDOW_TOKENS:
+    raise ImproperlyConfigured("PM_MAX_OUTPUT_TOKENS must be less than PM_CONTEXT_WINDOW_TOKENS")
+
+
 def env_bool(name, default=False):
     return os.environ.get(name, str(default)).lower() in {"1", "true", "yes"}
 
@@ -126,7 +145,7 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = WORKER_SYNC_MAX_BYTES
 WORKER_SYNC_PROTOCOL_VERSION = 1
 # Bounded central observation retention (#9): explicit limits, not a full archive.
 WORKER_SESSION_KEEP = env_int("WORKER_SESSION_KEEP", 500)
-WORKER_MESSAGE_KEEP = env_int("WORKER_MESSAGE_KEEP", 120)
+WORKER_MESSAGE_KEEP = env_int("WORKER_MESSAGE_KEEP", 600)
 WORKER_EVENT_KEEP = env_int("WORKER_EVENT_KEEP", 5000)
 WORKER_EVENT_MAX_BYTES = env_int("WORKER_EVENT_MAX_BYTES", 64 * 1024)
 WORKER_LIVE_MAX_BYTES = env_int("WORKER_LIVE_MAX_BYTES", 256 * 1024)

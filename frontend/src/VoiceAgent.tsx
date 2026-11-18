@@ -97,6 +97,22 @@ export default function VoiceAgent() {
           Check connection
         </button>
       </div>
+      {status.data?.limits && (
+        <p className="muted">
+          Conversation limits:{" "}
+          {status.data.limits.max_messages.toLocaleString()} messages
+          {" · "}
+          {status.data.limits.max_history_bytes.toLocaleString()} history bytes
+          {" · "}
+          {status.data.limits.max_output_tokens.toLocaleString()} output tokens
+          {" · "}
+          {status.data.limits.context_window_tokens.toLocaleString()} context
+          tokens
+          {
+            " (conservative budget). History is preserved when a limit is reached."
+          }
+        </p>
+      )}
       {(status.isError || client?.error || (!status.isPending && !ready)) && (
         <div className="voice-error" role="alert">
           {client?.error ||

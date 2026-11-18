@@ -1062,6 +1062,13 @@ export interface components {
      * @enum {string}
      */
     CommandResolutionEnum: "done" | "error";
+    ConversationLimitsOutput: {
+      max_messages: number;
+      max_history_bytes: number;
+      max_output_tokens: number;
+      context_window_tokens: number;
+      context_accounting: string;
+    };
     CreatedInvite: {
       id: number;
       role: components["schemas"]["RoleEnum"];
@@ -1592,6 +1599,7 @@ export interface components {
       speech_provider: string;
       transcription_configured: boolean;
       tts_configured: boolean;
+      limits: components["schemas"]["ConversationLimitsOutput"];
     };
     WorkerCommandPage: {
       count: number;
