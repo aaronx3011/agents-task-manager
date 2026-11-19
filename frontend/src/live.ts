@@ -23,9 +23,7 @@ export function useLiveUpdates() {
         socket.send(
           JSON.stringify({
             type: "subscribe",
-            worker: null,
-            sessionID: null,
-            ...getFocus(),
+            sessions: getFocus(),
           }),
         );
       }
@@ -58,6 +56,8 @@ export function useLiveUpdates() {
           task_id?: number;
           event_type?: string;
           subject?: string;
+          worker?: string;
+          sessionID?: string;
         };
         if (message.type === "connected") {
           retry = 1000;
@@ -68,9 +68,17 @@ export function useLiveUpdates() {
         } else if (message.type === "session.live") {
           publishSnapshot(JSON.parse(event.data) as LiveSnapshot);
         } else if (message.type === "session.gap") {
-          publishSnapshot(null);
-          const focus = getFocus();
-          if (focus)
+          const target =
+            message.worker && message.sessionID
+              ? { worker: message.worker, sessionID: message.sessionID }
+              : undefined;
+          publishSnapshot(null, target);
+          for (const focus of getFocus().filter(
+            (focus) =>
+              !target ||
+              (focus.worker === target.worker &&
+                focus.sessionID === target.sessionID),
+          ))
             void client.invalidateQueries({
               queryKey: ["opencodes", focus.worker, focus.sessionID],
             });

@@ -22,6 +22,14 @@ export function rememberSession(
   const previous = entries.find(
     (entry) => sessionIdentity(entry) === sessionIdentity(session),
   );
+  // Concurrent panel detail loads must not reorder other panels underneath a
+  // user's pointer or while they are typing. Only explicit pin actions reorder.
+  if (previous?.pinned && !pin)
+    return entries.map((entry) =>
+      sessionIdentity(entry) === sessionIdentity(session)
+        ? { ...entry, ...session, openedAt: now }
+        : entry,
+    );
   const next = [
     {
       ...session,
@@ -41,6 +49,28 @@ export function rememberSession(
 export function useSessionLibrary(username: string) {
   // Saved sessions are per user on a shared browser.
   const storageKey = `agent-ops-sessions:${username}`;
+  const preferencesKey = `${storageKey}:layout`;
+  const [layout, setLayout] = useState(() => {
+    try {
+      const value = JSON.parse(localStorage.getItem(preferencesKey) || "{}");
+      return {
+        parallel: value.parallel === true,
+        maximum: Math.max(
+          1,
+          Math.min(6, Math.trunc(Number(value.maximum)) || 3),
+        ),
+      };
+    } catch {
+      return { parallel: false, maximum: 3 };
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(preferencesKey, JSON.stringify(layout));
+    } catch {
+      /* Storage may be disabled. */
+    }
+  }, [layout, preferencesKey]);
   const [entries, setEntries] = useState<SavedSession[]>(() => {
     try {
       const stored: unknown = JSON.parse(
@@ -77,6 +107,6 @@ export function useSessionLibrary(username: string) {
       rememberSession(previous, session, Date.now(), true),
     );
   }, []);
-  return { entries, remember, togglePin };
+  return { entries, remember, togglePin, layout, setLayout };
 }
 export type SessionLibrary = ReturnType<typeof useSessionLibrary>;

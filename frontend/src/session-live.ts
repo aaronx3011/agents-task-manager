@@ -10,18 +10,20 @@ export interface LiveSnapshot extends Focus {
   executionStatus?: string;
   messages: Pick<Message, "remoteID" | "role" | "content" | "parts">[];
 }
-let focus: Focus | null = null;
+const focuses = new Map<object, Focus>();
 const focusListeners = new Set<() => void>();
-const snapshotListeners = new Set<(snapshot: LiveSnapshot | null) => void>();
-export const getFocus = () => focus;
+const snapshotListeners = new Set<
+  (snapshot: LiveSnapshot | null, target?: Focus) => void
+>();
+export const getFocus = () => (document.hidden ? [] : [...focuses.values()]);
 export function watchFocus(listener: () => void) {
   focusListeners.add(listener);
   return () => {
     focusListeners.delete(listener);
   };
 }
-export function publishSnapshot(snapshot: LiveSnapshot | null) {
-  snapshotListeners.forEach((listener) => listener(snapshot));
+export function publishSnapshot(snapshot: LiveSnapshot | null, target?: Focus) {
+  snapshotListeners.forEach((listener) => listener(snapshot, target));
 }
 
 export function useFocusedSession(worker: string, sessionID: string) {
@@ -30,17 +32,32 @@ export function useFocusedSession(worker: string, sessionID: string) {
   useEffect(() => {
     const selected = { worker, sessionID };
     let expiry: ReturnType<typeof setTimeout>;
+    let update: ReturnType<typeof setTimeout> | undefined;
+    let pending: LiveSnapshot | null = null;
     function select() {
-      focus = document.hidden ? null : selected;
+      focuses.set(selected, selected);
       focusListeners.forEach((listener) => listener());
       if (!document.hidden) {
         void client.invalidateQueries({
           queryKey: ["opencodes", worker, sessionID],
         });
-      } else setSnapshot(null);
+      } else {
+        clearTimeout(update);
+        update = undefined;
+        pending = null;
+        setSnapshot(null);
+      }
     }
-    const receive = (next: LiveSnapshot | null) => {
+    const receive = (next: LiveSnapshot | null, target?: Focus) => {
       if (!next) {
+        if (
+          target &&
+          (target.worker !== worker || target.sessionID !== sessionID)
+        )
+          return;
+        clearTimeout(update);
+        update = undefined;
+        pending = null;
         setSnapshot(null);
         return;
       }
@@ -50,11 +67,24 @@ export function useFocusedSession(worker: string, sessionID: string) {
         next.sessionID !== sessionID
       )
         return;
-      setSnapshot((previous) =>
-        previous?.epoch === next.epoch && previous.sequence >= next.sequence
-          ? previous
-          : next,
-      );
+      if (pending?.epoch === next.epoch && pending.sequence >= next.sequence)
+        return;
+      pending = next;
+      // One replaceable pending frame per session: a noisy conversation cannot
+      // enqueue an unbounded React render backlog or starve another panel.
+      if (!update)
+        update = setTimeout(() => {
+          const latest = pending;
+          pending = null;
+          update = undefined;
+          if (latest)
+            setSnapshot((previous) =>
+              previous?.epoch === latest.epoch &&
+              previous.sequence >= latest.sequence
+                ? previous
+                : latest,
+            );
+        }, 100);
       clearTimeout(expiry);
       expiry = setTimeout(() => {
         setSnapshot(null);
@@ -68,12 +98,11 @@ export function useFocusedSession(worker: string, sessionID: string) {
     document.addEventListener("visibilitychange", select);
     return () => {
       clearTimeout(expiry);
+      clearTimeout(update);
       snapshotListeners.delete(receive);
       document.removeEventListener("visibilitychange", select);
-      if (focus === selected) {
-        focus = null;
-        focusListeners.forEach((listener) => listener());
-      }
+      focuses.delete(selected);
+      focusListeners.forEach((listener) => listener());
     };
   }, [client, worker, sessionID]);
   return snapshot?.worker === worker && snapshot.sessionID === sessionID
@@ -84,6 +113,7 @@ export function useFocusedSession(worker: string, sessionID: string) {
 export function mergeLiveMessages(
   saved: Message[],
   snapshot: LiveSnapshot | null,
+  maximum?: number,
 ): Message[] {
   const messages = new Map(saved.map((message) => [message.remoteID, message]));
   for (const message of snapshot?.messages || []) {
@@ -105,10 +135,11 @@ export function mergeLiveMessages(
         ).toISOString(),
     });
   }
-  return [...messages.values()].sort((a, b) => {
+  const ordered = [...messages.values()].sort((a, b) => {
     const first = (a.content.time as { created?: number } | undefined)?.created;
     const second = (b.content.time as { created?: number } | undefined)
       ?.created;
     return first && second ? first - second : 0;
   });
+  return maximum ? ordered.slice(-maximum) : ordered;
 }

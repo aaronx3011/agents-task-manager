@@ -11,6 +11,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import signal
 import socket
 import subprocess
@@ -255,7 +256,160 @@ def verify_project_navigation(page):
     page.set_viewport_size({"width": 1512, "height": 1050})
 
 
-def run(directory, screenshots, assets_only=False):
+def verify_parallel(page, frames, model, screenshots=None, interactions=False):
+    from playwright.sync_api import expect
+
+    commands = []
+
+    def command_sent(request):
+        if request.method == "POST" and request.url.endswith("/api/commands"):
+            commands.append(request.post_data_json)
+
+    page.on("request", command_sent)
+    print("Verifying three pinned sessions", flush=True)
+    page.get_by_role("button", name="Pin session", exact=True).click()
+    for index in range(2):
+        page.get_by_role("button", name="New session", exact=True).click()
+        page.get_by_label("New session title").fill(f"Parallel smoke {index}")
+        page.get_by_role("button", name="Create session", exact=True).click()
+        expect(page.locator(".oc-conversation h2")).to_have_text(
+            f"Parallel smoke {index}", timeout=60000
+        )
+        page.get_by_role("button", name="Pin session", exact=True).click()
+    page.get_by_role("button", name="Parallel pins", exact=True).click()
+    panels = page.locator(".oc-pinned-panel")
+    expect(panels).to_have_count(3)
+    identities = []
+    for index in range(3):
+        panel = panels.nth(index)
+        expect(panel.locator(".oc-directory")).not_to_be_empty()
+        identities.append(panel.locator("header code").inner_text())
+        panel.get_by_label("Record only (no model reply)").check()
+        panel.get_by_label("Message to OpenCode").fill(f"Isolated parallel input {index}")
+        panel.get_by_role("button", name="Send message", exact=True).click()
+    for index in range(3):
+        panel = panels.nth(index)
+        expect(panel.locator(".oc-messages")).to_contain_text(f"Isolated parallel input {index}")
+        for other in range(3):
+            if index != other:
+                expect(panel.locator(".oc-messages")).not_to_contain_text(
+                    f"Isolated parallel input {other}"
+                )
+    assert all(
+        any(
+            frame.get("type") == "session.live" and frame.get("sessionID") == identity
+            for frame in frames
+        )
+        for identity in identities
+    )
+    if model:
+        panel = panels.first
+        panel.get_by_label("Record only (no model reply)").uncheck()
+        panel.get_by_label("OpenCode model").select_option(model)
+        panel.get_by_label("Message to OpenCode").fill(
+            "Reply with exactly PARALLEL_RESPONSE_OK. Do not use tools."
+        )
+        panel.get_by_role("button", name="Send message", exact=True).click()
+        expect(panel.locator(".oc-role-assistant")).to_contain_text(
+            "PARALLEL_RESPONSE_OK", timeout=120000
+        )
+        for index in (1, 2):
+            expect(panels.nth(index).locator(".oc-messages")).not_to_contain_text(
+                "PARALLEL_RESPONSE_OK"
+            )
+    page.reload()
+    expect(panels).to_have_count(3)
+    expect(page.get_by_label("Live panel limit")).to_have_value("3")
+    page.evaluate("window.dashboardSockets.forEach(socket => socket.close())")
+    # Idle snapshots expire after 15s by design; generate fresh traffic rather
+    # than requiring stale idle panels to claim they are still live.
+    for index in range(3):
+        panel = panels.nth(index)
+        panel.get_by_label("Record only (no model reply)").check()
+        panel.get_by_label("Message to OpenCode").fill(f"Reconnected input {index}")
+        panel.get_by_role("button", name="Send message", exact=True).click()
+    for index, identity in enumerate(identities):
+        expect(panels.nth(index).locator(".oc-messages")).to_contain_text(
+            f"Reconnected input {index}", timeout=30000
+        )
+        assert any(
+            frame.get("type") == "session.live"
+            and frame.get("sessionID") == identity
+            and any(
+                f"Reconnected input {index}" in json.dumps(message.get("parts", []))
+                for message in frame.get("messages", [])
+            )
+            for frame in frames
+        ), f"Missing reconnected live frame for panel {index}"
+    page.get_by_label("Live panel limit").select_option("1")
+    expect(panels).to_have_count(1)
+    page.get_by_label("Live panel limit").select_option("3")
+    expect(panels).to_have_count(3)
+    if interactions:
+        page.get_by_label("Live panel limit").select_option("4")
+        page.locator(".oc-worker").filter(has_text="interaction-worker").click()
+        page.get_by_role("button", name="Toggle pin Controlled interactions", exact=True).click()
+        controlled = page.get_by_label("Pinned interaction-worker ses_control", exact=True)
+        expect(panels).to_have_count(4)
+        controlled.get_by_label("Custom answer 1").fill("Custom blue")
+        controlled.get_by_label("Logs", exact=True).check()
+        controlled.get_by_label("Metrics", exact=True).check()
+        controlled.get_by_role("button", name="Submit answers", exact=True).click()
+        expect(controlled.get_by_role("form", name="Pending questions")).not_to_be_visible()
+        controlled.get_by_role("button", name="Allow once", exact=True).click()
+        expect(controlled.get_by_role("region", name="Pending permission")).not_to_be_visible()
+        controlled.get_by_role("button", name="Unpin", exact=True).click()
+        page.get_by_label("Live panel limit").select_option("3")
+    if model:
+        panel = panels.first
+        panel.get_by_label("Record only (no model reply)").uncheck()
+        panel.get_by_label("OpenCode model").select_option(model)
+        panel.get_by_label("Message to OpenCode").fill(
+            "Write a long numbered list of 500 software testing ideas. Do not use tools."
+        )
+        panel.get_by_role("button", name="Send message", exact=True).click()
+        expect(panel.locator(".oc-conversation > header")).to_contain_text("busy", timeout=30000)
+        panel.get_by_role("button", name="Interrupt", exact=True).click()
+        expect(panel.locator(".oc-conversation > header")).to_contain_text("idle", timeout=30000)
+    for index, identity in enumerate(identities):
+        assert any(
+            command.get("sessionID") == identity
+            and command.get("payload", {}).get("text") == f"Isolated parallel input {index}"
+            for command in commands
+        )
+    for command in commands:
+        if command["action"] in ("question.reply", "permission.reply"):
+            assert (
+                command["worker"] == "interaction-worker" and command["sessionID"] == "ses_control"
+            )
+        if command["action"] == "interrupt":
+            assert command["worker"] == "real-opencode" and command["sessionID"] == identities[0]
+    page.remove_listener("request", command_sent)
+    if screenshots:
+        screenshots.mkdir(parents=True, exist_ok=True)
+        page.screenshot(path=str(screenshots / "pins405-desktop.png"), full_page=True)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    for index in range(3):
+        panels.nth(index).get_by_label("Message to OpenCode").scroll_into_view_if_needed()
+        expect(panels.nth(index).get_by_label("Message to OpenCode")).to_be_visible()
+        assert panels.nth(index).locator(".oc-message").count() <= 50
+    if screenshots:
+        page.screenshot(path=str(screenshots / "pins405-mobile.png"), full_page=True)
+    page.set_viewport_size({"width": 1512, "height": 1050})
+    panels.first.get_by_role("button", name="Unpin", exact=True).click()
+    expect(panels).to_have_count(2)
+    page.get_by_role("button", name="Single session", exact=True).click()
+    expect(panels).to_have_count(0)
+    print(
+        "PASS three real pinned sessions, concurrent live inputs, routing isolation, "
+        "reload/reconnect, panel limits, unpin, mobile and single-session return"
+        + (", pinned approvals/questions" if interactions else "")
+        + (", real model response and busy interrupt" if model else " (record-only prompts)")
+    )
+
+
+def run(directory, screenshots, assets_only=False, parallel_model=None, parallel_only=False):
     env = {
         **os.environ,
         "DATABASE_URL": f"sqlite:///{directory / 'dashboard.sqlite3'}",
@@ -281,6 +435,8 @@ def run(directory, screenshots, assets_only=False):
     from django.core.management import call_command
     from playwright.sync_api import expect, sync_playwright
 
+    expect.set_options(timeout=25000)
+
     from coordinator import services
     from coordinator.models import Agent, Project
 
@@ -294,6 +450,8 @@ def run(directory, screenshots, assets_only=False):
     from accounts.services import set_role
 
     set_role(verifier, "owner", actor="verify_opencode_dashboard")
+    viewer = get_user_model().objects.create_user("parallel-viewer", password=password)
+    set_role(viewer, "viewer", actor="verify_opencode_dashboard")
     project = Project.objects.create(slug="browser-check", name="Browser checks")
     services.create_task(None, project, "Existing task UI remains available")
     keys = {}
@@ -310,6 +468,15 @@ def run(directory, screenshots, assets_only=False):
     local = f"http://127.0.0.1:{local_port}"
     workspace = directory / "workspace"
     workspace.mkdir()
+    if parallel_model:
+        auth = (
+            Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))
+            / "opencode/auth.json"
+        )
+        target = directory / "data/opencode/auth.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(auth, target)
+        target.chmod(0o600)
     processes = []
     stop = threading.Event()
     interaction_results = []
@@ -482,6 +649,14 @@ def run(directory, screenshots, assets_only=False):
                     },
                 )
                 wait_health(local + "/global/health", opencode)
+                # Health is process liveness, not readiness of a cold workspace.
+                # Initialize it before starting the bridge's bounded 15s calls.
+                print("Initializing isolated OpenCode workspace", flush=True)
+                with httpx.Client(timeout=120) as warmup:
+                    for resource in ("/session", "/provider"):
+                        warmup.get(
+                            local + resource, params={"directory": str(workspace)}
+                        ).raise_for_status()
                 start(
                     ["node", "bridge/worker.mjs"],
                     {
@@ -503,6 +678,11 @@ def run(directory, screenshots, assets_only=False):
                     viewport={"width": 1512, "height": 1050}, reduced_motion="reduce"
                 )
                 page = context.new_page()
+                page.add_init_script(
+                    "window.dashboardSockets = []; const NativeSocket = window.WebSocket; "
+                    "window.WebSocket = class extends NativeSocket { constructor(...args) { "
+                    "super(...args); window.dashboardSockets.push(this); } };"
+                )
                 page.set_default_timeout(25000)
                 errors, frames, scripts = browser_errors, [], []
                 page.on(
@@ -526,10 +706,11 @@ def run(directory, screenshots, assets_only=False):
                 expect(
                     page.get_by_text("Existing task UI remains available", exact=True)
                 ).to_be_visible()
-                verify_agent_registration(page, context, spa)
-                verify_project_creation(page, spa)
-                verify_planning(page, spa)
-                verify_project_navigation(page)
+                if not parallel_only:
+                    verify_agent_registration(page, context, spa)
+                    verify_project_creation(page, spa)
+                    verify_planning(page, spa)
+                    verify_project_navigation(page)
                 if assets_only:
                     page.goto(spa + "/?section=opencodes")
                     expect(page.get_by_role("heading", name="Connected OpenCodes.")).to_be_visible()
@@ -553,6 +734,7 @@ def run(directory, screenshots, assets_only=False):
                     )
                     return
                 page.get_by_role("button", name="OpenCodes", exact=True).click()
+                print("Verifying installed OpenCode create/prompt", flush=True)
                 page.locator(".oc-worker").filter(has_text="real-opencode").click()
                 expect(
                     page.locator(".oc-worker-header").get_by_text("Connected", exact=True)
@@ -565,6 +747,39 @@ def run(directory, screenshots, assets_only=False):
                         "heading", name="Unified dashboard live smoke", exact=True
                     )
                 ).to_be_visible()
+                verify_parallel(
+                    page, frames, parallel_model, screenshots, interactions=parallel_only
+                )
+                if parallel_only:
+                    # Preserve all browser preferences across an account change,
+                    # but authenticate the second account independently.
+                    other_context = browser.new_context(
+                        storage_state={"cookies": [], "origins": context.storage_state()["origins"]}
+                    )
+                    other = other_context.new_page()
+                    other.on("pageerror", lambda error: errors.append(str(error)))
+                    other.goto(spa + "/")
+                    other.get_by_label("Username").fill("parallel-viewer")
+                    other.get_by_label("Password").fill(password)
+                    other.get_by_role("button", name="Sign in", exact=True).click()
+                    other.get_by_role("button", name="OpenCodes", exact=True).click()
+                    expect(
+                        other.get_by_role("button", name="Parallel pins", exact=True)
+                    ).to_be_visible()
+                    other.get_by_role("button", name="Parallel pins", exact=True).click()
+                    expect(other.locator(".oc-pinned-panel")).to_have_count(0)
+                    other.get_by_role("button", name="Pin most recently active sessions").click()
+                    expect(other.locator(".oc-pinned-panel")).to_have_count(3)
+                    for panel in other.locator(".oc-pinned-panel").all():
+                        expect(
+                            panel.get_by_role("button", name="Interrupt", exact=True)
+                        ).to_be_disabled()
+                    other_context.close()
+                    print("PASS per-user preference isolation and viewer control gate", flush=True)
+                    assert not errors, errors
+                    context.close()
+                    browser.close()
+                    return
                 page.get_by_label("Record only (no model reply)").check()
                 page.get_by_label("Message to OpenCode").fill("Browser to Django to real OpenCode")
                 page.get_by_role("button", name="Send message", exact=True).click()
@@ -665,6 +880,13 @@ def run(directory, screenshots, assets_only=False):
                 "one entry URL and zero browser errors"
             )
         except Exception:
+            from coordinator.models import WorkerCommand
+
+            print(
+                "Fixture command outcomes: "
+                + json.dumps(list(WorkerCommand.objects.values("id", "action", "status", "error"))),
+                file=sys.stderr,
+            )
             if browser_errors:
                 print("Browser errors: " + json.dumps(browser_errors), file=sys.stderr)
             log.flush()
@@ -694,10 +916,25 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--screenshots", type=Path)
     parser.add_argument(
+        "--parallel-only",
+        action="store_true",
+        help="Run only installed OpenCode and parallel panel acceptance",
+    )
+    parser.add_argument(
+        "--parallel-model",
+        help="Installed provider model for real pinned response/interrupt verification",
+    )
+    parser.add_argument(
         "--assets-only",
         action="store_true",
         help="Production static/lazy-load check without installed OpenCode (CI)",
     )
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="atm-opencode-ui-") as temporary:
-        run(Path(temporary).resolve(), args.screenshots, args.assets_only)
+        run(
+            Path(temporary).resolve(),
+            args.screenshots,
+            args.assets_only,
+            args.parallel_model,
+            args.parallel_only,
+        )

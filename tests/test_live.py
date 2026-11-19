@@ -316,3 +316,51 @@ def test_focused_browser_receives_only_ten_latest_messages(live_worker, live_sta
         await close(browser)
 
     anyio.run(verify)
+
+
+def test_parallel_subscriptions_bounds_replacement_and_reconnect(live_worker, live_staff):
+    worker, key = live_worker
+    services.store_sessions(worker, [{"id": f"ses_{i}"} for i in range(7)])
+
+    async def verify():
+        producer = await open_worker(key)
+        await receive(producer)
+        browser = browser_connection(live_staff)
+        await browser.send_input({"type": "websocket.connect"})
+        await browser.receive_output()
+        await receive(browser)
+        targets = [{"worker": "worker-a", "sessionID": f"ses_{i}"} for i in range(3)]
+        await send(browser, {"type": "subscribe", "sessions": targets})
+        for _ in targets:
+            assert (await receive(browser))["type"] == "subscribed"
+        for i in range(3):
+            await send(
+                producer,
+                {"type": "snapshot", "sessionID": f"ses_{i}", "messages": [message(str(i))]},
+            )
+            snapshot = await receive(browser)
+            assert snapshot["sessionID"] == f"ses_{i}"
+            assert snapshot["messages"][0]["parts"][0]["text"] == str(i)
+        await send(browser, {"type": "subscribe", "sessions": targets * 3})
+        assert (await receive(browser))["type"] == "subscription.error"
+        await close(browser)
+        browser = browser_connection(live_staff)
+        await browser.send_input({"type": "websocket.connect"})
+        await browser.receive_output()
+        await receive(browser)
+        await send(browser, {"type": "subscribe", "sessions": targets})
+        for target in targets:
+            assert (await receive(browser))["type"] == "subscribed"
+            assert (await receive(browser))["sessionID"] == target["sessionID"]
+        await send(browser, {"type": "subscribe", "sessions": []})
+        await send(browser, {"type": "ping"})
+        assert (await receive(browser))["type"] == "pong"
+        await send(
+            producer,
+            {"type": "snapshot", "sessionID": "ses_0", "messages": [message("unsubscribed")]},
+        )
+        assert await browser.receive_nothing(timeout=0.1)
+        await close(producer)
+        await close(browser)
+
+    anyio.run(verify)

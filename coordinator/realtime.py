@@ -99,7 +99,7 @@ class DashboardConsumer(AsyncJsonWebsocketConsumer):
         )
 
     async def connect(self):
-        self.subscription = None
+        self.subscriptions = []
         ticket = ticket_from_subprotocols(self.scope.get("subprotocols"))
         if ticket is not None:
             self.ticket_claims = await database_sync_to_async(redeem_ticket)(ticket)
@@ -116,8 +116,8 @@ class DashboardConsumer(AsyncJsonWebsocketConsumer):
 
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(GROUP, self.channel_name)
-        if self.subscription:
-            await self.channel_layer.group_discard(self.subscription[0], self.channel_name)
+        for subscription in self.subscriptions:
+            await self.channel_layer.group_discard(subscription[0], self.channel_name)
 
     async def receive_json(self, content, **kwargs):
         if not await self.authorized():
@@ -125,43 +125,68 @@ class DashboardConsumer(AsyncJsonWebsocketConsumer):
         elif isinstance(content, dict) and content.get("type") == "ping":
             # Renew Redis group membership before its expiry on long-lived browser tabs.
             await self.channel_layer.group_add(GROUP, self.channel_name)
-            if self.subscription:
-                await self.channel_layer.group_add(self.subscription[0], self.channel_name)
+            for subscription in self.subscriptions:
+                await self.channel_layer.group_add(subscription[0], self.channel_name)
             await self.send_json({"type": "pong"})
         elif isinstance(content, dict) and content.get("type") == "subscribe":
-            if self.subscription:
-                await self.channel_layer.group_discard(self.subscription[0], self.channel_name)
-                self.subscription = None
-            worker, session_id = content.get("worker"), content.get("sessionID")
-            if worker is None and session_id is None:
-                return
-            worker_id = await resolve_subscription(worker, session_id)
-            if worker_id is None:
+            targets = content.get("sessions")
+            if targets is None:
+                targets = [content] if content.get("worker") is not None else []
+            # Validate before replacing the current set. Six concurrent streams
+            # share the existing cache/worker batching path; legacy clients keep
+            # sending the single-target form.
+            if not isinstance(targets, list) or len(targets) > 6:
                 await self.send_json({"type": "subscription.error"})
                 return
-            group = session_group(worker_id, session_id)
-            self.subscription = (group, worker, session_id)
-            # Join before reading cache; monotonic sequence checks on the client
-            # absorb a simultaneous group delivery without regressing the view.
-            await self.channel_layer.group_add(group, self.channel_name)
-            await self.send_json({"type": "subscribed", "worker": worker, "sessionID": session_id})
-            try:
-                snapshot = await database_sync_to_async(cache.get)(
-                    snapshot_key(worker_id, session_id)
-                )
-            except Exception:
-                snapshot = None
-            if snapshot:
-                await self.session_live({"snapshot": snapshot})
+            subscriptions = []
+            for target in targets:
+                if not isinstance(target, dict):
+                    await self.send_json({"type": "subscription.error"})
+                    return
+                worker, session_id = target.get("worker"), target.get("sessionID")
+                worker_id = await resolve_subscription(worker, session_id)
+                if worker_id is None:
+                    await self.send_json(
+                        {"type": "subscription.error", "worker": worker, "sessionID": session_id}
+                    )
+                    continue
+                subscription = (session_group(worker_id, session_id), worker, session_id)
+                if subscription not in subscriptions:
+                    subscriptions.append(subscription)
+            for subscription in self.subscriptions:
+                if subscription not in subscriptions:
+                    await self.channel_layer.group_discard(subscription[0], self.channel_name)
+            self.subscriptions = subscriptions
+            for group, worker, session_id in subscriptions:
+                await self.subscribe_session(group, worker, session_id)
+
+    async def subscribe_session(self, group, worker, session_id):
+        worker_id = await resolve_subscription(worker, session_id)
+        if worker_id is None:
+            return
+        # Join before reading cache; monotonic sequence checks on the client
+        # absorb a simultaneous group delivery without regressing the view.
+        await self.channel_layer.group_add(group, self.channel_name)
+        await self.send_json({"type": "subscribed", "worker": worker, "sessionID": session_id})
+        try:
+            snapshot = await database_sync_to_async(cache.get)(snapshot_key(worker_id, session_id))
+        except Exception:
+            snapshot = None
+        if snapshot:
+            await self.session_live({"snapshot": snapshot})
 
     async def session_live(self, event):
         if not await self.authorized():
             await self.close(code=4403)
             return
         snapshot = event["snapshot"]
-        if self.subscription and self.subscription[1:] == (
-            snapshot["worker"],
-            snapshot["sessionID"],
+        if any(
+            subscription[1:]
+            == (
+                snapshot["worker"],
+                snapshot["sessionID"],
+            )
+            for subscription in self.subscriptions
         ):
             if snapshot["type"] == "session.live":
                 messages = sorted(

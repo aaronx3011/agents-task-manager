@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import {
@@ -12,6 +12,7 @@ import {
   Square,
 } from "lucide-react";
 import { ApiError, get, post } from "./api";
+import { api, unwrap } from "./api-client";
 import { useAccess } from "./auth";
 import { Age, Empty, ErrorState, Loading } from "./ui";
 import type { Page } from "./types";
@@ -282,6 +283,19 @@ export default function OpenCodes({
     refetchInterval: 10000,
   });
   const name = worker || workers.data?.items[0]?.name || "";
+  const pins = library.entries.filter((item) => item.pinned);
+  const recentPins = useQuery({
+    queryKey: ["opencodes", "pin-suggestions"],
+    queryFn: async ({ signal }) =>
+      (await unwrap(
+        api.GET("/api/v1/sessions", {
+          params: { query: { ordering: "recent", limit: 6 } },
+          signal,
+        }),
+      )) as unknown as Page<Session>,
+    enabled: library.layout.parallel && pins.length === 0,
+    gcTime: 0,
+  });
   const selectWorker = (value: string) =>
     navigate(
       {
@@ -316,7 +330,7 @@ export default function OpenCodes({
           </h1>
           <p>
             {mode === "sessions"
-              ? "Pinned, recently opened and new conversations. Loaded only when selected."
+              ? "Watch pinned conversations side by side, or choose one to focus."
               : "Live sessions from your machines. Coordinated here."}
           </p>
           {mode === "sessions" && (
@@ -336,16 +350,89 @@ export default function OpenCodes({
             </label>
           )}
         </div>
-        <button
-          className="button secondary"
-          onClick={() =>
-            void client.invalidateQueries({ queryKey: ["opencodes"] })
-          }
-        >
-          <RefreshCw size={14} />
-          Refresh
-        </button>
+        <div className="oc-layout-controls">
+          <button
+            className="button secondary"
+            aria-pressed={library.layout.parallel}
+            onClick={() =>
+              library.setLayout({
+                ...library.layout,
+                parallel: !library.layout.parallel,
+              })
+            }
+          >
+            {library.layout.parallel ? "Single session" : "Parallel pins"}
+          </button>
+          <label>
+            Live panel limit
+            <select
+              aria-label="Live panel limit"
+              value={library.layout.maximum}
+              onChange={(event) =>
+                library.setLayout({
+                  ...library.layout,
+                  maximum: Number(event.target.value),
+                })
+              }
+            >
+              {[1, 2, 3, 4, 5, 6].map((limit) => (
+                <option key={limit} value={limit}>
+                  {limit}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="button secondary"
+            onClick={() =>
+              void client.invalidateQueries({ queryKey: ["opencodes"] })
+            }
+          >
+            <RefreshCw size={14} />
+            Refresh
+          </button>
+        </div>
       </div>
+      {library.layout.parallel && (
+        <section aria-label="Pinned session grid" className="oc-parallel">
+          <p className="muted">
+            {Math.min(pins.length, library.layout.maximum)} live panels · Up to{" "}
+            {library.layout.maximum} pins shown. Additional pins stay saved;
+            unpin a panel to show the next. Hidden tabs pause live observation.
+            Each panel retains at most 50 messages.
+          </p>
+          {!pins.length && (
+            <div>
+              <p>Choose a session and pin it to watch it here.</p>
+              <button
+                className="button secondary"
+                disabled={!recentPins.data?.items.length}
+                onClick={() =>
+                  recentPins.data?.items
+                    .slice(0, library.layout.maximum)
+                    .forEach(library.togglePin)
+                }
+              >
+                Pin most recently active sessions
+              </button>
+            </div>
+          )}
+          <div className="oc-pin-grid">
+            {pins.slice(0, library.layout.maximum).map((pin) => (
+              <PinnedSession
+                key={sessionIdentity(pin)}
+                pin={pin}
+                library={library}
+                openTask={openTask}
+                selectSession={(id) => {
+                  library.setLayout({ ...library.layout, parallel: false });
+                  navigate({ worker: pin.worker, session: id }, true);
+                }}
+              />
+            ))}
+          </div>
+        </section>
+      )}
       {workers.isLoading ? (
         <Loading />
       ) : workers.error ? (
@@ -429,11 +516,86 @@ export default function OpenCodes({
               }
               library={library}
               shelf={mode === "sessions"}
+              hideConversation={library.layout.parallel && pins.length > 0}
             />
           )}
         </div>
       )}
     </section>
+  );
+}
+
+function PinnedSession({
+  pin,
+  library,
+  openTask,
+  selectSession,
+}: {
+  pin: SessionReference;
+  library: SessionLibrary;
+  openTask: (id: number) => void;
+  selectSession: (id: string) => void;
+}) {
+  const queue = useCommandQueue();
+  const [drafts, setDrafts] = useState<Drafts>({});
+  const worker = useQuery({
+    queryKey: ["opencodes", pin.worker, "detail"],
+    queryFn: async ({ signal }) =>
+      (await unwrap(
+        api.GET("/api/v1/workers/{name}", {
+          params: { path: { name: pin.worker } },
+          signal,
+        }),
+      )) as unknown as Worker,
+    refetchInterval: 10000,
+    gcTime: 0,
+  });
+  return (
+    <div
+      className="oc-pinned-panel"
+      aria-label={`Pinned ${pin.worker} ${pin.sessionID}`}
+    >
+      <div className="oc-pin-worker">
+        <strong>{pin.worker}</strong> ·{" "}
+        {worker.data ? health(worker.data) : "Loading worker"}
+        <button
+          className="button secondary"
+          onClick={() => selectSession(pin.sessionID)}
+        >
+          Focus session
+        </button>
+        <button
+          className="button secondary"
+          onClick={() => library.togglePin(pin)}
+        >
+          Unpin
+        </button>
+      </div>
+      {worker.data?.last_error && (
+        <p role="alert" className="oc-alert">
+          {worker.data.last_error}
+        </p>
+      )}
+      {worker.error ? (
+        <ErrorState error={worker.error} retry={() => void worker.refetch()} />
+      ) : worker.data ? (
+        <SessionPanel
+          worker={worker.data}
+          sessionID={pin.sessionID}
+          selectSession={selectSession}
+          openTask={openTask}
+          queue={queue}
+          drafts={drafts}
+          setDraft={(key, draft) =>
+            setDrafts((previous) => ({ ...previous, [key]: draft }))
+          }
+          library={library}
+          bounded
+        />
+      ) : (
+        <Loading />
+      )}
+    </div>
   );
 }
 
@@ -613,6 +775,7 @@ function WorkerPanel({
   setDraft,
   library,
   shelf,
+  hideConversation,
 }: {
   name: string;
   selectedSession: string;
@@ -622,6 +785,7 @@ function WorkerPanel({
   setDraft: (key: string, draft: Draft) => void;
   library: SessionLibrary;
   shelf: boolean;
+  hideConversation: boolean;
 }) {
   const [offset, setOffset] = useState(0);
   const [creating, setCreating] = useState(false);
@@ -818,24 +982,40 @@ function WorkerPanel({
               <Empty title="No sessions observed yet" />
             ) : (
               sessions.data.items.map((item) => (
-                <button
-                  className={`oc-session ${current === item.sessionID ? "selected" : ""}`}
-                  key={item.sessionID}
-                  aria-pressed={current === item.sessionID}
-                  onClick={() => selectSession(item.sessionID)}
-                >
-                  <strong>{item.title || item.sessionID}</strong>
-                  <span>
-                    {item.executionStatus || "Unknown"}
-                    {item.counts.pending > 0
-                      ? ` · ${item.counts.pending} needs input`
-                      : ""}
-                  </span>
-                  <small title={item.directory}>
-                    {item.directory || "Default workspace"}
-                  </small>
-                  {item.parentID && <small>Subagent of {item.parentID}</small>}
-                </button>
+                <div key={item.sessionID} className="oc-shelf-item">
+                  <button
+                    className={`oc-session ${current === item.sessionID ? "selected" : ""}`}
+                    key={item.sessionID}
+                    aria-pressed={current === item.sessionID}
+                    onClick={() => selectSession(item.sessionID)}
+                  >
+                    <strong>{item.title || item.sessionID}</strong>
+                    <span>
+                      {item.executionStatus || "Unknown"}
+                      {item.counts.pending > 0
+                        ? ` · ${item.counts.pending} needs input`
+                        : ""}
+                    </span>
+                    <small title={item.directory}>
+                      {item.directory || "Default workspace"}
+                    </small>
+                    {item.parentID && (
+                      <small>Subagent of {item.parentID}</small>
+                    )}
+                  </button>
+                  <button
+                    className="icon-button"
+                    aria-label={`Toggle pin ${item.title || item.sessionID}`}
+                    aria-pressed={library.entries.some(
+                      (entry) =>
+                        entry.pinned &&
+                        sessionIdentity(entry) === sessionIdentity(item),
+                    )}
+                    onClick={() => library.togglePin(item)}
+                  >
+                    <Pin size={13} />
+                  </button>
+                </div>
               ))
             )}
             <Pager
@@ -845,7 +1025,12 @@ function WorkerPanel({
             />
           </aside>
         )}
-        {current ? (
+        {hideConversation ? (
+          <p className="muted">
+            Pinned conversations are live above. Switch to Single session to
+            focus any conversation.
+          </p>
+        ) : current ? (
           <SessionPanel
             key={current}
             worker={data}
@@ -874,6 +1059,7 @@ function SessionPanel({
   drafts,
   setDraft,
   library,
+  bounded = false,
 }: {
   worker: Worker;
   sessionID: string;
@@ -883,6 +1069,7 @@ function SessionPanel({
   drafts: Drafts;
   setDraft: (key: string, draft: Draft) => void;
   library: SessionLibrary;
+  bounded?: boolean;
 }) {
   const [text, setText] = useState("");
   const [modelOverride, setModelOverride] = useState<string>();
@@ -907,30 +1094,30 @@ function SessionPanel({
     queryKey: ["opencodes", worker.name, sessionID, "detail"],
     queryFn: ({ signal }) => get<Session>(`${path}?compact=true`, signal),
     refetchInterval: 5000,
+    gcTime: 0,
   });
   const messages = useQuery({
     queryKey: ["opencodes", worker.name, sessionID, "messages", "latest"],
     queryFn: ({ signal }) =>
       get<MessageWindow>(`${path}/messages?latest=true&limit=10`, signal),
     refetchInterval: live ? 15000 : 5000,
-    gcTime: library.entries.some(
-      (item) =>
-        item.pinned &&
-        item.worker === worker.name &&
-        item.sessionID === sessionID,
-    )
-      ? 1800000
-      : 0,
+    gcTime: 0,
   });
   const { canWrite } = useAccess();
   const disabled = !canWrite || !usable(worker) || queue.isPending;
   const displayedMessages = mergeLiveMessages(
     [...(history?.messages || []), ...(messages.data?.messages || [])],
     live,
+    bounded ? 50 : undefined,
   );
   const currentModel = conversationModel(displayedMessages, detail.data?.model);
   const model = composerModel(modelOverride, currentModel);
-  const cursor = history ? history.cursor : messages.data?.olderCursor;
+  const cursor =
+    bounded && displayedMessages.length >= 50
+      ? null
+      : history
+        ? history.cursor
+        : messages.data?.olderCursor;
   const title = detail.data?.title || sessionID;
   const observed = Boolean(detail.data);
   const remember = library.remember;
@@ -971,7 +1158,7 @@ function SessionPanel({
             ...(messages.data?.messages || []),
           ],
           null,
-        ),
+        ).slice(bounded ? -50 : 0),
         cursor: page.olderCursor || null,
         gap: Boolean(previous?.gap || page.gap),
       }));
@@ -1016,6 +1203,7 @@ function SessionPanel({
   const data = detail.data!;
   return (
     <section className="oc-conversation" aria-label="OpenCode conversation">
+      <Feedback queue={queue} />
       <header>
         <h2>{data.title || sessionID}</h2>
         <ChatExport key={path} path={path} />
@@ -1032,7 +1220,9 @@ function SessionPanel({
         <p>
           {live?.executionStatus || data.executionStatus || "Unknown state"} ·{" "}
           {data.agentName || "Default agent"}
-          {currentModel ? ` · ${modelKey(currentModel)}` : ""}
+          {currentModel
+            ? ` · ${modelKey(currentModel)}`
+            : " · Model not reported"}
         </p>
         <code>{sessionID}</code>
         <p className="oc-directory">{data.directory}</p>
@@ -1160,27 +1350,17 @@ function SessionPanel({
                   : ""}
               </p>
               {displayedMessages.map((message) => (
-                <article
-                  className={`oc-message oc-role-${message.role}`}
-                  key={message.remoteID}
-                >
-                  <header>
-                    <strong>{message.role || "message"}</strong>
-                    <Age value={message.publishedAt} />
-                  </header>
-                  {Boolean(message.content.error) && (
-                    <pre role="alert">{pretty(message.content.error)}</pre>
-                  )}
-                  {message.parts.map((part, index) => (
-                    <MessagePart key={index} value={part} />
-                  ))}
-                </article>
+                <MessageBubble key={message.remoteID} message={message} />
               ))}
               {!displayedMessages.length && (
                 <Empty title="No messages observed yet" />
               )}
               {!cursor && displayedMessages.length > 0 && (
-                <p className="oc-window">Oldest retained messages reached.</p>
+                <p className="oc-window">
+                  {bounded && displayedMessages.length >= 50
+                    ? "Panel limit reached (50 messages). Use Single session or export for more history."
+                    : "Oldest retained messages reached."}
+                </p>
               )}
             </>
           )}
@@ -1261,6 +1441,27 @@ function SessionPanel({
     </section>
   );
 }
+
+const MessageBubble = memo(function MessageBubble({
+  message,
+}: {
+  message: Message;
+}) {
+  return (
+    <article className={`oc-message oc-role-${message.role}`}>
+      <header>
+        <strong>{message.role || "message"}</strong>
+        <Age value={message.publishedAt} />
+      </header>
+      {Boolean(message.content.error) && (
+        <pre role="alert">{pretty(message.content.error)}</pre>
+      )}
+      {message.parts.map((part, index) => (
+        <MessagePart key={index} value={part} />
+      ))}
+    </article>
+  );
+});
 
 function MessagePart({ value }: { value: unknown }) {
   const part = record(value);

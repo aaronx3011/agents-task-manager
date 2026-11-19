@@ -62,3 +62,40 @@ test("session pins preserve worker identity and revisits do not duplicate saved 
   entries = rememberSession(entries, first, 5, true);
   assert.equal(entries.find((entry) => entry.worker === "a").pinned, false);
 });
+
+test("three parallel windows stay bounded after 30,000 distinct message updates", () => {
+  const windows = [[], [], []];
+  for (let sequence = 1; sequence <= 10000; sequence++) {
+    for (let panel = 0; panel < 3; panel++) {
+      const message = {
+        ...saved,
+        remoteID: `${panel}:${sequence}`,
+        content: { time: { created: sequence } },
+      };
+      windows[panel] = mergeLiveMessages(windows[panel], live([message]), 50);
+      assert.ok(windows[panel].length <= 50);
+    }
+  }
+  windows.forEach((window, panel) => {
+    assert.equal(window.length, 50);
+    assert.equal(window[0].remoteID, `${panel}:9951`);
+    assert.equal(window.at(-1).remoteID, `${panel}:10000`);
+    assert.ok(
+      window.every((message) => message.remoteID.startsWith(`${panel}:`)),
+    );
+  });
+});
+
+test("background pinned metadata refreshes keep panel positions stable", () => {
+  const first = { worker: "a", sessionID: "first", title: "First" };
+  const second = { worker: "a", sessionID: "second", title: "Second" };
+  let entries = rememberSession([], first, 1, true);
+  entries = rememberSession(entries, second, 2, true);
+  const identities = entries.map((entry) => entry.sessionID);
+  entries = rememberSession(entries, { ...first, title: "Updated" }, 3);
+  assert.deepEqual(
+    entries.map((entry) => entry.sessionID),
+    identities,
+  );
+  assert.equal(entries[1].title, "Updated");
+});

@@ -35,6 +35,8 @@ jobs:
             || uv run --with playwright python -m playwright install chromium
       - name: Verify collected frontend module graph in a browser
         run: uv run --with playwright python scripts/verify_opencode_dashboard.py --assets-only
+      - name: Verify parallel session panels in a browser
+        run: uv run --with playwright python scripts/verify_parallel_sessions_browser.py
       - name: Verify ElevenLabs interface protocol in a browser
         run: uv run --with playwright python scripts/verify_voice_agent_browser.py
       - run: node --test --test-timeout=30000 bridge/bridge.test.mjs bridge/codex.test.mjs bridge/claude.test.mjs frontend/tests/*.test.mjs
