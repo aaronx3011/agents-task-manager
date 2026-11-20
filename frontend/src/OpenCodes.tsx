@@ -393,6 +393,9 @@ export default function OpenCodes({
           </button>
         </div>
       </div>
+      {library.error && (
+        <ErrorState error={library.error} retry={library.retry} />
+      )}
       {library.layout.parallel && (
         <section aria-label="Pinned session grid" className="oc-parallel">
           <p className="muted">
@@ -406,7 +409,7 @@ export default function OpenCodes({
               <p>Choose a session and pin it to watch it here.</p>
               <button
                 className="button secondary"
-                disabled={!recentPins.data?.items.length}
+                disabled={!recentPins.data?.items.length || !library.canPin}
                 onClick={() =>
                   recentPins.data?.items
                     .slice(0, library.layout.maximum)
@@ -566,6 +569,7 @@ function PinnedSession({
         </button>
         <button
           className="button secondary"
+          disabled={!library.canPin}
           onClick={() => library.togglePin(pin)}
         >
           Unpin
@@ -666,6 +670,7 @@ function SessionShelf({
                   className={`icon-button ${pinned ? "selected" : ""}`}
                   aria-label={`${pinned ? "Unpin" : "Pin"} ${current.title || item.sessionID}`}
                   aria-pressed={pinned}
+                  disabled={!library.canPin}
                   onClick={() => library.togglePin(current)}
                 >
                   <Pin size={13} />
@@ -1006,6 +1011,7 @@ function WorkerPanel({
                   <button
                     className="icon-button"
                     aria-label={`Toggle pin ${item.title || item.sessionID}`}
+                    disabled={!library.canPin}
                     aria-pressed={library.entries.some(
                       (entry) =>
                         entry.pinned &&
@@ -1210,6 +1216,7 @@ function SessionPanel({
         <button
           className={`button secondary ${pinned ? "selected" : ""}`}
           aria-pressed={pinned}
+          disabled={!library.canPin}
           onClick={() =>
             library.togglePin({ worker: worker.name, sessionID, title })
           }

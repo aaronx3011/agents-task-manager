@@ -26,6 +26,7 @@ def main():
     models = [{"providerID": "fixture", "modelID": name} for name in ("one", "two")]
     state = {"username": "pin-owner", "role": "owner", "fail": False}
     commands, errors, sockets, subscriptions = [], [], [], []
+    pinned, pin_clock = [], [0]
     sequence = 0
 
     def message(worker, number, text=None):
@@ -126,6 +127,41 @@ def main():
                 route.fulfill(status=503, json={"detail": "beta delivery unavailable"})
                 return
             body = {**command, "id": str(len(commands)), "status": "queued"}
+        elif path == "/api/session-pins":
+            if request.method == "POST":
+                body = request.post_data_json
+                pinned[:] = [
+                    pin
+                    for pin in pinned
+                    if (pin["worker"], pin["sessionID"]) != (body["worker"], body["sessionID"])
+                ]
+                if body["pinned"]:
+                    pin_clock[0] += 1
+                    title = next(
+                        (session(name)["title"] for name in names if name == body["worker"]),
+                        body["sessionID"],
+                    )
+                    pinned.insert(
+                        0,
+                        {
+                            **body,
+                            "title": title,
+                            "pinned_at": f"2026-11-20T04:{pin_clock[0]:02d}:00Z",
+                        },
+                    )
+                for socket in sockets:
+                    socket.send(
+                        json.dumps(
+                            {
+                                "type": "changed",
+                                "event_type": "session.pins.changed",
+                                "subject": "session_pins",
+                            }
+                        )
+                    )
+                body = body
+            else:
+                body = {"items": pinned}
         elif path == "/api/sessions":
             body = (
                 {"count": 0, "items": []}
@@ -274,13 +310,40 @@ def main():
             for panel in panels.all():
                 panel.get_by_label("Message to OpenCode").scroll_into_view_if_needed()
                 expect(panel.get_by_label("Message to OpenCode")).to_be_visible()
+            # Pins are server state: local storage carries navigation only.
+            stored = page.evaluate(
+                "JSON.parse(localStorage.getItem('agent-ops-sessions:pin-owner') || '[]')"
+            )
+            assert stored and all(entry["pinned"] is False for entry in stored)
+
+            # A second client sees the same workspace pins and live updates.
+            peer_context = browser.new_context(viewport={"width": 1512, "height": 1050})
+            peer_context.route("**/api/**", api)
+            peer_context.route_web_socket("**/ws/dashboard/", connected)
+            peer = peer_context.new_page()
+            peer.on("pageerror", lambda error: errors.append(str(error)))
+            peer.goto(origin + "/?section=sessions")
+            peer.get_by_role("button", name="Parallel pins", exact=True).click()
+            peer_panels = peer.locator(".oc-pinned-panel")
+            expect(peer_panels).to_have_count(3)
+            page.get_by_label("Pinned gamma shared", exact=True).get_by_role(
+                "button", name="Unpin", exact=True
+            ).click()
+            expect(panels).to_have_count(2)
+            expect(peer_panels).to_have_count(2)
+            peer.get_by_label("Pin Chat gamma", exact=True).click()
+            expect(peer_panels).to_have_count(3)
+            expect(panels).to_have_count(3)
+            peer_context.close()
+
+            # Viewers read the shared pins but cannot change them.
             state.update(username="other-user", role="viewer")
             page.reload()
-            expect(panels).to_have_count(0)
+            # Panel layout is device-local; pins themselves are shared.
             page.get_by_role("button", name="Parallel pins", exact=True).click()
-            page.get_by_role("button", name="Pin most recently active sessions").click()
             expect(panels).to_have_count(3)
             for panel in panels.all():
+                expect(panel.get_by_role("button", name="Unpin", exact=True)).to_be_disabled()
                 expect(panel.get_by_role("button", name="Interrupt", exact=True)).to_be_disabled()
             state.update(username="pin-owner", role="owner")
             page.reload()
@@ -297,7 +360,8 @@ def main():
             "PASS three concurrent pinned streams, same-ID worker isolation, "
             "models/prompts/interrupts/approvals/questions, scoped errors/retry identity, "
             "reload/reconnect, 50-message cap, 600-frame burst, mobile, "
-            "per-user isolation, viewer gate and single focus; zero page errors"
+            "cross-client shared pins without reload, viewer gate and single focus; "
+            "zero page errors"
         )
     finally:
         server.shutdown()

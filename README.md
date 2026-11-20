@@ -124,9 +124,15 @@ the existing acknowledged sync; the socket wakes that sync immediately.
   history stays out of large reads.
 - The unified session list supports `GET /api/sessions?ordering=recent` (remote
   update order, newest first). The Sessions section combines it with a
-  per-staff-user browser library (`frontend/src/session-library.ts`) that pins up
-  to 100 and remembers 50 recently focused sessions locally; pinning is
-  navigation/bookkeeping only and never bulk-loads full histories.
+  per-user browser library (`frontend/src/session-library.ts`) that remembers 50
+  recently focused sessions locally. Pins are workspace-wide server state
+  (`WorkerSession.pinned_at`): members and owners use `POST /api/v1/session-pins`
+  with `{worker, sessionID, pinned}` (CSRF-protected, idempotent set semantics)
+  and every signed-in user lists them with `GET /api/v1/session-pins`, newest pin
+  first. Committed changes invalidate every client through the dashboard socket,
+  so the web app and native mobile show the same pins without a reload. Pin
+  order and the parallel panel limit stay independent; pinning never bulk-loads
+  full histories.
 - Worker commands and their results moved to the Activity section
   (`frontend/src/ActivityPage.tsx`, `GET /api/commands`), keeping chat panels
   focused on conversations.

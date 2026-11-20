@@ -30,6 +30,7 @@ export function useLiveUpdates() {
     }
     const unwatch = watchFocus(subscribe);
     function refresh() {
+      void client.invalidateQueries({ queryKey: ["session-pins"] });
       void refreshTaskViews(client);
       void client.invalidateQueries({ queryKey: ["configuration", "agents"] });
       void client.invalidateQueries({ queryKey: ["opencodes"] });
