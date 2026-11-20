@@ -5,14 +5,19 @@ import { MessageSquarePlus, X } from "lucide-react";
 import { api, unwrap } from "./api-client";
 import { refreshTaskViews } from "./task-sync";
 import type { Project } from "./types";
+import { pmPromptTooLong, type PmAction } from "./report-pm";
+import { sendReportToPm } from "./report-pm-client";
 import "./report-task.css";
 
 export function ReportTask({
   projects,
   project,
+  pmAvailable = false,
 }: {
   projects: Project[];
   project: string;
+  // The PM router is owner-only on the server; members only see the form.
+  pmAvailable?: boolean;
 }) {
   const client = useQueryClient();
   const titleInput = useRef<HTMLInputElement>(null);
@@ -21,6 +26,10 @@ export function ReportTask({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("100");
+  const [route, setRoute] = useState<"task" | "pm">("task");
+  const [pmAction, setPmAction] = useState<PmAction>("create");
+  const [worker, setWorker] = useState("");
+  const [model, setModel] = useState("");
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
   const [error, setError] = useState("");
@@ -29,10 +38,38 @@ export function ReportTask({
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting.current || !title.trim() || !selectedProject) return;
+    const viaPm = route === "pm" && pmAvailable;
+    const report = {
+      action: pmAction,
+      project: selectedProject,
+      title,
+      description,
+      priority: Number(priority),
+      worker,
+      model,
+    };
+    if (viaPm && pmPromptTooLong(report)) {
+      setError(
+        "This report is too long for the PM router (4,000 characters). Shorten the description or use the standard form.",
+      );
+      return;
+    }
     submitting.current = true;
     setBusy(true);
     setError("");
     try {
+      if (viaPm) {
+        const outcome = await sendReportToPm(report);
+        // The PM turn may have committed work; refresh either way.
+        void refreshTaskViews(client);
+        if (!outcome.ok) {
+          setError(outcome.message);
+          return;
+        }
+        setNotice(outcome.message);
+        setOpen(false);
+        return;
+      }
       const task = await unwrap(
         api.POST("/api/v1/tasks", {
           body: {
@@ -70,8 +107,12 @@ export function ReportTask({
                 : projects[0]?.slug || "",
             );
             setTitle("");
-            setDescription("");
+            setDescription(`Page URL: ${window.location.href}\n\n`);
             setPriority("100");
+            setRoute("task");
+            setPmAction("create");
+            setWorker("");
+            setModel("");
             setError("");
             setNotice("");
           }
@@ -115,6 +156,32 @@ export function ReportTask({
             </Dialog.Description>
             <form onSubmit={(event) => void submit(event)} aria-busy={busy}>
               <fieldset disabled={busy}>
+                {pmAvailable && (
+                  <div
+                    className="report-task-route"
+                    role="radiogroup"
+                    aria-label="Where to send this report"
+                  >
+                    <label>
+                      <input
+                        type="radio"
+                        name="report-route"
+                        checked={route === "task"}
+                        onChange={() => setRoute("task")}
+                      />
+                      Standard task form
+                    </label>
+                    <label>
+                      <input
+                        type="radio"
+                        name="report-route"
+                        checked={route === "pm"}
+                        onChange={() => setRoute("pm")}
+                      />
+                      Tag to PM router
+                    </label>
+                  </div>
+                )}
                 <label>
                   Title
                   <input
@@ -145,13 +212,51 @@ export function ReportTask({
                 <label>
                   Description
                   <textarea
-                    rows={5}
+                    rows={8}
                     maxLength={50000}
                     placeholder="What happened, or what needs to be done?"
                     value={description}
                     onChange={(event) => setDescription(event.target.value)}
                   />
                 </label>
+                {route === "pm" && pmAvailable && (
+                  <>
+                    <label>
+                      PM action
+                      <select
+                        value={pmAction}
+                        onChange={(event) =>
+                          setPmAction(event.target.value as PmAction)
+                        }
+                      >
+                        <option value="create">Create backlog task only</option>
+                        <option value="queue">
+                          Create, queue and play on the project queue
+                        </option>
+                      </select>
+                    </label>
+                    {pmAction === "queue" && (
+                      <div className="report-task-pair">
+                        <label>
+                          Worker (optional)
+                          <input
+                            maxLength={100}
+                            value={worker}
+                            onChange={(event) => setWorker(event.target.value)}
+                          />
+                        </label>
+                        <label>
+                          Model (optional, provider/model)
+                          <input
+                            maxLength={300}
+                            value={model}
+                            onChange={(event) => setModel(event.target.value)}
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </>
+                )}
                 <label>
                   Priority
                   <select
@@ -190,7 +295,13 @@ export function ReportTask({
                   className="button"
                   disabled={busy || !selectedProject || !title.trim()}
                 >
-                  {busy ? "Creating…" : "Create task"}
+                  {busy
+                    ? route === "pm"
+                      ? "Sending to PM…"
+                      : "Creating…"
+                    : route === "pm"
+                      ? "Send to PM"
+                      : "Create task"}
                 </button>
               </footer>
             </form>

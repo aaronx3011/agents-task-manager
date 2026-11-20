@@ -24,9 +24,10 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: min(480px, calc(100vw - 32px));
+  width: min(720px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 24px;
   border: 1px solid var(--line);
   border-radius: 15px;
@@ -76,6 +77,34 @@
 }
 .report-task-dialog textarea {
   resize: vertical;
+}
+.report-task-dialog .report-task-route {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+.report-task-dialog .report-task-route label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+.report-task-dialog .report-task-route input {
+  width: auto;
+  margin: 0;
+}
+.report-task-dialog .report-task-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+@media (max-width: 560px) {
+  .report-task-dialog {
+    padding: 16px;
+  }
+  .report-task-dialog .report-task-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .report-task-dialog .report-task-error {
   color: var(--amber);
