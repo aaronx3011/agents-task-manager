@@ -175,7 +175,8 @@ agent, model and instructions when project settings change; remove/re-add a
 waiting job to capture new settings. The first session prompt starts with the
 task agent and model, which can still be changed from the session afterwards.
 The full assembled prompt is inspectable in the queue.
-Combined first prompts are limited to the existing 20,000-character command bound.
+First prompts have no size limit: project settings, the card and up to ten previous
+handoffs (2,000 characters each) are sent whole.
 
 The additional MCP tool **`report_planning_job`** accepts a job-specific token
 provided in the first prompt. An authenticated agent can report heartbeat,

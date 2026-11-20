@@ -1407,7 +1407,6 @@ function SessionPanel({
             value={text}
             onChange={(event) => setText(event.target.value)}
             rows={3}
-            maxLength={20000}
             placeholder="Send instructions to this OpenCode session…"
           />
         </label>

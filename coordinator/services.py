@@ -1496,7 +1496,6 @@ def _refresh_queued_job(plan, card):
 
 
 def _planning_prompt(job, task, report_token):
-    s = job.snapshot
     previous = list(
         job.plan.jobs.filter(status="completed", position__lt=job.position)
         .select_related("attempt__task")
@@ -1507,6 +1506,11 @@ def _planning_prompt(job, task, report_token):
         for j in reversed(previous)
         if j.attempt_id
     )
+    return _planning_prompt_text(job, task, report_token, handoffs)
+
+
+def _planning_prompt_text(job, task, report_token, handoffs):
+    s = job.snapshot
     prompt = (
         f"# Project: {s['project']}\nRepository: {s['repo_url']}\nDocumentation: {s['docs_path']}\n"
         f"\n## Project context\n{s['context']}\n"
@@ -1528,10 +1532,6 @@ def _planning_prompt(job, task, report_token):
         "Do not put the job token in your result summary. If this tool is unavailable, "
         "ask the operator to complete the task through the planning queue."
     )
-    if len(prompt) > 20000:
-        raise TaskError(
-            "Combined first prompt exceeds 20,000 characters. Shorten project/card context.", 400
-        )
     return prompt
 
 
@@ -2190,7 +2190,6 @@ def _notify_worker_sync(worker):
 
 # --- Remote commands (issues #12/#14 helpers) -------------------------------
 
-WORKER_COMMAND_TEXT_LIMIT = 20000
 MAX_PENDING_READ = 200
 
 INTERACTION_ACTIONS = ("permission.reply", "question.reply", "question.reject")
@@ -2225,7 +2224,7 @@ def validate_command_payload(action, payload):
         text = payload.get("text")
         if not isinstance(text, str) or not text.strip():
             raise TaskError("prompt requires non-empty text", 400)
-        stored["text"] = text[:WORKER_COMMAND_TEXT_LIMIT]
+        stored["text"] = text
         if payload.get("noReply") is not None:
             stored["noReply"] = bool(payload["noReply"])
         agent = payload.get("agent")

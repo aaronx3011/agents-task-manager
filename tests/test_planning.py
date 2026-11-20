@@ -554,17 +554,29 @@ def test_board_edit_conflicts_auth_csrf_and_capability_scope(setup, agent_client
     assert "report_token_hash" not in staff.get(url).json()["jobs"][0]
 
 
-def test_oversized_context_rolls_back_task_claim_and_create(setup, agent_clients):
+def test_large_prompts_with_handoffs_are_sent_whole(setup, agent_clients):
+    """No first-prompt size limit: large settings plus handoffs launch untruncated."""
     staff, worker, plan = setup
-    plan.context = "x" * 25000
+    plan.context = "c" * 25000
+    plan.instructions = "i" * 8000
     plan.save()
-    c = card(plan)
-    assert mutate(staff, plan, "run", card_id=c.pk).status_code == 200
-    response = sync(agent_clients[0])
+    cards, command = start(setup, agent_clients[0])
+    job = PlanningJob.objects.get(status="running")
+    delivered = accept(agent_clients[0], command)["payload"]["text"]
+    # The worker receives the whole prompt, protocol (with the job token) included.
+    assert len(delivered) > 33000 and delivered == job.prompt
+    assert delivered.endswith("complete the task through the planning queue.")
+    response = agent_clients[1].post(
+        f"/api/planning/jobs/{job.pk}/report",
+        {"token": token(job), "status": "done", "summary": "HANDOFF " + "s" * 1990},
+        content_type="application/json",
+    )
     assert response.status_code == 200, response.content
-    assert Task.objects.count() == WorkerCommand.objects.count() == 0
-    plan.refresh_from_db()
-    assert not plan.playing and "20,000" in plan.pause_reason
+    assert sync(agent_clients[0]).status_code == 200
+    next_job = PlanningJob.objects.get(status="running")
+    assert next_job.card_id == cards[1].pk
+    assert len(next_job.prompt) > 35000
+    assert "HANDOFF " + "s" * 1990 in next_job.prompt
 
 
 @pytest.mark.django_db(transaction=True)

@@ -301,7 +301,6 @@ export default function Chat() {
             value={text}
             onChangeText={setText}
             multiline
-            maxLength={20000}
             editable={canWrite}
             style={[
               styles.input,
