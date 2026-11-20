@@ -43,6 +43,8 @@ x-web: &web
     ELEVENLABS_STT_MODEL: ${ELEVENLABS_STT_MODEL:-scribe_v3}
     ELEVENLABS_TTS_MODEL: ${ELEVENLABS_TTS_MODEL:-eleven_v4_turbo}
     VOICE_PUBLIC_ORIGIN: ${VOICE_PUBLIC_ORIGIN:-https://atm.aaron-henriquez.com}
+    VOICE_MAX_CLIP_SECONDS: ${VOICE_MAX_CLIP_SECONDS:-600}
+    VOICE_MAX_CLIP_BYTES: ${VOICE_MAX_CLIP_BYTES:-28801024}
   restart: unless-stopped
   depends_on:
     db:

@@ -36,8 +36,8 @@ export async function microphoneWav(clip: Blob): Promise<Blob> {
   // keeps Safari MP4 and Chromium WebM capture on the same server-side contract.
   const decoder = new OfflineAudioContext(1, 1, 24000);
   const audio = await decoder.decodeAudioData(await clip.arrayBuffer());
-  if (audio.sampleRate !== 24000 || !audio.length || audio.duration > 30)
-    throw new Error("Microphone audio must be at most 30 seconds at 24 kHz");
+  if (audio.sampleRate !== 24000 || !audio.length)
+    throw new Error("Microphone audio must be 24 kHz");
   const mono = new Float32Array(audio.length);
   for (let channel = 0; channel < audio.numberOfChannels; channel++) {
     const input = audio.getChannelData(channel);

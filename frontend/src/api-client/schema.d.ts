@@ -1571,7 +1571,7 @@ export interface components {
     TranscriptionInputRequest: {
       /**
        * Format: binary
-       * @description Mono 24 kHz PCM16 WAV audio, at most 30 seconds / 4 MiB
+       * @description Mono 24 kHz PCM16 WAV audio within the configured size and duration safety ceiling
        */
       file: string;
     };
