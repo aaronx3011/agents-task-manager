@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mergeLiveMessages } from "../src/session-live.ts";
-import { rememberSession } from "../src/session-library.ts";
+import {
+  mergeSessionPins,
+  rememberSession,
+} from "../src/session-library-state.ts";
 
 const saved = {
   id: 42,
@@ -48,19 +51,17 @@ test("an older partial overlay cannot regress a durably completed message", () =
   assert.deepEqual(mergeLiveMessages([completed], null), [completed]);
 });
 
-test("session pins preserve worker identity and revisits do not duplicate saved entries", () => {
+test("recent sessions keep worker identity, dedupe revisits and never own pin state", () => {
   const first = { worker: "a", sessionID: "shared", title: "First" };
   const other = { worker: "b", sessionID: "shared", title: "Other worker" };
   let entries = rememberSession([], first, 1);
-  entries = rememberSession(entries, first, 2, true);
-  entries = rememberSession(entries, other, 3);
-  entries = rememberSession(entries, { ...first, title: "Renamed" }, 4);
+  entries = rememberSession(entries, other, 2);
+  entries = rememberSession(entries, { ...first, title: "Renamed" }, 3);
   assert.equal(entries.length, 2);
   assert.equal(entries[0].title, "Renamed");
-  assert.equal(entries[0].pinned, true);
+  assert.equal(entries[0].worker, "a");
   assert.equal(entries[1].worker, "b");
-  entries = rememberSession(entries, first, 5, true);
-  assert.equal(entries.find((entry) => entry.worker === "a").pinned, false);
+  assert.ok(entries.every((entry) => entry.pinned === false));
 });
 
 test("three parallel windows stay bounded after 30,000 distinct message updates", () => {
@@ -86,16 +87,73 @@ test("three parallel windows stay bounded after 30,000 distinct message updates"
   });
 });
 
-test("background pinned metadata refreshes keep panel positions stable", () => {
+test("the API is the only pin source of truth and keeps its order", () => {
   const first = { worker: "a", sessionID: "first", title: "First" };
-  const second = { worker: "a", sessionID: "second", title: "Second" };
-  let entries = rememberSession([], first, 1, true);
-  entries = rememberSession(entries, second, 2, true);
-  const identities = entries.map((entry) => entry.sessionID);
-  entries = rememberSession(entries, { ...first, title: "Updated" }, 3);
+  // A stale browser cache still claims a pin; it must not win over the API.
+  const stale = [{ ...first, pinned: true, openedAt: 1 }];
+  const pins = [
+    {
+      worker: "b",
+      sessionID: "first",
+      title: "Server first",
+      pinned_at: "2026-11-20T04:00:00Z",
+    },
+    {
+      worker: "a",
+      sessionID: "second",
+      title: "Server second",
+      pinned_at: "2026-11-20T03:00:00Z",
+    },
+  ];
+  const entries = mergeSessionPins(rememberSession(stale, first, 2), pins);
   assert.deepEqual(
-    entries.map((entry) => entry.sessionID),
-    identities,
+    entries.filter((entry) => entry.pinned).map((entry) => entry.title),
+    ["Server first", "Server second"],
   );
-  assert.equal(entries[1].title, "Updated");
+  assert.equal(
+    entries.filter((entry) => entry.pinned).map((entry) => entry.worker)[0],
+    "b",
+  );
+  // The stale local claim survives only as an unpinned recent entry.
+  assert.deepEqual(
+    entries
+      .filter((entry) => entry.sessionID === "first")
+      .map((entry) => [entry.worker, entry.pinned]),
+    [
+      ["b", true],
+      ["a", false],
+    ],
+  );
+  assert.ok(entries.slice(2).every((entry) => entry.pinned === false));
+});
+
+test("background metadata refreshes keep server pin positions stable", () => {
+  const pins = [
+    {
+      worker: "a",
+      sessionID: "first",
+      title: "First",
+      pinned_at: "2026-11-20T04:00:00Z",
+    },
+    {
+      worker: "a",
+      sessionID: "second",
+      title: "Second",
+      pinned_at: "2026-11-20T03:00:00Z",
+    },
+  ];
+  const before = mergeSessionPins([], pins).map((entry) => entry.sessionID);
+  const after = mergeSessionPins(
+    rememberSession(
+      [],
+      { worker: "a", sessionID: "first", title: "Renamed" },
+      3,
+    ),
+    pins,
+  );
+  assert.deepEqual(
+    after.map((entry) => entry.sessionID),
+    before,
+  );
+  assert.equal(after[0].title, "First");
 });
