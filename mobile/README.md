@@ -10,7 +10,7 @@ revoke devices from **Account** in either app.
 | --- | --- |
 | Tasks | Board by status or sortable list, search, project/agent/status/ready filters, agent strip, task detail with Markdown and a paged activity timeline |
 | Planning | Projects, new project, board cards (labels, checklist, instructions), run/queue, queue order and completion, project settings, play/pause/stop |
-| Sessions | Session library (pinned and recent, kept on the device), workers and their health, new sessions, live chat with prompts, interrupt, permission and question replies |
+| Sessions | Session library (workspace-wide shared pins plus device-local recents), workers and their health, new sessions, live chat with prompts, interrupt, permission and question replies |
 | Activity | Recent worker commands and task activity |
 | More | Approvals, Account (password, devices), and for owners the Voice agent, Users & invites and agent Configuration |
 

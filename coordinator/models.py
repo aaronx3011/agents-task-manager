@@ -447,6 +447,8 @@ class WorkerSession(models.Model):
     directory = models.CharField(max_length=500, blank=True)
     title = models.CharField(max_length=500, blank=True)
     agent_name = models.CharField(max_length=100, blank=True)
+    # Human workspace state, never overwritten by worker observations.
+    pinned_at = models.DateTimeField(null=True, blank=True, db_index=True)
     model = models.JSONField(null=True, blank=True)
     # Remote parent/subagent linkage; parent resolves to a same-worker session row.
     remote_parent_id = models.CharField(max_length=128, blank=True, db_index=True)

@@ -1,8 +1,11 @@
-// Pinned and recently opened sessions, kept on this device per user, like the
-// web's session library (frontend/src/session-library.ts).
+// Shared server pins plus device-local recent navigation.
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Alert } from "react-native";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { unwrap } from "@/api/client";
+import { useSession } from "@/auth/session";
 import { useAccess } from "@/auth/access";
 
 export interface SessionReference {
@@ -22,21 +25,16 @@ export function rememberSession(
   entries: SavedSession[],
   session: SessionReference,
   now: number,
-  pin = false,
 ): SavedSession[] {
-  const previous = entries.find((entry) => sessionIdentity(entry) === sessionIdentity(session));
   const next = [
     {
       ...session,
       openedAt: now,
-      pinned: pin ? !previous?.pinned : previous?.pinned || false,
+      pinned: false,
     },
     ...entries.filter((entry) => sessionIdentity(entry) !== sessionIdentity(session)),
   ];
-  return [
-    ...next.filter((entry) => entry.pinned).slice(0, 100),
-    ...next.filter((entry) => !entry.pinned).slice(0, 50),
-  ];
+  return next.slice(0, 50);
 }
 
 function valid(entry: unknown): entry is SavedSession {
@@ -61,7 +59,21 @@ interface Library {
 const LibraryContext = createContext<Library | null>(null);
 
 export function SessionLibraryProvider({ children }: { children: ReactNode }) {
-  const { username } = useAccess();
+  const { username, canWrite } = useAccess();
+  const { api } = useSession();
+  const client = useQueryClient();
+  const pins = useQuery({
+    queryKey: ["session-pins"],
+    enabled: !!api,
+    queryFn: ({ signal }) => unwrap(api!.GET("/api/v1/session-pins", { signal })),
+    refetchInterval: 5000,
+  });
+  const mutation = useMutation({
+    mutationFn: (body: { worker: string; sessionID: string; pinned: boolean }) =>
+      unwrap(api!.POST("/api/v1/session-pins", { body })),
+    onSettled: () => client.invalidateQueries({ queryKey: ["session-pins"] }),
+    onError: (error) => Alert.alert("Could not update shared pin", error.message),
+  });
   const key = `atm.sessions:${username}`;
   const [loaded, setLoaded] = useState<{ key: string; entries: SavedSession[] } | null>(null);
   useEffect(() => {
@@ -69,7 +81,12 @@ export function SessionLibraryProvider({ children }: { children: ReactNode }) {
     void AsyncStorage.getItem(key)
       .then((raw) => {
         const parsed: unknown = JSON.parse(raw || "[]");
-        return Array.isArray(parsed) ? parsed.filter(valid).slice(0, 150) : [];
+        return Array.isArray(parsed)
+          ? parsed
+              .filter(valid)
+              .map((entry) => ({ ...entry, pinned: false }))
+              .slice(0, 50)
+          : [];
       })
       .catch(() => [] as SavedSession[])
       .then((entries) => {
@@ -79,7 +96,15 @@ export function SessionLibraryProvider({ children }: { children: ReactNode }) {
       active = false;
     };
   }, [key]);
-  const entries = useMemo(() => (loaded?.key === key ? loaded.entries : []), [loaded, key]);
+  const recent = useMemo(() => (loaded?.key === key ? loaded.entries : []), [loaded, key]);
+  const entries = useMemo(() => {
+    const shared = pins.data?.items || [];
+    const identities = new Set(shared.map(sessionIdentity));
+    return [
+      ...shared.map((pin) => ({ ...pin, pinned: true, openedAt: Date.parse(pin.pinned_at) })),
+      ...recent.filter((entry) => !identities.has(sessionIdentity(entry))),
+    ];
+  }, [recent, pins.data]);
   const update = useCallback(
     (change: (entries: SavedSession[]) => SavedSession[]) =>
       setLoaded((current) => {
@@ -95,9 +120,17 @@ export function SessionLibraryProvider({ children }: { children: ReactNode }) {
     [update],
   );
   const togglePin = useCallback(
-    (session: SessionReference) =>
-      update((previous) => rememberSession(previous, session, Date.now(), true)),
-    [update],
+    (session: SessionReference) => {
+      if (!canWrite || !api || pins.isPending || mutation.isPending) return;
+      mutation.mutate({
+        worker: session.worker,
+        sessionID: session.sessionID,
+        pinned: !entries.some(
+          (entry) => entry.pinned && sessionIdentity(entry) === sessionIdentity(session),
+        ),
+      });
+    },
+    [canWrite, api, pins.isPending, mutation, entries],
   );
   const value = useMemo<Library>(
     () => ({

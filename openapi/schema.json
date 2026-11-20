@@ -2280,6 +2280,86 @@
                 }
             }
         },
+        "/api/v1/session-pins": {
+            "get": {
+                "operationId": "session_pins_retrieve",
+                "tags": [
+                    "session-pins"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SessionPinList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "session_pins_create",
+                "tags": [
+                    "session-pins"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SessionPinInputRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SessionPinInputRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SessionPinInputRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SessionPinInput"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sessions": {
             "get": {
                 "operationId": "sessions_retrieve",
@@ -6710,6 +6790,88 @@
                 },
                 "required": [
                     "count",
+                    "items"
+                ]
+            },
+            "SessionPin": {
+                "type": "object",
+                "properties": {
+                    "worker": {
+                        "type": "string"
+                    },
+                    "sessionID": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "pinned_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "pinned_at",
+                    "sessionID",
+                    "title",
+                    "worker"
+                ]
+            },
+            "SessionPinInput": {
+                "type": "object",
+                "properties": {
+                    "worker": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "sessionID": {
+                        "type": "string",
+                        "maxLength": 128
+                    },
+                    "pinned": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "pinned",
+                    "sessionID",
+                    "worker"
+                ]
+            },
+            "SessionPinInputRequest": {
+                "type": "object",
+                "properties": {
+                    "worker": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                    },
+                    "sessionID": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                    },
+                    "pinned": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "pinned",
+                    "sessionID",
+                    "worker"
+                ]
+            },
+            "SessionPinList": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SessionPin"
+                        }
+                    }
+                },
+                "required": [
                     "items"
                 ]
             },

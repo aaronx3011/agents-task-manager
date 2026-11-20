@@ -597,6 +597,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/session-pins": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["session_pins_retrieve"];
+    put?: never;
+    post: operations["session_pins_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/sessions": {
     parameters: {
       query?: never;
@@ -1749,6 +1765,26 @@ export interface components {
     SessionPage: {
       count: number;
       items: unknown[];
+    };
+    SessionPin: {
+      worker: string;
+      sessionID: string;
+      title: string;
+      /** Format: date-time */
+      pinned_at: string;
+    };
+    SessionPinInput: {
+      worker: string;
+      sessionID: string;
+      pinned: boolean;
+    };
+    SessionPinInputRequest: {
+      worker: string;
+      sessionID: string;
+      pinned: boolean;
+    };
+    SessionPinList: {
+      items: components["schemas"]["SessionPin"][];
     };
     SpeechInputRequest: {
       text: string;
@@ -3166,6 +3202,50 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["RealtimeTicket"];
+        };
+      };
+    };
+  };
+  session_pins_retrieve: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SessionPinList"];
+        };
+      };
+    };
+  };
+  session_pins_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SessionPinInputRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["SessionPinInputRequest"];
+        "multipart/form-data": components["schemas"]["SessionPinInputRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SessionPinInput"];
         };
       };
     };

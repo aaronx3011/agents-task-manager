@@ -1,53 +1,34 @@
-import { useCallback, useEffect, useState } from "react";
-
-export interface SessionReference {
-  worker: string;
-  sessionID: string;
-  title: string;
-}
-export interface SavedSession extends SessionReference {
-  pinned: boolean;
-  openedAt: number;
-}
-export const sessionIdentity = (
-  session: Pick<SessionReference, "worker" | "sessionID">,
-) => JSON.stringify([session.worker, session.sessionID]);
-
-export function rememberSession(
-  entries: SavedSession[],
-  session: SessionReference,
-  now: number,
-  pin = false,
-): SavedSession[] {
-  const previous = entries.find(
-    (entry) => sessionIdentity(entry) === sessionIdentity(session),
-  );
-  // Concurrent panel detail loads must not reorder other panels underneath a
-  // user's pointer or while they are typing. Only explicit pin actions reorder.
-  if (previous?.pinned && !pin)
-    return entries.map((entry) =>
-      sessionIdentity(entry) === sessionIdentity(session)
-        ? { ...entry, ...session, openedAt: now }
-        : entry,
-    );
-  const next = [
-    {
-      ...session,
-      openedAt: now,
-      pinned: pin ? !previous?.pinned : previous?.pinned || false,
-    },
-    ...entries.filter(
-      (entry) => sessionIdentity(entry) !== sessionIdentity(session),
-    ),
-  ];
-  return [
-    ...next.filter((entry) => entry.pinned).slice(0, 100),
-    ...next.filter((entry) => !entry.pinned).slice(0, 50),
-  ];
-}
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, unwrap } from "./api-client";
+import { useAccess } from "./auth";
+import {
+  mergeSessionPins,
+  rememberSession,
+  sessionIdentity,
+} from "./session-library-state";
+import type { SavedSession, SessionReference } from "./session-library-state";
+export { sessionIdentity } from "./session-library-state";
+export type { SessionReference } from "./session-library-state";
 
 export function useSessionLibrary(username: string) {
-  // Saved sessions are per user on a shared browser.
+  const { canWrite } = useAccess();
+  const client = useQueryClient();
+  const pins = useQuery({
+    queryKey: ["session-pins"],
+    queryFn: ({ signal }) =>
+      unwrap(api.GET("/api/v1/session-pins", { signal })),
+    refetchInterval: 5000,
+  });
+  const mutation = useMutation({
+    mutationFn: (body: {
+      worker: string;
+      sessionID: string;
+      pinned: boolean;
+    }) => unwrap(api.POST("/api/v1/session-pins", { body })),
+    onSettled: () => client.invalidateQueries({ queryKey: ["session-pins"] }),
+  });
+  // Recent navigation and panel layout stay device-local; pins never do.
   const storageKey = `agent-ops-sessions:${username}`;
   const preferencesKey = `${storageKey}:layout`;
   const [layout, setLayout] = useState(() => {
@@ -71,7 +52,7 @@ export function useSessionLibrary(username: string) {
       /* Storage may be disabled. */
     }
   }, [layout, preferencesKey]);
-  const [entries, setEntries] = useState<SavedSession[]>(() => {
+  const [recent, setRecent] = useState<SavedSession[]>(() => {
     try {
       const stored: unknown = JSON.parse(
         localStorage.getItem(storageKey) || "[]",
@@ -84,29 +65,58 @@ export function useSessionLibrary(username: string) {
             typeof entry.worker === "string" &&
             typeof entry.sessionID === "string" &&
             typeof entry.title === "string" &&
-            typeof entry.pinned === "boolean" &&
             Number.isFinite(entry.openedAt),
         )
-        .slice(0, 150);
+        .map((entry) => ({ ...entry, pinned: false }))
+        .slice(0, 50);
     } catch {
       return [];
     }
   });
   useEffect(() => {
     try {
-      localStorage.setItem(storageKey, JSON.stringify(entries));
+      localStorage.setItem(storageKey, JSON.stringify(recent));
     } catch {
       /* Browser storage may be disabled. */
     }
-  }, [entries, storageKey]);
+  }, [recent, storageKey]);
   const remember = useCallback((session: SessionReference) => {
-    setEntries((previous) => rememberSession(previous, session, Date.now()));
+    setRecent((previous) => rememberSession(previous, session, Date.now()));
   }, []);
-  const togglePin = useCallback((session: SessionReference) => {
-    setEntries((previous) =>
-      rememberSession(previous, session, Date.now(), true),
-    );
-  }, []);
-  return { entries, remember, togglePin, layout, setLayout };
+  const entries = useMemo(
+    () => mergeSessionPins(recent, pins.data?.items || []),
+    [recent, pins.data],
+  );
+  const togglePin = useCallback(
+    (session: SessionReference) => {
+      // Repeated set operations are idempotent server-side, so bulk pinning
+      // may dispatch several at once without dropping later items.
+      if (!canWrite) return;
+      mutation.mutate({
+        worker: session.worker,
+        sessionID: session.sessionID,
+        pinned: !entries.some(
+          (entry) =>
+            entry.pinned && sessionIdentity(entry) === sessionIdentity(session),
+        ),
+      });
+    },
+    [canWrite, mutation, entries],
+  );
+  const retry = useCallback(() => {
+    mutation.reset();
+    void pins.refetch();
+  }, [mutation, pins]);
+  return {
+    entries,
+    remember,
+    togglePin,
+    layout,
+    setLayout,
+    error: mutation.error || pins.error,
+    pending: pins.isPending || mutation.isPending,
+    canPin: canWrite,
+    retry,
+  };
 }
 export type SessionLibrary = ReturnType<typeof useSessionLibrary>;

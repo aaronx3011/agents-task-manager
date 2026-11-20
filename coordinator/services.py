@@ -702,7 +702,12 @@ def upsert_session(worker, record, now=None):
                 setattr(session, name, value)
     session.last_seen_at = now
     resolve_parent_link(session)
-    session.save()
+    if created:
+        session.save()
+    else:
+        # Human pin state is independent of observations (task #412): writing
+        # only observed columns prevents a concurrent pin from being erased.
+        session.save(update_fields=[*fields.keys(), "last_seen_at", "parent", "updated_at"])
     # Late parent observation: newly seen parents claim their unresolved subagents.
     if session.remote_id:
         WorkerSession.objects.filter(
@@ -3216,8 +3221,9 @@ def protected_observation_ids():
 def apply_observation_retention():
     """Bounded central cleanup; protects observation rows linked by audit records.
     - Messages: keep the newest WORKER_MESSAGE_KEEP rows per session.
-    - Sessions: keep the newest WORKER_SESSION_KEEP per worker by last activity,
-      skipping sessions that task execution attempts reference.
+    - Sessions: keep the newest WORKER_SESSION_KEEP unpinned sessions per worker by
+      last activity, skipping pinned sessions and rows task execution attempts
+      reference.
     - Events: per-worker ring of the newest WORKER_EVENT_KEEP rows.
     """
     removed = {"messages": 0, "sessions": 0, "events": 0}
@@ -3236,7 +3242,7 @@ def apply_observation_retention():
     for worker in Worker.objects.only("pk").iterator():
         candidates = [
             pk
-            for pk in WorkerSession.objects.filter(worker=worker)
+            for pk in WorkerSession.objects.filter(worker=worker, pinned_at__isnull=True)
             .order_by("-last_seen_at", "-pk")
             .values_list("pk", flat=True)
             if pk not in protected
