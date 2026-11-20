@@ -274,8 +274,11 @@ the backend conversation. Releasing the hold sends one voice turn; releasing out
 the button, Escape, Cancel recording, focus loss or hiding the page discards it.
 Push-to-talk replaces automatic pause-to-send and **Send voice turn**; there is one
 voice send path. A hold interrupts spoken replies, and acoustic barge-in remains available.
-Capture stops at 15 seconds; release inside to send that bounded clip, or cancel
-to discard it. Microphone access needs HTTPS or localhost.
+Hold for as long as you need; release inside to send exactly one turn, or cancel
+to discard it. There is no client-side recording cutoff. The backend keeps one
+generous abuse ceiling, configurable with `VOICE_MAX_CLIP_SECONDS` /
+`VOICE_MAX_CLIP_BYTES` (defaults: 600 s and ~28.8 MB of mono 24 kHz PCM16).
+Microphone access needs HTTPS or localhost.
 
 The browser connects only to Django. **Fireworks AI** handles all PM reasoning
 and function calling; Django owns the system prompt, bounded conversation history,
@@ -289,8 +292,9 @@ only Fireworks; voice additionally needs `ELEVENLABS_API_KEY` and a voice ID.
 Text-to-voice switching preserves context.
 The bounded backend transcript is cleared on revocation; expired grants cannot
 be used. Microphone audio is converted to mono 24 kHz PCM16 WAV in the browser.
-Django validates each bounded clip, uploads it to ElevenLabs speech-to-text, and
-takes the transcript. It never asks the speech provider to generate a model reply.
+Django validates each clip against the configured ceiling, uploads it to
+ElevenLabs speech-to-text, and takes the transcript. It never asks the speech
+provider to generate a model reply.
 Reply text is sent chunk-by-chunk to ElevenLabs text-to-speech, which returns MP3
 audio for playback. Audio is not stored by Task Manager.
 Task-status announcements are request-driven, not automatic background
@@ -346,7 +350,14 @@ ELEVENLABS_VOICE_ID=...
 ELEVENLABS_STT_MODEL=scribe_v3
 ELEVENLABS_TTS_MODEL=eleven_v4_turbo
 VOICE_PUBLIC_ORIGIN=https://your-public-task-manager-origin
+VOICE_MAX_CLIP_SECONDS=600
+VOICE_MAX_CLIP_BYTES=28801024
 ```
+
+`VOICE_MAX_CLIP_SECONDS` and `VOICE_MAX_CLIP_BYTES` are a server-side abuse
+ceiling, not a push-to-talk duration limit: the client never stops a held
+recording. The defaults allow ten continuous minutes. Raise both together if a
+longer hold is ever needed.
 
 Do not use `VITE_*` variables for provider credentials. For local development,
 `FIREWORKS_API_KEY_FILE` and `ELEVENLABS_API_KEY_FILE` can point at private key

@@ -131,11 +131,9 @@ export default function VoiceAgent() {
   const recording = Boolean(client?.capturing);
   const holdDisabled = !ready || !speechReady || (busy && !recording);
   const holdLabel = recording
-    ? client?.captureLimited
-      ? "Limit reached — release"
-      : client?.captureReady
-        ? "Recording — release to send"
-        : "Starting microphone…"
+    ? client?.captureReady
+      ? "Recording — release to send"
+      : "Starting microphone…"
     : busy
       ? "Processing…"
       : client?.error

@@ -41,6 +41,14 @@ PM_CONTEXT_WINDOW_TOKENS = positive_env_int("PM_CONTEXT_WINDOW_TOKENS", 524288)
 if PM_MAX_OUTPUT_TOKENS >= PM_CONTEXT_WINDOW_TOKENS:
     raise ImproperlyConfigured("PM_MAX_OUTPUT_TOKENS must be less than PM_CONTEXT_WINDOW_TOKENS")
 
+# Push-to-talk has no client-side cutoff. This is a generous abuse ceiling only:
+# 600 s is far beyond any normal hold, and the byte ceiling defaults to the same
+# 10 minutes of mono 24 kHz PCM16 audio (48,000 bytes per second) plus a header.
+VOICE_MAX_CLIP_SECONDS = positive_env_int("VOICE_MAX_CLIP_SECONDS", 600)
+VOICE_MAX_CLIP_BYTES = positive_env_int(
+    "VOICE_MAX_CLIP_BYTES", VOICE_MAX_CLIP_SECONDS * 24000 * 2 + 1024
+)
+
 
 def env_bool(name, default=False):
     return os.environ.get(name, str(default)).lower() in {"1", "true", "yes"}

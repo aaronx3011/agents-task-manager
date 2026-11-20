@@ -2,7 +2,6 @@
 // PCM16 WAV (coordinator/voice_runtime.py), like the web's voice-audio.ts.
 
 export const WAV_RATE = 24000;
-export const MAX_CLIP_SECONDS = 15;
 
 /** One microphone buffer from expo-audio's AudioStream (int16 encoding). */
 export interface PcmBuffer {

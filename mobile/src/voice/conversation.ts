@@ -12,14 +12,7 @@ import type { AudioStream, AudioStreamBuffer } from "expo-audio";
 import { File, Paths } from "expo-file-system";
 import { unwrap } from "@/api/client";
 import type { Api, Schemas } from "@/api/client";
-import {
-  MAX_CLIP_SECONDS,
-  monoSamples,
-  playSpeech,
-  stopIfAborted,
-  WAV_RATE,
-  wavBytes,
-} from "@/voice/audio";
+import { monoSamples, playSpeech, stopIfAborted, WAV_RATE, wavBytes } from "@/voice/audio";
 import type { PcmBuffer } from "@/voice/audio";
 
 export type PMStatus = Schemas["VoiceStatusOutput"];
@@ -64,7 +57,6 @@ export class PMConversation {
   muted = false;
   capturing = false;
   captureReady = false;
-  captureLimited = false;
   error = "";
   notice = "";
   pending = false;
@@ -73,7 +65,6 @@ export class PMConversation {
   private closed = false;
   private controller = new AbortController();
   private capture?: Capture;
-  private maxTimer?: ReturnType<typeof setTimeout>;
   private speechController?: AbortController;
   private starting?: Promise<void>;
   private askingPermission = false;
@@ -93,11 +84,7 @@ export class PMConversation {
     if (this.status === "connecting") return "Connecting to PM…";
     if (this.pending) return this.mode === "transcribing" ? "Transcribing" : "Thinking";
     if (this.capturing)
-      return this.captureLimited
-        ? "Clip limit — release to send"
-        : this.captureReady
-          ? "Recording — release to send"
-          : "Starting microphone…";
+      return this.captureReady ? "Recording — release to send" : "Starting microphone…";
     if (this.mode === "speaking") return "Speaking";
     if (this.mode === "synthesizing") return "Preparing speech";
     if (this.status !== "connected") return "Ready to talk";
@@ -169,7 +156,6 @@ export class PMConversation {
     this.interrupt();
     this.capturing = true;
     this.captureReady = false;
-    this.captureLimited = false;
     this.update();
     try {
       const permission = await this.microphonePermission();
@@ -187,7 +173,7 @@ export class PMConversation {
       const subscription = this.stream.addListener(
         "audioStreamBuffer",
         (buffer: AudioStreamBuffer) => {
-          if (!capture.finished && !this.captureLimited) capture.buffers.push(buffer);
+          if (!capture.finished) capture.buffers.push(buffer);
         },
       );
       capture.unsubscribe = () => subscription.remove();
@@ -198,13 +184,6 @@ export class PMConversation {
         return;
       }
       this.captureReady = true;
-      this.maxTimer = setTimeout(() => {
-        if (this.capture !== capture || capture.release) return;
-        // Keep the bounded clip until the gesture chooses send or cancel.
-        this.captureLimited = true;
-        this.stopStream(capture);
-        this.update();
-      }, MAX_CLIP_SECONDS * 1000);
       this.update();
     } catch (error) {
       capture.release = "cancel";
@@ -267,11 +246,9 @@ export class PMConversation {
     if (capture.finished) return;
     capture.finished = true;
     this.stopStream(capture);
-    this.clearCaptureTimer();
     if (this.capture === capture) this.capture = undefined;
     this.capturing = false;
     this.captureReady = false;
-    this.captureLimited = false;
     // Leave record mode so replies use the loudspeaker on iOS.
     void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => {});
     this.update();
@@ -284,15 +261,7 @@ export class PMConversation {
       this.update();
       return;
     }
-    void this.transcribe(
-      wavBytes(samples.subarray(0, WAV_RATE * MAX_CLIP_SECONDS)),
-      capture.generation,
-    );
-  }
-
-  private clearCaptureTimer() {
-    if (this.maxTimer) clearTimeout(this.maxTimer);
-    this.maxTimer = undefined;
+    void this.transcribe(wavBytes(samples), capture.generation);
   }
 
   private async transcribe(wav: Uint8Array, generation: number) {

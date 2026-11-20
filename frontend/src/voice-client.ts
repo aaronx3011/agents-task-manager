@@ -24,7 +24,6 @@ export class PMConversation {
   micMuted = false;
   capturing = false;
   captureReady = false;
-  captureLimited = false;
   error = "";
   notice = "";
   pending = false;
@@ -37,7 +36,6 @@ export class PMConversation {
   private capture?: Capture;
   private samples?: Float32Array<ArrayBuffer>;
   private mime?: string;
-  private maxTimer?: ReturnType<typeof setTimeout>;
   private monitor?: ReturnType<typeof setInterval>;
   private speechController?: AbortController;
   private starting?: Promise<void>;
@@ -55,11 +53,9 @@ export class PMConversation {
     if (this.pending)
       return this.mode === "transcribing" ? "Transcribing" : "Thinking";
     if (this.capturing)
-      return this.captureLimited
-        ? "Clip limit — release to send"
-        : this.captureReady
-          ? "Recording — release to send"
-          : "Starting microphone…";
+      return this.captureReady
+        ? "Recording — release to send"
+        : "Starting microphone…";
     if (this.textOnly) return "Text conversation connected";
     if (this.mode === "speaking") return "Speaking";
     if (this.mode === "synthesizing") return "Preparing speech";
@@ -187,7 +183,6 @@ export class PMConversation {
     this.interrupt();
     this.capturing = true;
     this.captureReady = false;
-    this.captureLimited = false;
     this.update();
     try {
       if (
@@ -227,12 +222,6 @@ export class PMConversation {
       };
       recorder.onstop = () => {
         capture.stopped = true;
-        // At the duration limit, retain the bounded clip until the gesture
-        // chooses send or cancel. Never send merely because a hold timed out.
-        if (this.captureLimited && !capture.release) {
-          this.update();
-          return;
-        }
         this.finishCapture(capture);
       };
       recorder.onerror = () => {
@@ -246,17 +235,10 @@ export class PMConversation {
           );
       };
       recorder.start(100);
-      this.maxTimer = setTimeout(() => {
-        if (this.capture !== capture || capture.release) return;
-        this.captureLimited = true;
-        if (recorder.state !== "inactive") recorder.stop();
-        this.update();
-      }, 15000);
       this.update();
     } catch (error) {
       this.capture = undefined;
       this.capturing = false;
-      this.clearCaptureTimers();
       if (this.current(generation)) this.fail(error);
     }
   }
@@ -279,7 +261,6 @@ export class PMConversation {
     }
     if (capture.release) return;
     capture.release = release;
-    this.clearCaptureTimers();
     if (capture.stopped) this.finishCapture(capture);
     else if (capture.recorder.state !== "inactive") capture.recorder.stop();
     this.update();
@@ -287,11 +268,9 @@ export class PMConversation {
   private finishCapture(capture: Capture) {
     if (capture.finished) return;
     capture.finished = true;
-    this.clearCaptureTimers();
     if (this.capture === capture) this.capture = undefined;
     this.capturing = false;
     this.captureReady = false;
-    this.captureLimited = false;
     this.update();
     if (
       capture.release !== "send" ||
@@ -309,10 +288,6 @@ export class PMConversation {
       new Blob(capture.chunks, { type }),
       capture.generation,
     );
-  }
-  private clearCaptureTimers() {
-    if (this.maxTimer) clearTimeout(this.maxTimer);
-    this.maxTimer = undefined;
   }
   private async transcribe(blob: Blob, generation: number) {
     this.pending = true;

@@ -112,7 +112,7 @@ def main():
                         24000,
                     )
                     assert clip.getnframes() > 100
-                    assert clip.getnframes() <= 24000 * 16
+                    assert clip.getnframes() <= 24000 * 600
                     assert any(clip.readframes(clip.getnframes()))
                 body = dict(text="Tell me the status of task 302 from voice.")
             else:
@@ -300,18 +300,24 @@ def main():
         print("PASS: mobile touch capture", flush=True)
         assert page.evaluate("getSelection().toString()") == ""
         page.set_viewport_size(dict(width=1280, height=720))
-        # A bounded hold must still wait for release: reaching the limit is not
-        # permission to send while the owner may still choose to cancel.
+        # A hold beyond the previous 15 s cutoff keeps recording and uploads
+        # nothing until the owner releases inside the control.
         hold.focus()
         page.keyboard.down("Enter")
-        expect(hold).to_contain_text("Limit reached", timeout=20000)
+        expect(hold).to_contain_text("Recording — release to send")
+        page.wait_for_timeout(17000)
         assert len(clips) == before + 2
+        expect(hold).to_have_attribute("aria-pressed", "true")
+        expect(hold).to_have_attribute("data-capture-ready", "true")
+        expect(hold).to_contain_text("Recording — release to send")
+        expect(hold).not_to_contain_text("Limit")
         page.keyboard.up("Enter")
         page.wait_for_function(
             "document.querySelector('.voice-buttons [role=status]').textContent "
             "=== 'Ready for push-to-talk'"
         )
         assert len(clips) == before + 3
+        print("PASS: long push-to-talk capture beyond the old 15 s cutoff", flush=True)
         page.get_by_label("Enable spoken replies").click()
         page.get_by_label("Mute spoken replies").click()
         page.get_by_label("Mute microphone").click()

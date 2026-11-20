@@ -261,11 +261,9 @@ export default function VoiceAgent() {
           >
             <Mic size={17} />{" "}
             {recording
-              ? client?.captureLimited
-                ? "Limit reached — release"
-                : client?.captureReady
-                  ? "Recording — release to send"
-                  : "Starting microphone…"
+              ? client?.captureReady
+                ? "Recording — release to send"
+                : "Starting microphone…"
               : busy
                 ? "Processing…"
                 : client?.error

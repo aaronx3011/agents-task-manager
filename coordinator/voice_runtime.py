@@ -315,7 +315,9 @@ class VoiceChatView(VoiceRuntimeView):
 
 class TranscriptionInput(serializers.Serializer):
     file = serializers.FileField(
-        help_text="Mono 24 kHz PCM16 WAV audio, at most 30 seconds / 4 MiB"
+        help_text=(
+            "Mono 24 kHz PCM16 WAV audio within the configured size and duration safety ceiling"
+        )
     )
 
 
@@ -350,8 +352,13 @@ class VoiceTranscriptionView(VoiceRuntimeView):
         serializer = TranscriptionInput(data=request.data)
         serializer.is_valid(raise_exception=True)
         audio = serializer.validated_data["file"]
-        if audio.size > 4 * 1024 * 1024:
-            raise services.TaskError("Audio clip must be at most 4 MiB", 413)
+        limit_bytes = settings.VOICE_MAX_CLIP_BYTES
+        if audio.size > limit_bytes:
+            raise services.TaskError(
+                f"Audio clip must be at most {limit_bytes} bytes "
+                f"({settings.VOICE_MAX_CLIP_SECONDS} s at mono 24 kHz PCM16)",
+                413,
+            )
         if audio.content_type not in {"audio/wav", "audio/x-wav"}:
             raise serializers.ValidationError("Expected mono 24 kHz PCM16 WAV audio")
         try:
@@ -362,7 +369,7 @@ class VoiceTranscriptionView(VoiceRuntimeView):
                     or recording.getsampwidth() != 2
                     or recording.getframerate() != 24000
                     or recording.getcomptype() != "NONE"
-                    or not 0 < frames <= 24000 * 30
+                    or not 0 < frames <= 24000 * settings.VOICE_MAX_CLIP_SECONDS
                 ):
                     raise ValueError
                 pcm = recording.readframes(frames)
@@ -370,7 +377,8 @@ class VoiceTranscriptionView(VoiceRuntimeView):
                     raise ValueError
         except (wave.Error, EOFError, ValueError):
             raise serializers.ValidationError(
-                "Expected a valid mono 24 kHz PCM16 WAV clip, at most 30 seconds"
+                "Expected a valid mono 24 kHz PCM16 WAV clip at most "
+                f"{settings.VOICE_MAX_CLIP_SECONDS} seconds long"
             ) from None
         audio.seek(0)
         return Response({"text": transcribe(audio.read())})

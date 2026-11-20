@@ -80,10 +80,9 @@ def test_elevenlabs_receives_only_the_bounded_clip_and_model(voice, monkeypatch,
         (wav(width=1), "audio/wav"),
         (wav(b""), "audio/wav"),
         (wav()[:-100], "audio/wav"),
-        (wav(b"\x00\x00" * (24000 * 31)), "audio/wav"),
     ],
 )
-def test_bad_or_oversize_duration_audio_never_reaches_upstream(voice, monkeypatch, clip, mime):
+def test_malformed_audio_never_reaches_upstream(voice, monkeypatch, clip, mime):
     _, grant = voice
 
     def unexpected(*args, **kwargs):
@@ -93,9 +92,37 @@ def test_bad_or_oversize_duration_audio_never_reaches_upstream(voice, monkeypatc
     assert post(grant, clip, mime).status_code == 400
 
 
-def test_audio_payload_size_is_bounded(voice):
+def test_held_clip_beyond_previous_30_second_and_4_mib_limits_reaches_upstream(
+    voice, monkeypatch, settings
+):
     _, grant = voice
-    assert post(grant, b"x" * (4 * 1024 * 1024 + 1)).status_code == 413
+    settings.VOICE_MAX_CLIP_SECONDS = 600
+    settings.VOICE_MAX_CLIP_BYTES = 600 * 24000 * 2 + 1024
+    calls = elevenlabs_fixture(monkeypatch, httpx.Response(200, json={"text": "Long turn"}))
+    clip = wav(b"\x01\x00" * (24000 * 120))
+    assert len(clip) > 4 * 1024 * 1024
+    result = post(grant, clip)
+    assert result.status_code == 200, result.content
+    assert result.json() == {"text": "Long turn"}
+    assert calls and calls[0][2]["files"]["file"][1] == clip
+
+
+def test_audio_payload_uses_the_configured_size_ceiling(voice, settings):
+    _, grant = voice
+    settings.VOICE_MAX_CLIP_BYTES = 1024
+    assert post(grant, b"x" * 1025).status_code == 413
+
+
+def test_audio_duration_uses_the_configured_safety_ceiling(voice, monkeypatch, settings):
+    _, grant = voice
+    settings.VOICE_MAX_CLIP_SECONDS = 2
+    settings.VOICE_MAX_CLIP_BYTES = 10 * 1024 * 1024
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("clip beyond the configured ceiling reached speech provider")
+
+    monkeypatch.setattr("coordinator.voice_runtime.httpx.request", unexpected)
+    assert post(grant, wav(b"\x00\x00" * (24000 * 3))).status_code == 400
 
 
 @pytest.mark.parametrize(
