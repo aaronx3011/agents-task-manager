@@ -1,8 +1,11 @@
 """Task #412: workspace-wide pins persisted independently of client storage."""
 
+import json
 from datetime import timedelta
 
+import anyio
 import pytest
+from asgiref.sync import sync_to_async
 from django.contrib.auth import get_user_model
 from django.test import Client
 from django.utils import timezone
@@ -10,6 +13,8 @@ from django.utils import timezone
 from accounts.models import Role, UserProfile
 from coordinator import services
 from coordinator.models import Agent, WorkerSession
+
+from .test_dashboard import connection
 
 pytestmark = pytest.mark.django_db
 
@@ -201,3 +206,34 @@ def test_retention_pruning_keeps_pinned_sessions(sessions, settings):
     services.apply_observation_retention()
     assert WorkerSession.objects.filter(pk=one.pk).exists()
     assert not WorkerSession.objects.filter(pk=two.pk).exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_other_clients_receive_pin_changes_over_the_dashboard_socket(sessions):
+    """Real ASGI transport: a pin write reaches every connected client."""
+
+    async def verify():
+        member = await sync_to_async(human)("pin-socket-member", Role.MEMBER)
+        viewer = await sync_to_async(human)("pin-socket-viewer", Role.VIEWER)
+        sockets = [connection(member), connection(viewer)]
+        try:
+            for socket in sockets:
+                await socket.send_input({"type": "websocket.connect"})
+                assert (await socket.receive_output(timeout=5))["type"] == "websocket.accept"
+                assert json.loads((await socket.receive_output())["text"])["type"] == "connected"
+            assert (await sync_to_async(pin)(member, "pins-worker", "ses_one")).status_code == 200
+            for socket in sockets:
+                notice = json.loads((await socket.receive_output(timeout=5))["text"])
+                assert notice["type"] == "changed"
+                assert notice["event_type"] == "session.pins.changed"
+                assert notice["subject"] == "session_pins"
+            listed = await sync_to_async(lambda: viewer.get("/api/v1/session-pins").json())()
+            assert [(row["worker"], row["sessionID"]) for row in listed["items"]] == [
+                ("pins-worker", "ses_one")
+            ]
+        finally:
+            for socket in sockets:
+                await socket.send_input({"type": "websocket.disconnect", "code": 1000})
+                await socket.wait(timeout=5)
+
+    anyio.run(verify)
