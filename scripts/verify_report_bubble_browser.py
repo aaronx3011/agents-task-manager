@@ -6,6 +6,7 @@ Run with `.venv/bin/python scripts/verify_report_bubble_browser.py` after
 
 import functools
 import http.server
+import re
 import threading
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -24,7 +25,7 @@ def main():
     server.RequestHandlerClass.log_message = lambda *args: None
     threading.Thread(target=server.serve_forever, daemon=True).start()
     origin = f"http://127.0.0.1:{server.server_port}"
-    state = dict(role="owner", chat=None, chat_status=200, chat_calls=0)
+    state = dict(role="owner", replies=[], chat_status=200, chat_calls=0)
     posts, revoked, errors = [], [], []
 
     def api(route):
@@ -55,12 +56,23 @@ def main():
             revoked.append(path)
             route.fulfill(status=204)
             return
+        elif path == "/api/v1/voice/status":
+            body = dict(
+                provider="fireworks",
+                configured=True,
+                speech_provider="elevenlabs",
+                speech_configured=False,
+                transcription_configured=False,
+                tts_configured=False,
+                policy_version="x",
+                limits=None,
+            )
         elif path == "/api/v1/voice/chat":
             state["chat_calls"] += 1
             posts.append(
                 dict(pm=request.post_data_json, token=request.headers.get("x-atm-voice-token"))
             )
-            status, body = state["chat_status"], state["chat"]
+            status, body = state["chat_status"], state["replies"].pop(0)
         route.fulfill(status=status, json=body)
 
     def open_form(page):
@@ -103,7 +115,7 @@ def main():
         assert box["width"] == 720, box
         assert dialog.locator("textarea").bounding_box()["height"] >= 150
         expect(dialog.get_by_label("Description")).to_have_value(
-            __import__("re").compile(r"^Page URL: http://127\.0\.0\.1")
+            re.compile(r"^Page URL: http://127\.0\.0\.1")
         )
 
         # Mobile portrait and a very short landscape viewport: fits and scrolls.
@@ -114,11 +126,11 @@ def main():
         ]:
             page.set_viewport_size(dict(width=size[0], height=size[1]))
             page.get_by_role("radio", name="Tag to PM router").check()
-            page.get_by_label("PM action").select_option("queue")
+            expect(dialog.get_by_label("Message PM agent")).to_be_visible()
             assert_fits(page, dialog, label)
             if size[1] < 400:
                 assert dialog.evaluate("d => d.scrollHeight > d.clientHeight"), label
-                dialog.get_by_role("button", name="Send to PM").scroll_into_view_if_needed()
+                dialog.get_by_label("Message PM agent").scroll_into_view_if_needed()
                 assert_fits(page, dialog, label + "-scrolled")
             page.get_by_role("radio", name="Standard task form").check()
         page.set_viewport_size(dict(width=1440, height=900))
@@ -130,69 +142,51 @@ def main():
         expect(page.get_by_role("status").filter(has_text="Task #7 created")).to_be_visible()
         assert posts[-1]["project"] == "alpha" and posts[-1]["title"] == "Standard report"
 
-        # PM option: queued is distinguished from completed.
+        # PM option is the real conversation: the PM asks, the owner answers, then it creates.
         dialog = open_form(page)
-        dialog.get_by_label("Title").fill("PM queued")
         dialog.get_by_role("radio", name="Tag to PM router").check()
-        dialog.get_by_label("PM action").select_option("queue")
-        dialog.get_by_label("Worker (optional)").fill("mac")
-        state["chat"] = dict(
-            text="Queued as job 4.", events=[dict(tool="launch_task", is_error=False)]
-        )
-        dialog.get_by_role("button", name="Send to PM").click()
-        notice = page.get_by_role("status").filter(has_text="Accepted and queued")
-        expect(notice).to_contain_text("execution has not completed")
-        sent = posts[-1]
-        assert (
-            sent["token"] == "t"
-            and "launch_task" in sent["pm"]["text"]
-            and '"worker":"mac"' in sent["pm"]["text"]
-        ), sent
-        assert revoked == ["/api/v1/voice/sessions/s1"]
-
-        # Honest refusals keep the dialog open with the draft retained.
-        cases = [
-            (
-                "offline",
-                dict(
-                    text="Worker mac is offline.", events=[dict(tool="launch_task", is_error=True)]
-                ),
-                "Worker mac is offline",
+        message = dialog.get_by_label("Message PM agent")
+        expect(message).to_have_value(re.compile(r'^Report for project "alpha" from http://127'))
+        state["replies"] = [
+            dict(text="Which page or feature is affected, and how urgent is it?", events=[]),
+            dict(
+                text="Created task #9 in alpha as a backlog task.",
+                events=[dict(tool="create_task", is_error=False)],
             ),
-            (
-                "unknown",
-                dict(text="Unknown model.", events=[dict(tool="launch_task", is_error=True)]),
-                "Unknown model",
-            ),
-            (
-                "empty",
-                dict(text="Queue is empty.", events=[dict(tool="play_queue", is_error=True)]),
-                "Queue is empty",
-            ),
-            ("noop", dict(text="Sure, queued!", events=[]), "did not perform"),
         ]
-        dialog = open_form(page)
-        dialog.get_by_label("Title").fill("PM refused")
-        dialog.get_by_role("radio", name="Tag to PM router").check()
-        dialog.get_by_label("PM action").select_option("queue")
-        for _name, reply, text in cases:
-            state["chat"] = reply
-            dialog.get_by_role("button", name="Send to PM").click()
-            expect(dialog.get_by_role("alert")).to_contain_text(text)
-            expect(dialog.get_by_label("Title")).to_have_value("PM refused")
-        # Unauthorized (e.g. session/owner revoked): HTTP error surfaced, nothing success.
-        state["chat_status"], state["chat"] = 403, dict(detail="Owner access required")
-        dialog.get_by_role("button", name="Send to PM").click()
-        expect(dialog.get_by_role("alert")).to_contain_text("Owner access required")
-        assert len(revoked) == 1 + len(cases) + 1
-        state["chat_status"] = 200
+        message.fill("The report bubble is tiny")
+        dialog.get_by_role("button", name="Send message").click()
+        log = dialog.get_by_role("log")
+        expect(log).to_contain_text("Which page or feature is affected")
+        assert posts[-1]["token"] == "t"
+        assert "The report bubble is tiny" in posts[-1]["pm"]["text"]
+        message.fill("The dashboard, high priority")
+        dialog.get_by_role("button", name="Send message").click()
+        expect(log).to_contain_text("create_task · result received")
+        expect(log).to_contain_text("Created task #9")
+        assert state["chat_calls"] == 2
+        assert_fits(page, dialog, "pm-chat")
 
-        # Duplicate-submit guard: a slow PM turn sends exactly one chat call.
-        calls = state["chat_calls"]
-        state["chat"] = dict(text="ok", events=[dict(tool="launch_task", is_error=False)])
-        dialog.get_by_role("button", name="Send to PM").dblclick()
-        expect(page.get_by_role("status").filter(has_text="Accepted and queued")).to_be_visible()
-        assert state["chat_calls"] == calls + 1
+        # Honest refusal text from the PM is shown as-is; errors are surfaced.
+        state["replies"] = [
+            dict(
+                text="Worker mac is offline, nothing was queued.",
+                events=[dict(tool="launch_task", is_error=True)],
+            )
+        ]
+        message.fill("queue it on mac")
+        dialog.get_by_role("button", name="Send message").click()
+        expect(log).to_contain_text("launch_task · reported an error")
+        expect(log).to_contain_text("Worker mac is offline")
+        state["chat_status"], state["replies"] = 403, [dict(detail="Owner access required")]
+        message.fill("again")
+        dialog.get_by_role("button", name="Send message").click()
+        expect(dialog.get_by_role("alert")).to_contain_text("Owner access required")
+        # Switching back and closing ends the PM conversation (capability revoked).
+        page.keyboard.press("Escape")
+        expect(dialog).to_be_hidden()
+        assert revoked == ["/api/v1/voice/sessions/s1"]
+        state["chat_status"] = 200
 
         # Escape closes; members never see the PM option.
         dialog = open_form(page)

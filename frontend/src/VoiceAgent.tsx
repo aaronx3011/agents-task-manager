@@ -8,9 +8,16 @@ import { refreshTaskViews } from "./task-sync";
 import { HoldToTalk, pointerWithinRect } from "./voice-hold";
 import "./voice-agent.css";
 
-export default function VoiceAgent() {
+export default function VoiceAgent({
+  embedded = false,
+  initialDraft = "",
+}: {
+  // Embedded in the Report bubble: same conversation, compact chrome.
+  embedded?: boolean;
+  initialDraft?: string;
+} = {}) {
   const [, render] = useState(0);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(initialDraft);
   const [client, setClient] = useState<PMConversation>();
   const transcript = useRef<HTMLDivElement>(null);
   const hold = useRef(new HoldToTalk());
@@ -59,15 +66,27 @@ export default function VoiceAgent() {
     };
   }, [client]);
   return (
-    <section className="voice-agent" aria-label="Voice agent">
+    <section
+      className={`voice-agent${embedded ? " voice-embedded" : ""}`}
+      aria-label="Voice agent"
+    >
       <header className="voice-heading">
         <div>
-          <h1>
-            <Mic size={23} /> PM router
-          </h1>
-          <p>
-            Talk naturally about projects, create tasks, and check progress.
-          </p>
+          {embedded ? (
+            <p>
+              Talk or type to the PM router. It will ask what it needs, then
+              create the task for you.
+            </p>
+          ) : (
+            <>
+              <h1>
+                <Mic size={23} /> PM router
+              </h1>
+              <p>
+                Talk naturally about projects, create tasks, and check progress.
+              </p>
+            </>
+          )}
         </div>
         <button
           className="secondary-button"
@@ -76,7 +95,11 @@ export default function VoiceAgent() {
           Clear conversation
         </button>
       </header>
-      <div className="voice-services" aria-label="Agent services">
+      <div
+        className="voice-services"
+        aria-label="Agent services"
+        hidden={embedded}
+      >
         <span data-ready={ready}>
           Fireworks reasoning ·{" "}
           {status.isPending ? "checking" : ready ? "configured" : "unavailable"}
@@ -97,7 +120,7 @@ export default function VoiceAgent() {
           Check connection
         </button>
       </div>
-      {status.data?.limits && (
+      {!embedded && status.data?.limits && (
         <p className="muted">
           Conversation limits:{" "}
           {status.data.limits.max_messages.toLocaleString()} messages
@@ -130,16 +153,23 @@ export default function VoiceAgent() {
         {!client?.entries.length && (
           <div className="voice-welcome">
             <Mic size={40} />
-            <h2>What would you like to work on?</h2>
+            <h2>
+              {embedded
+                ? "What would you like to report?"
+                : "What would you like to work on?"}
+            </h2>
             <p>
               Start a voice conversation, or type to chat without microphone
               access.
             </p>
             <div>
-              {[
-                "What projects need my attention?",
-                "What tasks are pending in agents-task-manager?",
-              ].map((text) => (
+              {(embedded
+                ? []
+                : [
+                    "What projects need my attention?",
+                    "What tasks are pending in agents-task-manager?",
+                  ]
+              ).map((text) => (
                 <button
                   className="secondary-button"
                   key={text}
@@ -315,7 +345,11 @@ export default function VoiceAgent() {
         >
           <input
             aria-label="Message PM agent"
-            placeholder="Ask about projects or describe a task…"
+            placeholder={
+              embedded
+                ? "Describe what you want to report…"
+                : "Ask about projects or describe a task…"
+            }
             value={draft}
             maxLength={4000}
             onChange={(event) => setDraft(event.target.value)}
@@ -333,7 +367,7 @@ export default function VoiceAgent() {
           Hold the button, Space or Enter to talk; release to send. Release
           outside or press Escape to discard.
         </p>
-        <p className="voice-footnote">
+        <p className="voice-footnote" hidden={embedded}>
           Fireworks reasoning · ElevenLabs transcription and speech · Speak to
           interrupt with push-to-talk · Task changes are handled by Task Manager
         </p>

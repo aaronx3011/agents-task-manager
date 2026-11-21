@@ -93,17 +93,40 @@
   width: auto;
   margin: 0;
 }
-.report-task-dialog .report-task-pair {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+.report-task-dialog .report-task-route {
+  margin: 16px 0;
+}
+.report-task-dialog .voice-agent {
+  padding: 0;
+  gap: 12px;
+  overflow: visible;
+}
+.report-task-dialog .voice-agent header {
+  align-items: center;
+}
+.report-task-dialog .voice-transcript {
+  flex: none;
+  height: min(260px, 32dvh);
+}
+.report-task-dialog .voice-controls {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+.report-task-dialog .voice-controls input {
+  width: auto;
+  flex: 1;
+}
+.report-task-dialog .voice-hold {
+  width: 100%;
+}
+.report-task-dialog .voice-buttons [role="status"] {
+  width: auto;
+  flex: 1;
 }
 @media (max-width: 560px) {
   .report-task-dialog {
     padding: 16px;
-  }
-  .report-task-dialog .report-task-pair {
-    grid-template-columns: minmax(0, 1fr);
   }
 }
 .report-task-dialog .report-task-error {
