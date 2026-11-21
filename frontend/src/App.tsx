@@ -1027,6 +1027,7 @@ export default function App() {
           <ReportTask
             projects={data?.projects || []}
             project={filters.project}
+            pmAvailable={canManage}
           />
         )}
         {location.task && (

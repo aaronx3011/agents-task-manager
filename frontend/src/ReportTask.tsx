@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { MessageSquarePlus, X } from "lucide-react";
@@ -7,12 +7,17 @@ import { refreshTaskViews } from "./task-sync";
 import type { Project } from "./types";
 import "./report-task.css";
 
+const VoiceAgent = lazy(() => import("./VoiceAgent"));
+
 export function ReportTask({
   projects,
   project,
+  pmAvailable = false,
 }: {
   projects: Project[];
   project: string;
+  // The PM router is owner-only on the server; members only see the form.
+  pmAvailable?: boolean;
 }) {
   const client = useQueryClient();
   const titleInput = useRef<HTMLInputElement>(null);
@@ -21,10 +26,13 @@ export function ReportTask({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("100");
+  const [route, setRoute] = useState<"task" | "pm">("task");
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+
+  const pmView = route === "pm" && pmAvailable;
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -70,8 +78,9 @@ export function ReportTask({
                 : projects[0]?.slug || "",
             );
             setTitle("");
-            setDescription("");
+            setDescription(`Page URL: ${window.location.href}\n\n`);
             setPriority("100");
+            setRoute("task");
             setError("");
             setNotice("");
           }
@@ -113,7 +122,45 @@ export function ReportTask({
               Report an issue or request work. It will be added as a pending
               task.
             </Dialog.Description>
-            <form onSubmit={(event) => void submit(event)} aria-busy={busy}>
+            {pmAvailable && (
+              <div
+                className="report-task-route"
+                role="radiogroup"
+                aria-label="Where to send this report"
+              >
+                <label>
+                  <input
+                    type="radio"
+                    name="report-route"
+                    checked={route === "task"}
+                    onChange={() => setRoute("task")}
+                  />
+                  Standard task form
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="report-route"
+                    checked={route === "pm"}
+                    onChange={() => setRoute("pm")}
+                  />
+                  Tag to PM router
+                </label>
+              </div>
+            )}
+            {pmView && (
+              <Suspense fallback={<p>Loading PM router…</p>}>
+                <VoiceAgent
+                  embedded
+                  initialDraft={`Report for project "${selectedProject}" from ${window.location.href}: `}
+                />
+              </Suspense>
+            )}
+            <form
+              hidden={pmView}
+              onSubmit={(event) => void submit(event)}
+              aria-busy={busy}
+            >
               <fieldset disabled={busy}>
                 <label>
                   Title
@@ -145,7 +192,7 @@ export function ReportTask({
                 <label>
                   Description
                   <textarea
-                    rows={5}
+                    rows={8}
                     maxLength={50000}
                     placeholder="What happened, or what needs to be done?"
                     value={description}
