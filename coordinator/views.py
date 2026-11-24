@@ -700,6 +700,10 @@ INTERACTION_CARD = inline_serializer(
     {
         "id": serializers.CharField(help_text="Request ID; send it back as payload.requestID."),
         "kind": serializers.ChoiceField(choices=["permission", "question"]),
+        "promptType": serializers.ChoiceField(
+            choices=["approve_deny", "multiple_choice", "free_text", "unknown"],
+            help_text="Hand-off classification (#431); only approve_deny can be auto-answered.",
+        ),
         "worker": serializers.CharField(),
         "sessionID": serializers.CharField(allow_null=True),
         "sessionTitle": serializers.CharField(allow_null=True),

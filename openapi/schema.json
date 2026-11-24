@@ -3967,10 +3967,19 @@
                     "note",
                     "execution.launched",
                     "execution.linked",
-                    "execution.done"
+                    "execution.done",
+                    "handoff.auto_answer"
                 ],
                 "type": "string",
-                "description": "* `created` - Created\n* `claimed` - Claimed\n* `heartbeat` - Heartbeat\n* `status_changed` - Status changed\n* `released` - Released\n* `note` - Note\n* `execution.launched` - Execution launched\n* `execution.linked` - Execution session linked\n* `execution.done` - Execution outcome"
+                "description": "* `created` - Created\n* `claimed` - Claimed\n* `heartbeat` - Heartbeat\n* `status_changed` - Status changed\n* `released` - Released\n* `note` - Note\n* `execution.launched` - Execution launched\n* `execution.linked` - Execution session linked\n* `execution.done` - Execution outcome\n* `handoff.auto_answer` - Hand-off auto-answer"
+            },
+            "HandoffModeEnum": {
+                "enum": [
+                    "off",
+                    "semi_auto"
+                ],
+                "type": "string",
+                "description": "* `off` - Off\n* `semi_auto` - Semi-automatic"
             },
             "HeartbeatResult": {
                 "type": "object",
@@ -4422,6 +4431,9 @@
                         "items": {
                             "type": "integer"
                         }
+                    },
+                    "handoff_mode": {
+                        "$ref": "#/components/schemas/HandoffModeEnum"
                     }
                 }
             },
@@ -4445,6 +4457,14 @@
                     },
                     "kind": {
                         "$ref": "#/components/schemas/PendingInteractionCardKindEnum"
+                    },
+                    "promptType": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/PromptTypeEnum"
+                            }
+                        ],
+                        "description": "Hand-off classification (#431); only approve_deny can be auto-answered.\n\n* `approve_deny` - approve_deny\n* `multiple_choice` - multiple_choice\n* `free_text` - free_text\n* `unknown` - unknown"
                     },
                     "worker": {
                         "type": "string"
@@ -4497,6 +4517,7 @@
                     "kind",
                     "lastSeenAt",
                     "patterns",
+                    "promptType",
                     "questions",
                     "replyCommandId",
                     "replyDispatched",
@@ -4812,6 +4833,16 @@
                     "text"
                 ]
             },
+            "PromptTypeEnum": {
+                "enum": [
+                    "approve_deny",
+                    "multiple_choice",
+                    "free_text",
+                    "unknown"
+                ],
+                "type": "string",
+                "description": "* `approve_deny` - approve_deny\n* `multiple_choice` - multiple_choice\n* `free_text` - free_text\n* `unknown` - unknown"
+            },
             "RealtimeTicket": {
                 "type": "object",
                 "properties": {
@@ -5069,6 +5100,9 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "handoff_mode": {
+                        "$ref": "#/components/schemas/HandoffModeEnum"
+                    },
                     "is_ready": {
                         "type": "boolean",
                         "readOnly": true
@@ -5106,6 +5140,7 @@
                     "dependency_progress",
                     "depends_on",
                     "description",
+                    "handoff_mode",
                     "heartbeat_at",
                     "id",
                     "is_ready",
@@ -5180,6 +5215,9 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "handoff_mode": {
+                        "$ref": "#/components/schemas/HandoffModeEnum"
+                    },
                     "is_ready": {
                         "type": "boolean",
                         "readOnly": true
@@ -5238,6 +5276,7 @@
                     "dependency_progress",
                     "depends_on",
                     "description",
+                    "handoff_mode",
                     "heartbeat_at",
                     "id",
                     "is_ready",
@@ -5337,6 +5376,9 @@
                         "items": {
                             "type": "integer"
                         }
+                    },
+                    "handoff_mode": {
+                        "$ref": "#/components/schemas/HandoffModeEnum"
                     }
                 },
                 "required": [

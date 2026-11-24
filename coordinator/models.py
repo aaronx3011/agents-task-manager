@@ -112,6 +112,10 @@ class Task(models.Model):
         DONE = "done", "Done"
         CANCELLED = "cancelled", "Cancelled"
 
+    class HandoffMode(models.TextChoices):
+        OFF = "off", "Off"
+        SEMI_AUTO = "semi_auto", "Semi-automatic"
+
     title = models.CharField(max_length=300)
     description = models.TextField(blank=True)
     project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="tasks")
@@ -129,6 +133,11 @@ class Task(models.Model):
     )
     blocked_reason = models.TextField(blank=True)
     result_summary = models.TextField(blank=True)
+    # Hand-off (#431): semi_auto auto-approves binary permission prompts for this
+    # task's sessions unless a deny rule matches; everything else waits for a human.
+    handoff_mode = models.CharField(
+        max_length=16, choices=HandoffMode.choices, default=HandoffMode.OFF
+    )
     created_by = models.ForeignKey(
         Agent, null=True, blank=True, on_delete=models.PROTECT, related_name="created_tasks"
     )
@@ -192,6 +201,7 @@ class TaskEvent(models.Model):
         EXECUTION_LAUNCHED = "execution.launched", "Execution launched"
         EXECUTION_LINKED = "execution.linked", "Execution session linked"
         EXECUTION_DONE = "execution.done", "Execution outcome"
+        HANDOFF_AUTO_ANSWER = "handoff.auto_answer", "Hand-off auto-answer"
 
     task = models.ForeignKey(Task, on_delete=models.PROTECT, related_name="events")
     agent = models.ForeignKey(Agent, null=True, blank=True, on_delete=models.PROTECT)
