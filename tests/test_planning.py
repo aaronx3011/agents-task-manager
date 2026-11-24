@@ -608,3 +608,126 @@ def test_parallel_ticks_create_exactly_one_session(project):
         list(pool.map(lambda _: tick(), range(2)))
     assert WorkerCommand.objects.filter(action="create").count() == 1
     assert PlanningJob.objects.filter(status="running").count() == 1
+
+
+# --- Hand-off mode before launch (#137) -------------------------------------
+
+
+def settings_now(staff, plan):
+    return staff.get(f"/api/projects/{plan.project.slug}/planning").json()["settings"]
+
+
+def set_project_handoff(staff, plan, mode):
+    return mutate(
+        staff,
+        plan,
+        "settings",
+        settings={
+            **settings_now(staff, plan),
+            "worker": plan.default_worker.name,
+            "handoff_mode": mode,
+        },
+    )
+
+
+def test_project_handoff_default_and_per_card_override(setup, agent_clients):
+    staff, worker, plan = setup
+    # The default is off, so nothing changes for projects that never set it.
+    assert settings_now(staff, plan)["handoff_mode"] == "off"
+    assert set_project_handoff(staff, plan, "semi_auto").status_code == 200
+    plan.refresh_from_db()
+    assert plan.handoff_mode == "semi_auto"
+    assert settings_now(staff, plan)["handoff_mode"] == "semi_auto"
+
+    inherited = card(plan, "Inherits the project default")
+    overridden = card(plan, "Opted back out")
+    assert (
+        mutate(
+            staff,
+            plan,
+            "card",
+            card={**editable_card_values(overridden), "handoff_mode": "off"},
+        ).status_code
+        == 200
+    )
+    overridden.refresh_from_db()
+    assert overridden.handoff_mode == "off"
+    # Blank keeps inheriting rather than freezing today's project default.
+    assert PlanningCard.objects.get(pk=inherited.pk).handoff_mode == ""
+
+    read = staff.get(f"/api/projects/{plan.project.slug}/planning").json()
+    cards = {row["id"]: row for row in read["cards"]}
+    assert cards[inherited.pk]["handoff_mode"] == ""
+    assert cards[inherited.pk]["effective_handoff_mode"] == "semi_auto"
+    assert cards[overridden.pk]["handoff_mode"] == "off"
+    assert cards[overridden.pk]["effective_handoff_mode"] == "off"
+
+    for c in (inherited, overridden):
+        assert mutate(staff, plan, "enqueue", card_id=c.pk).status_code == 200
+    jobs = {job.card_id: job for job in PlanningJob.objects.all()}
+    assert jobs[inherited.pk].snapshot["handoff_mode"] == "semi_auto"
+    assert jobs[overridden.pk].snapshot["handoff_mode"] == "off"
+
+
+def test_launching_a_card_creates_its_task_with_the_resolved_mode(setup, agent_clients):
+    staff, worker, plan = setup
+    assert set_project_handoff(staff, plan, "semi_auto").status_code == 200
+    c = card(plan, "Unattended work")
+    assert mutate(staff, plan, "enqueue", card_id=c.pk).status_code == 200
+    assert mutate(staff, plan, "play").status_code == 200
+    assert sync(agent_clients[0]).json()["commands"][0]["action"] == "create"
+    c.refresh_from_db()
+    # The flag must be on the task the runner actually claimed, not just the job.
+    assert Task.objects.get(pk=c.task_id).handoff_mode == "semi_auto"
+
+
+def test_card_handoff_edit_reaches_a_queued_job_before_it_starts(setup):
+    staff, worker, plan = setup
+    c = card(plan, "Changed my mind")
+    assert mutate(staff, plan, "enqueue", card_id=c.pk).status_code == 200
+    assert PlanningJob.objects.get(card=c).snapshot["handoff_mode"] == "off"
+    assert (
+        mutate(
+            staff,
+            plan,
+            "card",
+            card={**editable_card_values(c), "handoff_mode": "semi_auto"},
+        ).status_code
+        == 200
+    )
+    assert PlanningJob.objects.get(card=c).snapshot["handoff_mode"] == "semi_auto"
+
+
+def test_relaunching_a_card_applies_and_audits_the_queued_mode(setup, agent_clients):
+    staff, worker, plan = setup
+    c = card(plan, "Re-run with approvals on")
+    # Attach through create_task, which otherwise mints its own board card.
+    existing = services.create_task(agent=None, project=plan.project, title="Existing", card=c)
+    c.refresh_from_db()
+    assert c.task_id == existing.pk and existing.handoff_mode == "off"
+    c.handoff_mode = "semi_auto"
+    c.save()
+    assert mutate(staff, plan, "enqueue", card_id=c.pk).status_code == 200
+    assert mutate(staff, plan, "play").status_code == 200
+    assert sync(agent_clients[0]).json()["commands"][0]["action"] == "create"
+    existing.refresh_from_db()
+    assert existing.handoff_mode == "semi_auto"
+    note = existing.events.filter(message__contains="Hand-off mode").get()
+    assert "off -> semi_auto" in note.message
+
+
+def test_invalid_handoff_mode_is_rejected_for_project_and_card(setup):
+    staff, worker, plan = setup
+    assert set_project_handoff(staff, plan, "full_auto").status_code == 400
+    plan.refresh_from_db()
+    assert plan.handoff_mode == "off"
+    c = card(plan, "Unchanged")
+    rejected = mutate(
+        staff,
+        plan,
+        "card",
+        card={**editable_card_values(c), "handoff_mode": "full_auto"},
+    )
+    assert rejected.status_code == 400
+    c.refresh_from_db()
+    assert c.handoff_mode == ""

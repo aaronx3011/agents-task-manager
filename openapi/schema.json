@@ -3965,6 +3965,11 @@
                     "sessionID"
                 ]
             },
+            "BlankEnum": {
+                "enum": [
+                    ""
+                ]
+            },
             "CardInputRequest": {
                 "type": "object",
                 "properties": {
@@ -4024,6 +4029,16 @@
                             }
                         ],
                         "nullable": true
+                    },
+                    "handoff_mode": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/HandoffModeEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
                     }
                 },
                 "required": [
@@ -5030,6 +5045,14 @@
                     "instructions": {
                         "type": "string",
                         "maxLength": 8000
+                    },
+                    "handoff_mode": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/HandoffModeEnum"
+                            }
+                        ],
+                        "default": "off"
                     },
                     "templates": {
                         "type": "array",

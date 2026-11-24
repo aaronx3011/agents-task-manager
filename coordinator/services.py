@@ -790,6 +790,7 @@ def planning_read(project):
         "agent": plan.agent if plan else "",
         "context": plan.context if plan else "",
         "instructions": plan.instructions if plan else "",
+        "handoff_mode": plan.handoff_mode if plan else Task.HandoffMode.OFF,
         "templates": plan.templates if plan else [],
         "columns": plan.columns if plan else planning_columns(),
     }
@@ -810,6 +811,10 @@ def planning_read(project):
                     "worker": card.worker.name if card.worker_id else "",
                     "agent": card.agent,
                     "model": card.model,
+                    # The card's own override ("" inherits) and what it resolves
+                    # to, so the board can badge a card without re-deriving it.
+                    "handoff_mode": card.handoff_mode,
+                    "effective_handoff_mode": _card_handoff(plan, card),
                     "task": card.task_id,
                     "task_status": card.task.status if card.task else None,
                 }
@@ -932,6 +937,7 @@ def mutate_planning(project, actor, data):
             "directory": plan.directory or worker.create_directory or worker.directory,
             "agent": agent,
             "model": model,
+            "handoff_mode": _card_handoff(plan, card),
             "project": project.slug,
             "repo_url": project.repo_url,
             "docs_path": project.docs_path,
@@ -1468,6 +1474,16 @@ def voice_edit_queue(project, actor, operation, job_id=None, worker="", model=""
     }
 
 
+def _card_handoff(plan, card):
+    """Hand-off mode a card launches with (#137): its override, else the project default.
+
+    Deliberately not worker-scoped, unlike agent/model in ``_card_runner``: who
+    answers an approve/deny prompt is not a worker capability, so a card running
+    on a non-default worker still inherits the project's choice.
+    """
+    return card.handoff_mode or plan.handoff_mode
+
+
 def _card_snapshot(card):
     return {
         "title": card.title,
@@ -1488,7 +1504,13 @@ def _refresh_queued_job(plan, card):
     if job is None:
         return
     worker, agent, model = _card_runner(plan, card)
-    snapshot = {**job.snapshot, **_card_snapshot(card), "agent": agent, "model": model}
+    snapshot = {
+        **job.snapshot,
+        **_card_snapshot(card),
+        "agent": agent,
+        "model": model,
+        "handoff_mode": _card_handoff(plan, card),
+    }
     if worker.pk != job.worker_id and not plan.directory:
         # The frozen directory came from the old worker's defaults.
         snapshot["directory"] = worker.create_directory or worker.directory
@@ -1663,11 +1685,26 @@ def _advance_planning(plan, worker):
     try:
         with transaction.atomic():
             card = next_job.card
+            # The card's configuration governs what a launch does (#137), so a
+            # reused task adopts the queued hand-off mode instead of keeping a
+            # stale one. Always present on jobs queued since migration 0024.
+            handoff_mode = next_job.snapshot.get("handoff_mode") or Task.HandoffMode.OFF
             if card.task_id:
                 task = get_locked(card.task_id, skip_locked=True)
                 if not task.is_ready:
                     raise TaskError(
                         "Task is already owned or not ready; resolve it before launching"
+                    )
+                if task.handoff_mode != handoff_mode:
+                    previous = task.handoff_mode
+                    task.handoff_mode = handoff_mode
+                    task.save(update_fields=["handoff_mode", "updated_at"])
+                    log_human(
+                        task,
+                        TaskEvent.Type.NOTE,
+                        worker.agent,
+                        f"Hand-off mode {previous} -> {handoff_mode} from planning card",
+                        next_job.actor,
                     )
             else:
                 task = create_task(
@@ -1677,6 +1714,7 @@ def _advance_planning(plan, worker):
                     next_job.snapshot["description"],
                     human_actor=next_job.actor,
                     card=card,
+                    handoff_mode=handoff_mode,
                 )
             claim_task(worker.agent, task.pk)
             report_token = secrets.token_urlsafe(32)

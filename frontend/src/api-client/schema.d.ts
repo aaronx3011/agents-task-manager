@@ -1019,6 +1019,8 @@ export interface components {
     AttemptLinkRequest: {
       sessionID: string;
     };
+    /** @enum {unknown} */
+    BlankEnum: "";
     CardInputRequest: {
       id?: number;
       title: string;
@@ -1031,6 +1033,9 @@ export interface components {
       worker?: string;
       agent?: string;
       model?: components["schemas"]["ModelChoiceRequest"] | null;
+      handoff_mode?:
+        | components["schemas"]["HandoffModeEnum"]
+        | components["schemas"]["BlankEnum"];
     };
     ChatInputRequest: {
       text: string;
@@ -1345,6 +1350,8 @@ export interface components {
       agent: string;
       context: string;
       instructions: string;
+      /** @default off */
+      handoff_mode: components["schemas"]["HandoffModeEnum"];
       templates: components["schemas"]["PromptTemplateRequest"][];
       columns: string[];
     };

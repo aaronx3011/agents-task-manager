@@ -94,7 +94,18 @@ Pending interactions expose `promptType` (`approve_deny`, `multiple_choice`,
 `free_text`, `unknown`) so clients can tell an auto-answerable prompt from one that
 must be escalated.
 
-**Setting it.** Open a task and use **Hand-off mode → Prompt approvals** in the
+**Setting it before launch.** A project's planning settings carry a **Prompt
+approvals** default (`ProjectPlan.handoff_mode`), and each card may override it
+(`PlanningCard.handoff_mode`, blank inherits), exactly as worker/agent/model
+already work. The resolved mode is captured into the job snapshot at enqueue,
+refreshes while the job is still queued, and is applied to the task the runner
+creates — or to a reused task, audited as a task note, since the card's
+configuration governs what a launch does. Unlike agent and model this is not a
+worker capability, so a card on a non-default worker still inherits the project's
+choice. Cards whose effective mode is `semi_auto` are badged on the board, so an
+unattended card is identifiable without opening it. Requires migration `0024`.
+
+**Setting it on a running task.** Open a task and use **Hand-off mode → Prompt approvals** in the
 task detail modal; the control states what the selected mode automates and what
 still waits for a human, and the current mode shows as a badge beside the heading.
 Members and owners can change it, viewers see it read-only, and a `done` or

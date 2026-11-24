@@ -16,6 +16,72 @@ from playwright.sync_api import expect, sync_playwright
 
 PROJECT = dict(slug="alpha", name="Alpha", kind="x", active_count=0, docs_path="")
 TASK_ID = 901
+WORKER = dict(
+    name="worker-a",
+    agent="alpha",
+    is_enabled=True,
+    online=True,
+    connected=True,
+    stream_connected=True,
+    hostname="h",
+    opencode_version="1",
+    directory="/repo",
+    create_directory="/repo",
+    last_error="",
+    last_sync_at="2026-11-24T00:00:00Z",
+    default_model=dict(providerID="test", modelID="model"),
+    models=[dict(providerID="test", modelID="model")],
+    agents=[dict(name="build", mode="primary")],
+    dropped_events=0,
+)
+
+
+def planning_card(card_id, title, override, project_mode):
+    """A board card, with the server-resolved mode the badge reads."""
+    return dict(
+        id=card_id,
+        title=title,
+        description="",
+        column="Backlog",
+        position=card_id,
+        labels=[],
+        checklist=[],
+        instructions="",
+        worker="",
+        agent="",
+        model=None,
+        handoff_mode=override,
+        effective_handoff_mode=override or project_mode,
+        task=None,
+        task_status=None,
+    )
+
+
+def planning_body(plan):
+    project_mode = plan["handoff_mode"]
+    return dict(
+        project="alpha",
+        name="Alpha",
+        settings=dict(
+            worker="worker-a",
+            directory="/repo",
+            model=None,
+            agent="",
+            context="",
+            instructions="",
+            handoff_mode=project_mode,
+            templates=[],
+            columns=["Backlog", "Doing", "Done"],
+        ),
+        revision=plan["revision"],
+        playing=False,
+        pause_reason="",
+        cards=[
+            planning_card(1, "Inherits the project default", "", project_mode),
+            planning_card(2, "Opted out explicitly", "off", project_mode),
+        ],
+        jobs=[],
+    )
 
 
 def task_body(state):
@@ -64,7 +130,8 @@ def main():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     origin = f"http://127.0.0.1:{server.server_port}"
     state = dict(role="owner", mode="off", status="in_progress", patch_status=200)
-    patches, errors = [], []
+    plan = dict(handoff_mode="off", revision=1)
+    patches, plan_mutations, errors = [], [], []
 
     def api(route):
         request = route.request
@@ -100,6 +167,16 @@ def main():
             body = task_body(state)
         elif path.endswith(f"/tasks/{TASK_ID}/events"):
             body = dict(items=[], next_before=None)
+        elif path.endswith("/projects/alpha/planning"):
+            if request.method == "POST":
+                sent = request.post_data_json
+                plan_mutations.append(sent)
+                if sent["operation"] == "settings":
+                    plan["handoff_mode"] = sent["settings"]["handoff_mode"]
+                plan["revision"] += 1
+            body = planning_body(plan)
+        elif path.endswith("/workers"):
+            body = dict(count=1, items=[WORKER])
         else:
             body = dict(count=0, items=[])
         route.fulfill(status=status, json=body)
@@ -186,6 +263,55 @@ def main():
             page.set_viewport_size(dict(width=390, height=844))
             dialog = modal()
             expect(dialog.get_by_label("Prompt approvals")).to_be_visible()
+            page.set_viewport_size(dict(width=1440, height=900))
+
+            # --- Planning: setting the mode before a card ever launches (#137) ---
+
+            def planning(tab):
+                page.goto(f"{origin}/?section=planning&project=alpha&planning_tab={tab}")
+                return page.locator(".planning-page")
+
+            # 8. The project default is settable in planning settings.
+            board = planning("settings")
+            project_select = board.get_by_label("Project hand-off mode")
+            expect(project_select).to_have_value("off")
+            expect(project_select.locator("option")).to_have_text(["Off", "Semi-automatic"])
+            project_select.select_option("semi_auto")
+            page.get_by_role("button", name="Save project settings").click()
+            settings_writes = [m for m in plan_mutations if m["operation"] == "settings"]
+            assert settings_writes, plan_mutations
+            assert settings_writes[-1]["settings"]["handoff_mode"] == "semi_auto"
+            assert plan["handoff_mode"] == "semi_auto"
+
+            # 9. The board badges only the cards that will launch unattended.
+            board = planning("board")
+            inheriting = board.locator(".planning-card", has_text="Inherits the project default")
+            opted_out = board.locator(".planning-card", has_text="Opted out explicitly")
+            expect(inheriting.locator(".planning-handoff-badge")).to_have_text(
+                "Semi-auto approvals"
+            )
+            # An explicit "off" override must not be badged even though the
+            # project default is semi_auto.
+            expect(opted_out.locator(".planning-handoff-badge")).to_have_count(0)
+
+            # 10. A card's own override names what it would otherwise inherit.
+            inheriting.get_by_role("button", name="Inherits the project default").click()
+            card_select = page.get_by_label("Task hand-off mode")
+            expect(card_select).to_have_value("")
+            expect(card_select.locator("option")).to_have_text(
+                ["Project default (Semi-automatic)", "Off", "Semi-automatic"]
+            )
+            card_select.select_option("off")
+            expect(card_select).to_have_value("off")
+
+            # Turning the project default off un-badges the inheriting card.
+            plan["handoff_mode"] = "off"
+            board = planning("board")
+            expect(
+                board.locator(".planning-card", has_text="Inherits the project default").locator(
+                    ".planning-handoff-badge"
+                )
+            ).to_have_count(0)
 
             context.close()
             browser.close()

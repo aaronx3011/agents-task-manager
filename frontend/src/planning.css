@@ -184,6 +184,23 @@
   margin-top: 8px;
   font-size: 11px;
 }
+/* Only shown for semi_auto, so it reads as a warning rather than a label. */
+.planning-handoff-badge {
+  display: inline-block;
+  margin-top: 8px;
+  border: 1px solid #e9bd8140;
+  background: #e9bd8112;
+  color: var(--amber, #e9bd81);
+  border-radius: 5px;
+  padding: 3px 6px;
+  font-size: 10px;
+}
+.planning-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--muted, #8795a8);
+  line-height: 1.6;
+}
 .planning-help {
   font-size: 12px;
 }

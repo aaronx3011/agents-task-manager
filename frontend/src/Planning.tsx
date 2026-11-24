@@ -17,6 +17,17 @@ import { refreshTaskViews } from "./task-sync";
 import type { ModelChoice, Worker } from "./opencode-types";
 import { ErrorState, Loading } from "./ui";
 import { useAccess } from "./auth";
+import {
+  CARD_HANDOFF_CHOICES,
+  cardHandoffLabel,
+  effectiveHandoffMode,
+  HANDOFF_MODES,
+  handoffCopy,
+  isCardHandoff,
+  normalizeHandoffMode,
+  type CardHandoff,
+  type HandoffMode,
+} from "./handoff";
 import "./auth.css";
 import "./planning.css";
 
@@ -27,6 +38,8 @@ interface SettingsData {
   agent: string;
   context: string;
   instructions: string;
+  /** Hand-off default for cards launched from this project (#137). */
+  handoff_mode: HandoffMode;
   templates: { name: string; text: string }[];
   columns: string[];
 }
@@ -43,6 +56,9 @@ interface Card {
   worker?: string;
   agent: string;
   model: ModelChoice | null;
+  /** Blank inherits the project default; the server also resolves it for us. */
+  handoff_mode?: CardHandoff;
+  effective_handoff_mode?: HandoffMode;
   task?: number | null;
   task_status?: Status | null;
 }
@@ -76,6 +92,29 @@ type Navigate = (
   changes: Record<string, string | number | null>,
   push?: boolean,
 ) => void;
+
+/** Marks cards that will launch without stopping for approve/deny prompts (#137).
+ *
+ * Only semi_auto is badged: "off" is the default and badging every card would
+ * say nothing. The server resolves inheritance, so trust it when present.
+ */
+function HandoffBadge({
+  card,
+  projectMode,
+}: {
+  card: Card;
+  projectMode: HandoffMode;
+}) {
+  const mode = card.effective_handoff_mode
+    ? normalizeHandoffMode(card.effective_handoff_mode)
+    : effectiveHandoffMode(card.handoff_mode, projectMode);
+  if (mode !== "semi_auto") return null;
+  return (
+    <span className="planning-handoff-badge" title={handoffCopy(mode).summary}>
+      Semi-auto approvals
+    </span>
+  );
+}
 
 export default function Planning({
   projects,
@@ -606,6 +645,10 @@ function ProjectPlanning({
                       {card.checklist.length}
                     </small>
                   )}
+                  <HandoffBadge
+                    card={card}
+                    projectMode={data.settings.handoff_mode}
+                  />
                   {card.task && (
                     <button
                       className="planning-task-link"
@@ -744,6 +787,10 @@ function ProjectPlanning({
                             {card.checklist.length}
                           </small>
                         )}
+                        <HandoffBadge
+                          card={card}
+                          projectMode={data.settings.handoff_mode}
+                        />
                         {card.task && (
                           <button
                             className="planning-task-link"
@@ -1116,7 +1163,46 @@ function ProjectPlanning({
                       ))}
                     </select>
                   </label>
+                  <label>
+                    Prompt approvals for this task
+                    <select
+                      aria-label="Task hand-off mode"
+                      value={editor.handoff_mode ?? ""}
+                      onChange={(e) =>
+                        setEditor({
+                          ...editor,
+                          handoff_mode: isCardHandoff(e.target.value)
+                            ? e.target.value
+                            : "",
+                        })
+                      }
+                    >
+                      {CARD_HANDOFF_CHOICES.map((choice) => (
+                        <option key={choice || "inherit"} value={choice}>
+                          {cardHandoffLabel(choice, data.settings.handoff_mode)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
+                <p className="planning-hint">
+                  {
+                    handoffCopy(
+                      effectiveHandoffMode(
+                        editor.handoff_mode,
+                        data.settings.handoff_mode,
+                      ),
+                    ).summary
+                  }{" "}
+                  {
+                    handoffCopy(
+                      effectiveHandoffMode(
+                        editor.handoff_mode,
+                        data.settings.handoff_mode,
+                      ),
+                    ).escalation
+                  }
+                </p>
                 <label>
                   Default instructions for this card
                   <textarea
@@ -1458,6 +1544,29 @@ function SettingsForm({
           </select>
         </label>
       </div>
+      <label>
+        Prompt approvals — the default for cards launched from this project
+        <select
+          aria-label="Project hand-off mode"
+          value={draft.handoff_mode}
+          onChange={(e) =>
+            setDraft({
+              ...draft,
+              handoff_mode: normalizeHandoffMode(e.target.value),
+            })
+          }
+        >
+          {HANDOFF_MODES.map((mode) => (
+            <option key={mode} value={mode}>
+              {handoffCopy(mode).label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="planning-hint">
+        {handoffCopy(draft.handoff_mode).summary}{" "}
+        {handoffCopy(draft.handoff_mode).escalation}
+      </p>
       <label>
         Project context
         <textarea

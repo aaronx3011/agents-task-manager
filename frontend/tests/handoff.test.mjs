@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  CARD_HANDOFF_CHOICES,
+  cardHandoffLabel,
+  effectiveHandoffMode,
   HANDOFF_MODES,
   handoffCopy,
   handoffLockReason,
+  isCardHandoff,
   isHandoffMode,
   nextHandoffMode,
   normalizeHandoffMode,
@@ -58,4 +62,32 @@ test("viewers and finished tasks are locked, live tasks are editable", () => {
   );
   for (const status of ["pending", "in_progress", "blocked", "review"])
     assert.equal(handoffLockReason(true, status), null, status);
+});
+
+test("a card inherits the project default until it overrides it", () => {
+  assert.deepEqual([...CARD_HANDOFF_CHOICES], ["", "off", "semi_auto"]);
+  assert.ok(isCardHandoff("") && isCardHandoff("off") && isCardHandoff("semi_auto"));
+  assert.equal(isCardHandoff("full_auto"), false);
+
+  // Blank, missing or unrecognised on the card means inherit, matching the
+  // server's `card.handoff_mode or plan.handoff_mode`.
+  for (const blank of ["", null, undefined, "full_auto"])
+    assert.equal(effectiveHandoffMode(blank, "semi_auto"), "semi_auto", String(blank));
+  assert.equal(effectiveHandoffMode("", "off"), "off");
+  // An override wins over the project default, in both directions.
+  assert.equal(effectiveHandoffMode("off", "semi_auto"), "off");
+  assert.equal(effectiveHandoffMode("semi_auto", "off"), "semi_auto");
+  // An unknown project default cannot resolve to auto-approving.
+  assert.equal(effectiveHandoffMode("", "full_auto"), "off");
+});
+
+test("the inherit choice names what it inherits", () => {
+  assert.equal(cardHandoffLabel("", "off"), "Project default (Off)");
+  assert.equal(
+    cardHandoffLabel("", "semi_auto"),
+    "Project default (Semi-automatic)",
+  );
+  // An explicit override reads as itself, not as a default.
+  assert.equal(cardHandoffLabel("off", "semi_auto"), "Off");
+  assert.equal(cardHandoffLabel("semi_auto", "off"), "Semi-automatic");
 });

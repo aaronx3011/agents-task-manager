@@ -52,6 +52,39 @@ export function normalizeHandoffMode(value: unknown): HandoffMode {
   return isHandoffMode(value) ? value : "off";
 }
 
+/** A planning card's own choice: a mode, or "" to inherit the project default (#137). */
+export type CardHandoff = HandoffMode | "";
+
+export const CARD_HANDOFF_CHOICES = [
+  "",
+  ...HANDOFF_MODES,
+] as const satisfies readonly CardHandoff[];
+
+export function isCardHandoff(value: unknown): value is CardHandoff {
+  return value === "" || isHandoffMode(value);
+}
+
+/** What a card will actually launch with. Mirrors services._card_handoff. */
+export function effectiveHandoffMode(
+  cardMode: unknown,
+  projectMode: unknown,
+): HandoffMode {
+  // Blank, missing or unrecognised on the card means inherit, exactly as the
+  // server's `card.handoff_mode or plan.handoff_mode` does.
+  const card = isCardHandoff(cardMode) ? cardMode : "";
+  return card === "" ? normalizeHandoffMode(projectMode) : card;
+}
+
+/** Label for a card's override selector, where blank names what it inherits. */
+export function cardHandoffLabel(
+  value: CardHandoff,
+  projectMode: HandoffMode,
+): string {
+  return value === ""
+    ? `Project default (${handoffCopy(projectMode).label})`
+    : handoffCopy(value).label;
+}
+
 /** Why the control is unavailable, or null when the user may change it. */
 export function handoffLockReason(
   canWrite: boolean,

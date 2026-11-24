@@ -7,7 +7,7 @@ from rest_framework.response import Response
 
 from . import services
 from .auth import IsMember, ViewerReadsMemberWrites, get_agent, human_actor
-from .models import Project, Worker
+from .models import Project, Task, Worker
 from .openapi import PROJECT_CREATED, READ_MODEL
 
 
@@ -56,6 +56,10 @@ class PlanSettings(serializers.Serializer):
     agent = serializers.CharField(max_length=100, allow_blank=True, default="")
     context = serializers.CharField(max_length=8000, allow_blank=True)
     instructions = serializers.CharField(max_length=8000, allow_blank=True)
+    # Hand-off default for cards launched from this project (#137).
+    handoff_mode = serializers.ChoiceField(
+        choices=Task.HandoffMode.choices, required=False, default=Task.HandoffMode.OFF
+    )
     templates = PromptTemplate(many=True, max_length=30)
     columns = serializers.ListField(
         child=serializers.CharField(max_length=100), min_length=1, max_length=20
@@ -95,6 +99,10 @@ class CardInput(serializers.Serializer):
     worker = serializers.CharField(max_length=100, allow_blank=True, required=False)
     agent = serializers.CharField(max_length=100, allow_blank=True, required=False)
     model = ModelChoice(allow_null=True, required=False)
+    # Blank inherits the project's hand-off default (#137).
+    handoff_mode = serializers.ChoiceField(
+        choices=Task.HandoffMode.choices, required=False, allow_blank=True
+    )
 
     def validate_worker(self, value):
         if value and not Worker.objects.filter(name=value).exists():

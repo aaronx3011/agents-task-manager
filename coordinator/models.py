@@ -608,6 +608,10 @@ class ProjectPlan(models.Model):
     agent = models.CharField(max_length=100, blank=True)
     context = models.TextField(blank=True)
     instructions = models.TextField(blank=True)
+    # Hand-off default for cards launched from this project (#137); a card may override it.
+    handoff_mode = models.CharField(
+        max_length=16, choices=Task.HandoffMode.choices, default=Task.HandoffMode.OFF
+    )
     templates = models.JSONField(default=list, blank=True)
     columns = models.JSONField(default=planning_columns)
     playing = models.BooleanField(default=False)
@@ -630,6 +634,11 @@ class PlanningCard(models.Model):
     )
     agent = models.CharField(max_length=100, blank=True)
     model = models.JSONField(null=True, blank=True)
+    # Blank inherits the project's hand-off default (#137). Unlike agent/model this
+    # is not a worker capability, so it inherits even on a non-default worker.
+    handoff_mode = models.CharField(
+        max_length=16, choices=Task.HandoffMode.choices, blank=True, default=""
+    )
     task = models.OneToOneField(Task, null=True, blank=True, on_delete=models.PROTECT)
     archived = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
