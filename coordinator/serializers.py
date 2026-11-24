@@ -52,6 +52,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "depends_on",
             "blocked_reason",
             "result_summary",
+            "handoff_mode",
             "is_ready",
             "dependency_progress",
             "created_by",

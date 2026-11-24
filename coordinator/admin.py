@@ -104,6 +104,14 @@ class TaskAdminForm(forms.ModelForm):
         model = Task
         fields = "__all__"
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Hand-off mode is optional on the form; an omitted value keeps the current one.
+        self.fields["handoff_mode"].required = False
+
+    def clean_handoff_mode(self):
+        return self.cleaned_data.get("handoff_mode") or self.instance.handoff_mode
+
     def clean(self):
         data = super().clean()
         dependencies = data.get("depends_on", [])
