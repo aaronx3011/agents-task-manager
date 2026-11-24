@@ -12,6 +12,29 @@ load_dotenv()
 mcp = FastMCP("task-coordinator")
 
 
+def error_messages(value) -> str:
+    """Flatten a DRF error value, which nests lists and dicts per field."""
+    if isinstance(value, list):
+        return " ".join(error_messages(item) for item in value)
+    if isinstance(value, dict):
+        return " ".join(f"{name}: {error_messages(item)}" for name, item in sorted(value.items()))
+    return str(value)
+
+
+def error_detail(response) -> str:
+    """Readable rejection text, including per-field validation errors (400s).
+
+    Only the response body is used, so the agent's API key is never echoed back.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        return "Request rejected"
+    if isinstance(body, dict) and "detail" in body:
+        body = body["detail"]
+    return error_messages(body).strip()[:500] or "Request rejected"
+
+
 def call(method: str, path: str, *, empty_claim_ok=False, **kwargs):
     base_url = os.environ.get("COORDINATOR_URL", "http://localhost:8000").rstrip("/")
     key = os.environ.get("COORDINATOR_API_KEY", "")
@@ -35,10 +58,7 @@ def call(method: str, path: str, *, empty_claim_ok=False, **kwargs):
                 return None
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
-        try:
-            detail = exc.response.json().get("detail", "Request rejected")
-        except (ValueError, AttributeError):
-            detail = "Request rejected"
+        detail = error_detail(exc.response)
         raise RuntimeError(f"Coordinator HTTP {exc.response.status_code}: {detail}") from None
     except httpx.RequestError:
         raise RuntimeError(
@@ -89,8 +109,14 @@ def create_task(
     description: str = "",
     priority: int = 100,
     depends_on: list[int] | None = None,
+    handoff_mode: Literal["off", "semi_auto"] = "off",
 ) -> dict:
-    """Create a task with acceptance criteria and optional existing prerequisite IDs."""
+    """Create a task with acceptance criteria and optional existing prerequisite IDs.
+
+    handoff_mode "semi_auto" lets this task's sessions auto-approve binary
+    approve/deny permission prompts unless a deny rule matches; questions and
+    denied patterns still wait for a human. "off" is the default behaviour.
+    """
     return call(
         "POST",
         "tasks",
@@ -100,8 +126,49 @@ def create_task(
             "description": description,
             "priority": priority,
             "depends_on": depends_on or [],
+            "handoff_mode": handoff_mode,
         },
     )
+
+
+@mcp.tool()
+def update_task(
+    task_id: int,
+    title: str | None = None,
+    description: str | None = None,
+    project: str | None = None,
+    priority: int | None = None,
+    depends_on: list[int] | None = None,
+    handoff_mode: Literal["off", "semi_auto"] | None = None,
+) -> dict:
+    """Edit your claimed task's editable fields; omitted arguments are left unchanged.
+
+    Only the claiming agent may edit a task, so another agent's task is rejected
+    with HTTP 403. Use the lifecycle tools for status, blockers and summaries.
+    """
+    changes = {
+        "title": title,
+        "description": description,
+        "project": project,
+        "priority": priority,
+        "depends_on": depends_on,
+        "handoff_mode": handoff_mode,
+    }
+    changes = {name: value for name, value in changes.items() if value is not None}
+    if not changes:
+        raise ValueError("Pass at least one field to update")
+    return call("PATCH", f"tasks/{task_id}", json=changes)
+
+
+@mcp.tool()
+def list_pending_prompts() -> dict:
+    """List unresolved permission and question prompts for your bound worker.
+
+    Read-only: each card carries promptType (approve_deny, multiple_choice,
+    free_text, unknown) alongside worker, session and request identity. Answering
+    prompts stays with humans through the coordinator workspace.
+    """
+    return call("GET", "interactions")
 
 
 @mcp.tool()
