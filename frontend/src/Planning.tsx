@@ -503,6 +503,7 @@ function ProjectPlanning({
     ) : (
       <Loading label="Loading project planning…" />
     );
+  const pipes = data.pipes ?? [];
   const queued = data.jobs.filter((j) => j.status === "queued");
   const active = data.jobs.find((j) => j.status === "running");
   const workerList = workers.data?.items || [];
@@ -562,7 +563,7 @@ function ProjectPlanning({
                   : t === "queue"
                     ? `Queue (${queued.length})`
                     : t === "pipes"
-                      ? `Pipes (${data.pipes.length})`
+                      ? `Pipes (${pipes.length})`
                       : t[0].toUpperCase() + t.slice(1)}
               </button>
             ),
@@ -890,7 +891,7 @@ function ProjectPlanning({
           </>
         ) : tab === "pipes" ? (
           <PipesPanel
-            pipes={data.pipes}
+            pipes={pipes}
             workers={workerList}
             busy={busy}
             canWrite={canWrite}
