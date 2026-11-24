@@ -253,13 +253,49 @@ worker sync never renews claims. Reload the MCP connection after upgrading to
 discover the new tool. Staff can also explicitly complete a task with a handoff
 summary from the queue.
 
+### Pipes
+
+A **pipe** is a named, ordered plan → execute → test pipeline on the same durable
+queue (task #437 / GH #140). Open **Planning → Pipes** and choose **New pipe**.
+Each stage names its own worker, optional agent/model, directory, instructions and
+an optional **checkpoint after this stage**. Worker/model choices are validated
+against that worker's reported catalog at creation; an offline worker or unknown
+model/directory is refused before any row is written. Created pipes use
+`POST /api/projects/{slug}/planning` with `operation: "pipe_create"`; approval and
+stop use `pipe_approve` and `pipe_stop` with `pipe_id`.
+
+Stages run one at a time as normal `PlanningJob` rows with a `pipe_stage`
+reference. Only an explicit task `done` admits the next stage, and it is inserted
+directly after the finished job so later queue work shifts down. The next stage's
+first prompt includes every earlier stage artifact (up to 8,000 characters each)
+plus any last failed test report, so execution receives the plan and test receives
+the implementation without manual re-prompting. The completed task's result
+summary is the artifact; its audit note and the pipe view expose it.
+
+Failure policy is per pipe:
+
+- **stop** (default) marks the stage and pipe failed, pauses the queue and waits
+  for a human to resolve the task.
+- **loop** (execute stage before a test stage) re-runs execute → test with a
+  bounded `max_retries` (0–5, default 1). Each retry uses fresh stage cards and
+  keeps the failed report as `last_failure` context; the cancelled retry job stays
+  visible.
+
+A checkpoint pauses the pipe with `awaiting_approval`; **Play** is refused until
+**Approve checkpoint** (`pipe_approve`) queues the next stage. Stop pauses, cancels
+waiting stage jobs and interrupts a running stage without marking its task done.
+Running stages are never silently retargeted or removed; remove/reorder refuse pipe
+stage jobs. Owner/CSRF/capability gates, durable ordering and explicit-completion
+rules are unchanged.
+
 Planning API: staff-session-only `GET/POST /api/projects/{slug}/planning`, with
 CSRF on writes and revision-based conflict detection. Agent reporting uses
 `POST /api/planning/jobs/{id}/report` plus agent authentication and the scoped
 token. Architecture/operations and verification: [issue #28](https://github.com/aaronx3011/agents-task-manager/issues/28).
-Apply migration `0011` before serving this feature. Source:
+Apply migration `0025` before serving pipes. Source:
 `frontend/src/Planning.tsx`, `coordinator/planning_api.py`, and planning services
-in `coordinator/services.py`; focused regression tests: `tests/test_planning.py`.
+in `coordinator/services.py`; focused regression tests: `tests/test_planning.py`
+and `tests/test_pipes.py`. Pipes need no Compose/env changes.
 
 ## Notion mirror
 
@@ -405,6 +441,13 @@ audit notes; worker sync also defensively invalidates such entries before dispat
 Only explicit task done advances successful work. Owner/capability checks apply to
 every call, and foreign browser origins are refused. The PM cannot message worker
 sessions. No Compose/env changes or new configuration are required.
+
+Pipes are also in the PM toolset. `create_pipe(project, title, stages, on_failure?,
+max_retries?, play?)` queues an ordered multi-stage pipeline; `get_queue` reports
+each pipe's stages, workers, models and status; `approve_pipe(project, pipe_id)`
+is the only way to resume a checkpoint; `stop_pipe(project, pipe_id)` pauses,
+cancels waiting stages and may queue an interrupt. The router says accepted/queued,
+never completed, and play is refused while a checkpoint waits.
 
 Set these on the **Django API** container/service, not the frontend:
 

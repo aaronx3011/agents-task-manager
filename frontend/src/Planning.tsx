@@ -77,6 +77,41 @@ interface Job {
   detail: string;
   prompt: string;
   snapshot: Record<string, unknown>;
+  pipe: number | null;
+  stage: { id: number; position: number; name: string; role: string } | null;
+}
+interface PipeStageView {
+  id: number;
+  position: number;
+  name: string;
+  role: string;
+  status: string;
+  worker: string;
+  agent: string;
+  model: ModelChoice | null;
+  directory: string;
+  requires_approval: boolean;
+  artifact: string;
+  attempts: number;
+  card: number | null;
+  task: number | null;
+  job: number | null;
+  job_status: string | null;
+  job_detail: string;
+  session: string;
+  task_status: Status | null;
+}
+interface PipeView {
+  id: number;
+  title: string;
+  description: string;
+  status: string;
+  detail: string;
+  on_failure: "stop" | "loop";
+  max_retries: number;
+  retries_used: number;
+  approved_stage: number;
+  stages: PipeStageView[];
 }
 interface Plan {
   project: string;
@@ -87,6 +122,7 @@ interface Plan {
   jobs: Job[];
   playing: boolean;
   pause_reason: string;
+  pipes: PipeView[];
 }
 type Navigate = (
   changes: Record<string, string | number | null>,
@@ -513,16 +549,24 @@ function ProjectPlanning({
           role="group"
           aria-label="Project planning view"
         >
-          {(["overview", "board", "queue", "settings"] as const).map((t) => (
-            <button key={t} aria-pressed={tab === t} onClick={() => setTab(t)}>
-              {t === "settings" && <Settings size={14} />}{" "}
-              {t === "overview"
-                ? "Planning"
-                : t === "queue"
-                  ? `Queue (${queued.length})`
-                  : t[0].toUpperCase() + t.slice(1)}
-            </button>
-          ))}
+          {(["overview", "board", "queue", "pipes", "settings"] as const).map(
+            (t) => (
+              <button
+                key={t}
+                aria-pressed={tab === t}
+                onClick={() => setTab(t)}
+              >
+                {t === "settings" && <Settings size={14} />}{" "}
+                {t === "overview"
+                  ? "Planning"
+                  : t === "queue"
+                    ? `Queue (${queued.length})`
+                    : t === "pipes"
+                      ? `Pipes (${data.pipes.length})`
+                      : t[0].toUpperCase() + t.slice(1)}
+              </button>
+            ),
+          )}
         </div>
         <span className="planning-status" role="status">
           {data.playing
@@ -844,6 +888,27 @@ function ProjectPlanning({
               update its status here and in All Tasks.
             </p>
           </>
+        ) : tab === "pipes" ? (
+          <PipesPanel
+            pipes={data.pipes}
+            workers={workerList}
+            busy={busy}
+            canWrite={canWrite}
+            mutate={mutate}
+            openTask={openTask}
+            session={(stage) =>
+              stage.session &&
+              navigate(
+                {
+                  section: "sessions",
+                  worker: stage.worker,
+                  session: stage.session,
+                  task: null,
+                },
+                true,
+              )
+            }
+          />
         ) : (
           <div className="planning-queue">
             <p>
@@ -866,6 +931,9 @@ function ProjectPlanning({
                     {job.status} · {job.worker}
                     {job.agent ? ` · ${job.agent}` : ""}
                     {` · ${job.model?.modelID || "worker default model"}`}
+                    {job.stage
+                      ? ` · pipe stage ${job.stage.position} ${job.stage.name}`
+                      : ""}
                     {job.task_status ? ` · task ${job.task_status}` : ""}
                   </small>
                   {job.detail && <p>{job.detail}</p>}
@@ -1385,6 +1453,474 @@ function editableCard(card: Card) {
 }
 
 /** Options for a per-card worker select; blank means the project default. */
+interface PipeStageDraft {
+  name: string;
+  role: string;
+  instructions: string;
+  worker: string;
+  agent: string;
+  /** provider/model from the selected worker's catalog; empty is its default. */
+  model: string;
+  directory: string;
+  requires_approval: boolean;
+}
+
+const PIPE_ROLES = ["plan", "execute", "test", "custom"] as const;
+
+function defaultPipeStages(): PipeStageDraft[] {
+  return [
+    {
+      name: "Plan",
+      role: "plan",
+      instructions:
+        "Produce the implementation plan and hand it to the execute stage.",
+      worker: "",
+      agent: "",
+      model: "",
+      directory: "",
+      requires_approval: true,
+    },
+    {
+      name: "Execute",
+      role: "execute",
+      instructions:
+        "Implement the plan artifact. Report concrete files, behavior and checks.",
+      worker: "",
+      agent: "",
+      model: "",
+      directory: "",
+      requires_approval: false,
+    },
+    {
+      name: "Test",
+      role: "test",
+      instructions:
+        "Verify the implementation artifact and report the test result.",
+      worker: "",
+      agent: "",
+      model: "",
+      directory: "",
+      requires_approval: false,
+    },
+  ];
+}
+
+function PipesPanel({
+  pipes,
+  workers,
+  busy,
+  canWrite,
+  mutate,
+  openTask,
+  session,
+}: {
+  pipes: PipeView[];
+  workers: Worker[];
+  busy: boolean;
+  canWrite: boolean;
+  mutate: (
+    values: Record<string, unknown>,
+    revision?: number,
+  ) => Promise<boolean>;
+  openTask: (id: number) => void;
+  session: (stage: PipeStageView) => void;
+}) {
+  const [creating, setCreating] = useState(false);
+  return (
+    <div className="planning-pipes">
+      <p>
+        A pipe runs an ordered plan → execute → test sequence on the same
+        durable queue. Each stage can use its own worker and model, receives the
+        previous stage&apos;s report artifact, and only an explicit task done
+        advances it. Stage jobs show here and in the Queue tab.
+      </p>
+      <div className="planning-pipe-toolbar">
+        <button
+          disabled={!canWrite || busy}
+          onClick={() => setCreating((value) => !value)}
+        >
+          <Plus size={16} /> {creating ? "Close" : "New pipe"}
+        </button>
+      </div>
+      {creating && canWrite && (
+        <PipeForm
+          workers={workers}
+          busy={busy}
+          close={() => setCreating(false)}
+          submit={async (pipe) => {
+            const ok = await mutate({ operation: "pipe_create", pipe });
+            if (ok) setCreating(false);
+            return ok;
+          }}
+        />
+      )}
+      {!pipes.length && <p>No pipes yet. Create one above.</p>}
+      {pipes.map((pipe) => (
+        <article className={`planning-pipe ${pipe.status}`} key={pipe.id}>
+          <header>
+            <div>
+              <strong>{pipe.title}</strong>
+              <small>
+                {pipe.status.replaceAll("_", " ")} ·{" "}
+                {pipe.on_failure === "loop"
+                  ? `loop on test failure (${pipe.retries_used}/${pipe.max_retries} retries)`
+                  : "stops for a human on failure"}
+                {pipe.approved_stage
+                  ? ` · approved through stage ${pipe.approved_stage}`
+                  : ""}
+              </small>
+              {pipe.description && <p>{pipe.description}</p>}
+              {pipe.detail && <p>{pipe.detail}</p>}
+            </div>
+            <div className="planning-pipe-actions">
+              {pipe.status === "awaiting_approval" && (
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    void mutate({
+                      operation: "pipe_approve",
+                      pipe_id: pipe.id,
+                    })
+                  }
+                >
+                  Approve checkpoint
+                </button>
+              )}
+              {!["completed", "cancelled", "failed"].includes(pipe.status) && (
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    void mutate({ operation: "pipe_stop", pipe_id: pipe.id })
+                  }
+                >
+                  <Square size={14} /> Stop pipe
+                </button>
+              )}
+            </div>
+          </header>
+          <ol className="planning-pipe-stages">
+            {pipe.stages.map((stage) => (
+              <li
+                className={`planning-pipe-stage ${stage.status}`}
+                key={stage.id}
+              >
+                <div>
+                  <strong>
+                    {stage.position}. {stage.name}
+                  </strong>
+                  <small>
+                    {stage.role} · {stage.status} · {stage.worker}
+                    {stage.model
+                      ? ` · ${stage.model.modelID}`
+                      : " · worker default model"}
+                    {stage.requires_approval ? " · checkpoint after" : ""}
+                  </small>
+                  <small>
+                    {stage.directory}
+                    {stage.attempts > 1 ? ` · attempt ${stage.attempts}` : ""}
+                  </small>
+                  {stage.task_status && <small>task {stage.task_status}</small>}
+                </div>
+                <div className="planning-pipe-actions">
+                  {stage.task && (
+                    <button onClick={() => openTask(stage.task!)}>
+                      Task #{stage.task}
+                    </button>
+                  )}
+                  {stage.session && (
+                    <button onClick={() => session(stage)}>Open session</button>
+                  )}
+                </div>
+                {stage.artifact && (
+                  <details>
+                    <summary>Artifact</summary>
+                    <pre>{stage.artifact}</pre>
+                  </details>
+                )}
+              </li>
+            ))}
+          </ol>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function PipeForm({
+  workers,
+  busy,
+  close,
+  submit,
+}: {
+  workers: Worker[];
+  busy: boolean;
+  close: () => void;
+  submit: (pipe: Record<string, unknown>) => Promise<boolean>;
+}) {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [onFailure, setOnFailure] = useState<"stop" | "loop">("stop");
+  const [maxRetries, setMaxRetries] = useState(1);
+  const [play, setPlay] = useState(true);
+  const [stages, setStages] = useState<PipeStageDraft[]>(defaultPipeStages());
+  const [error, setError] = useState("");
+  const update = (index: number, changes: Partial<PipeStageDraft>) =>
+    setStages((current) =>
+      current.map((stage, position) =>
+        position === index ? { ...stage, ...changes } : stage,
+      ),
+    );
+  return (
+    <form
+      className="planning-pipe-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        setError("");
+        if (!stages.length) {
+          setError("Add at least one stage.");
+          return;
+        }
+        const payloadStages = stages.map((stage) => {
+          const [providerID, ...rest] = stage.model.split("/");
+          return {
+            name: stage.name,
+            role: stage.role,
+            instructions: stage.instructions,
+            worker: stage.worker,
+            agent: stage.agent,
+            model:
+              stage.model && rest.length
+                ? { providerID, modelID: rest.join("/") }
+                : null,
+            directory: stage.directory,
+            requires_approval: stage.requires_approval,
+          };
+        });
+        void submit({
+          title,
+          description,
+          on_failure: onFailure,
+          max_retries: maxRetries,
+          play,
+          stages: payloadStages,
+        });
+      }}
+    >
+      <label>
+        Pipe title
+        <input
+          required
+          maxLength={300}
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="Ship the login feature"
+        />
+      </label>
+      <label>
+        Shared description / context
+        <textarea
+          rows={3}
+          maxLength={12000}
+          value={description}
+          onChange={(event) => setDescription(event.target.value)}
+        />
+      </label>
+      <div className="planning-settings-grid">
+        <label>
+          When the test stage fails
+          <select
+            value={onFailure}
+            onChange={(event) =>
+              setOnFailure(event.target.value as "stop" | "loop")
+            }
+          >
+            <option value="stop">Stop and ask a human</option>
+            <option value="loop">Loop back to execute</option>
+          </select>
+        </label>
+        <label>
+          Bounded retries
+          <input
+            type="number"
+            min={0}
+            max={5}
+            disabled={onFailure !== "loop"}
+            value={maxRetries}
+            onChange={(event) => setMaxRetries(Number(event.target.value))}
+          />
+        </label>
+        <label className="planning-inline-check">
+          <input
+            type="checkbox"
+            checked={play}
+            onChange={(event) => setPlay(event.target.checked)}
+          />
+          Play the queue immediately
+        </label>
+      </div>
+      <fieldset>
+        <legend>Stages</legend>
+        {stages.map((stage, index) => {
+          const worker = workers.find((item) => item.name === stage.worker);
+          return (
+            <div className="planning-pipe-stage-editor" key={index}>
+              <div className="planning-settings-grid">
+                <label>
+                  Name
+                  <input
+                    required
+                    maxLength={100}
+                    value={stage.name}
+                    onChange={(event) =>
+                      update(index, { name: event.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Role
+                  <select
+                    value={stage.role}
+                    onChange={(event) =>
+                      update(index, { role: event.target.value })
+                    }
+                  >
+                    {PIPE_ROLES.map((role) => (
+                      <option key={role} value={role}>
+                        {role}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Worker
+                  <select
+                    value={stage.worker}
+                    onChange={(event) =>
+                      update(index, {
+                        worker: event.target.value,
+                        agent: "",
+                        model: "",
+                      })
+                    }
+                  >
+                    <option value="">Project default</option>
+                    {workers.map((item) => (
+                      <option key={item.name} value={item.name}>
+                        {item.name} · {item.online ? "online" : "offline"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Model
+                  <select
+                    value={stage.model}
+                    onChange={(event) =>
+                      update(index, { model: event.target.value })
+                    }
+                  >
+                    <option value="">Worker default</option>
+                    {(worker?.models || []).map((model) => {
+                      const value = `${model.providerID}/${model.modelID}`;
+                      return (
+                        <option key={value} value={value}>
+                          {model.name || value}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+                <label>
+                  Directory
+                  <input
+                    maxLength={500}
+                    value={stage.directory}
+                    placeholder="Project or worker default"
+                    onChange={(event) =>
+                      update(index, { directory: event.target.value })
+                    }
+                  />
+                </label>
+              </div>
+              <label>
+                Stage instructions
+                <textarea
+                  rows={2}
+                  maxLength={8000}
+                  value={stage.instructions}
+                  onChange={(event) =>
+                    update(index, { instructions: event.target.value })
+                  }
+                />
+              </label>
+              <div className="planning-pipe-actions">
+                <label className="planning-inline-check">
+                  <input
+                    type="checkbox"
+                    checked={stage.requires_approval}
+                    onChange={(event) =>
+                      update(index, {
+                        requires_approval: event.target.checked,
+                      })
+                    }
+                  />
+                  Pause for my approval after this stage
+                </label>
+                {stages.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setStages((current) =>
+                        current.filter((_, position) => position !== index),
+                      )
+                    }
+                  >
+                    <X size={14} /> Remove stage
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        <button
+          type="button"
+          disabled={stages.length >= 10}
+          onClick={() =>
+            setStages((current) => [
+              ...current,
+              {
+                name: `Stage ${current.length + 1}`,
+                role: "custom",
+                instructions: "",
+                worker: "",
+                agent: "",
+                model: "",
+                directory: "",
+                requires_approval: false,
+              },
+            ])
+          }
+        >
+          <Plus size={14} /> Add stage
+        </button>
+      </fieldset>
+      {error && (
+        <p className="planning-error" role="alert">
+          {error}
+        </p>
+      )}
+      <footer>
+        <button type="submit" disabled={busy || !title.trim()}>
+          {busy ? "Creating…" : "Create pipe"}
+        </button>
+        <button type="button" disabled={busy} onClick={close}>
+          Cancel
+        </button>
+      </footer>
+    </form>
+  );
+}
+
 function WorkerOptions({
   workers,
   projectWorker,

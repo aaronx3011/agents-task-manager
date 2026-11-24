@@ -967,6 +967,13 @@ export interface components {
       email?: string;
     };
     /**
+     * @description * `owner` - Owner
+     *     * `member` - Member
+     *     * `viewer` - Viewer
+     * @enum {string}
+     */
+    AccountRoleEnum: "owner" | "member" | "viewer";
+    /**
      * @description * `create` - create
      *     * `prompt` - prompt
      *     * `interrupt` - interrupt
@@ -1076,7 +1083,7 @@ export interface components {
     };
     CreatedInvite: {
       id: number;
-      role: components["schemas"]["RoleEnum"];
+      role: components["schemas"]["AccountRoleEnum"];
       token_prefix: string;
       note: string;
       readonly status: string;
@@ -1173,7 +1180,7 @@ export interface components {
     };
     Invite: {
       id: number;
-      role: components["schemas"]["RoleEnum"];
+      role: components["schemas"]["AccountRoleEnum"];
       token_prefix: string;
       note: string;
       readonly status: string;
@@ -1190,14 +1197,14 @@ export interface components {
     };
     InviteInputRequest: {
       /** @default member */
-      role: components["schemas"]["RoleEnum"];
+      role: components["schemas"]["AccountRoleEnum"];
       /** @default 72 */
       expires_in_hours: number;
       /** @default  */
       note: string;
     };
     InvitePreview: {
-      role: components["schemas"]["RoleEnum"];
+      role: components["schemas"]["AccountRoleEnum"];
       /** Format: date-time */
       expires_at: string;
     };
@@ -1243,7 +1250,7 @@ export interface components {
       username: string;
       /** Format: email */
       email: string;
-      role: components["schemas"]["RoleEnum"];
+      role: components["schemas"]["AccountRoleEnum"];
       is_superuser: boolean;
     };
     Meta: {
@@ -1271,6 +1278,9 @@ export interface components {
      *     * `reorder` - reorder
      *     * `remove` - remove
      *     * `archive` - archive
+     *     * `pipe_create` - pipe_create
+     *     * `pipe_approve` - pipe_approve
+     *     * `pipe_stop` - pipe_stop
      * @enum {string}
      */
     OperationEnum:
@@ -1283,7 +1293,10 @@ export interface components {
       | "stop"
       | "reorder"
       | "remove"
-      | "archive";
+      | "archive"
+      | "pipe_create"
+      | "pipe_approve"
+      | "pipe_stop";
     OwnPasswordInputRequest: {
       current_password: string;
       new_password: string;
@@ -1304,7 +1317,7 @@ export interface components {
       handoff_mode?: components["schemas"]["HandoffModeEnum"];
     };
     PatchedUserUpdateRequest: {
-      role?: components["schemas"]["RoleEnum"];
+      role?: components["schemas"]["AccountRoleEnum"];
       is_active?: boolean;
     };
     PendingInteractionCard: {
@@ -1342,6 +1355,49 @@ export interface components {
       count: number;
       items: components["schemas"]["PendingInteractionCard"][];
     };
+    /**
+     * @description * `stop` - Stop and ask a human
+     *     * `loop` - Loop back and retry
+     * @enum {string}
+     */
+    PipeFailureEnum: "stop" | "loop";
+    PipeInputRequest: {
+      title: string;
+      /** @default  */
+      description: string;
+      /** @default stop */
+      on_failure: components["schemas"]["PipeFailureEnum"];
+      /** @default 1 */
+      max_retries: number;
+      /** @default false */
+      play: boolean;
+      stages: components["schemas"]["PipeStageInputRequest"][];
+    };
+    PipeStageInputRequest: {
+      name: string;
+      /** @default custom */
+      role: components["schemas"]["PipeStageRoleEnum"];
+      /** @default  */
+      instructions: string;
+      /** @default  */
+      worker: string;
+      /** @default  */
+      agent: string;
+      model?: components["schemas"]["ModelChoiceRequest"] | null;
+      /** @default  */
+      directory: string;
+      /** @default false */
+      requires_approval: boolean;
+      card_id?: number;
+    };
+    /**
+     * @description * `plan` - Plan
+     *     * `execute` - Execute
+     *     * `test` - Test
+     *     * `custom` - Custom
+     * @enum {string}
+     */
+    PipeStageRoleEnum: "plan" | "execute" | "test" | "custom";
     PlanSettingsRequest: {
       worker: string;
       directory: string;
@@ -1373,6 +1429,8 @@ export interface components {
       job_ids?: number[];
       instructions?: string;
       template?: string;
+      pipe?: components["schemas"]["PipeInputRequest"];
+      pipe_id?: number;
     };
     ProjectCreated: {
       slug: string;
@@ -1439,13 +1497,6 @@ export interface components {
       result?: unknown;
       error?: string;
     };
-    /**
-     * @description * `owner` - Owner
-     *     * `member` - Member
-     *     * `viewer` - Viewer
-     * @enum {string}
-     */
-    RoleEnum: "owner" | "member" | "viewer";
     SessionInputRequest: {
       /** @default false */
       text_only: boolean;
@@ -3135,6 +3186,8 @@ export interface operations {
       path: {
         operation:
           | "add_task_note"
+          | "approve_pipe"
+          | "create_pipe"
           | "create_task"
           | "get_project"
           | "get_queue"
@@ -3146,6 +3199,7 @@ export interface operations {
           | "play_queue"
           | "remove_queued_job"
           | "retarget_queued_job"
+          | "stop_pipe"
           | "stop_queue"
           | "update_task_status";
       };
@@ -3279,6 +3333,60 @@ export interface operations {
               conversation_id: string;
               /** @description Registered project slug. */
               project: string;
+            }
+          | {
+              conversation_id: string;
+              /** @description Registered project slug. */
+              project: string;
+              /** @description Pipe title, max300 characters. */
+              title: string;
+              /** @description Shared pipe objective and context. */
+              description?: string;
+              /** @description Ordered stages, at most10. Each stage becomes one queued task. */
+              stages: {
+                /** @description Stage name, e.g. Plan. */
+                name: string;
+                /**
+                 * @description Stage role.
+                 * @enum {string}
+                 */
+                role?: "plan" | "execute" | "test" | "custom";
+                /** @description Stage-specific instructions. */
+                instructions?: string;
+                /** @description Registered worker name; omit for default. */
+                worker?: string;
+                /** @description Exact provider/model from that worker. */
+                model?: string;
+                /** @description Agent name on that worker. */
+                agent?: string;
+                /** @description Working directory; omit for project. */
+                directory?: string;
+                /** @description Pause for human approval after this stage. */
+                requires_approval?: boolean;
+              }[];
+              /**
+               * @description Test-stage failure policy: stop for a human or loop back to execute.
+               * @enum {string}
+               */
+              on_failure?: "stop" | "loop";
+              /** @description Bounded retry budget 0-5 for loop; default1. */
+              max_retries?: number;
+              /** @description Play the queue after queueing; default true. */
+              play?: boolean;
+            }
+          | {
+              conversation_id: string;
+              /** @description Registered project slug. */
+              project: string;
+              /** @description Pipe ID from get_queue. */
+              pipe_id: number;
+            }
+          | {
+              conversation_id: string;
+              /** @description Registered project slug. */
+              project: string;
+              /** @description Pipe ID from get_queue. */
+              pipe_id: number;
             }
           | {
               conversation_id: string;

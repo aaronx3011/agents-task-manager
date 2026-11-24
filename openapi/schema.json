@@ -2773,6 +2773,8 @@
                             "type": "string",
                             "enum": [
                                 "add_task_note",
+                                "approve_pipe",
+                                "create_pipe",
                                 "create_task",
                                 "get_project",
                                 "get_queue",
@@ -2784,6 +2786,7 @@
                                 "play_queue",
                                 "remove_queued_job",
                                 "retarget_queued_job",
+                                "stop_pipe",
                                 "stop_queue",
                                 "update_task_status"
                             ]
@@ -3177,6 +3180,153 @@
                                         "required": [
                                             "conversation_id",
                                             "project"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "description": "create_pipe: Create an ordered multi-stage pipe on the project's durable queue when the user asks for a plan/execute/test pipeline. Each stage may use a different worker/model.",
+                                        "properties": {
+                                            "conversation_id": {
+                                                "type": "string",
+                                                "pattern": "^conv_",
+                                                "maxLength": 128
+                                            },
+                                            "project": {
+                                                "type": "string",
+                                                "description": "Registered project slug."
+                                            },
+                                            "title": {
+                                                "type": "string",
+                                                "description": "Pipe title, max300 characters."
+                                            },
+                                            "description": {
+                                                "type": "string",
+                                                "description": "Shared pipe objective and context."
+                                            },
+                                            "stages": {
+                                                "type": "array",
+                                                "description": "Ordered stages, at most10. Each stage becomes one queued task.",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "name": {
+                                                            "type": "string",
+                                                            "description": "Stage name, e.g. Plan."
+                                                        },
+                                                        "role": {
+                                                            "type": "string",
+                                                            "description": "Stage role.",
+                                                            "enum": [
+                                                                "plan",
+                                                                "execute",
+                                                                "test",
+                                                                "custom"
+                                                            ]
+                                                        },
+                                                        "instructions": {
+                                                            "type": "string",
+                                                            "description": "Stage-specific instructions."
+                                                        },
+                                                        "worker": {
+                                                            "type": "string",
+                                                            "description": "Registered worker name; omit for default."
+                                                        },
+                                                        "model": {
+                                                            "type": "string",
+                                                            "description": "Exact provider/model from that worker."
+                                                        },
+                                                        "agent": {
+                                                            "type": "string",
+                                                            "description": "Agent name on that worker."
+                                                        },
+                                                        "directory": {
+                                                            "type": "string",
+                                                            "description": "Working directory; omit for project."
+                                                        },
+                                                        "requires_approval": {
+                                                            "type": "boolean",
+                                                            "description": "Pause for human approval after this stage."
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "name"
+                                                    ],
+                                                    "additionalProperties": false
+                                                }
+                                            },
+                                            "on_failure": {
+                                                "type": "string",
+                                                "description": "Test-stage failure policy: stop for a human or loop back to execute.",
+                                                "enum": [
+                                                    "stop",
+                                                    "loop"
+                                                ]
+                                            },
+                                            "max_retries": {
+                                                "type": "integer",
+                                                "description": "Bounded retry budget 0-5 for loop; default1."
+                                            },
+                                            "play": {
+                                                "type": "boolean",
+                                                "description": "Play the queue after queueing; default true."
+                                            }
+                                        },
+                                        "required": [
+                                            "conversation_id",
+                                            "project",
+                                            "title",
+                                            "stages"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "description": "approve_pipe: Approve a paused pipe checkpoint. This is the only way to resume that pipe.",
+                                        "properties": {
+                                            "conversation_id": {
+                                                "type": "string",
+                                                "pattern": "^conv_",
+                                                "maxLength": 128
+                                            },
+                                            "project": {
+                                                "type": "string",
+                                                "description": "Registered project slug."
+                                            },
+                                            "pipe_id": {
+                                                "type": "integer",
+                                                "description": "Pipe ID from get_queue."
+                                            }
+                                        },
+                                        "required": [
+                                            "conversation_id",
+                                            "project",
+                                            "pipe_id"
+                                        ],
+                                        "additionalProperties": false
+                                    },
+                                    {
+                                        "type": "object",
+                                        "description": "stop_pipe: Stop a pipe: pause it, cancel its waiting stages and interrupt its running stage. Does not complete or release the task.",
+                                        "properties": {
+                                            "conversation_id": {
+                                                "type": "string",
+                                                "pattern": "^conv_",
+                                                "maxLength": 128
+                                            },
+                                            "project": {
+                                                "type": "string",
+                                                "description": "Registered project slug."
+                                            },
+                                            "pipe_id": {
+                                                "type": "integer",
+                                                "description": "Pipe ID from get_queue."
+                                            }
+                                        },
+                                        "required": [
+                                            "conversation_id",
+                                            "project",
+                                            "pipe_id"
                                         ],
                                         "additionalProperties": false
                                     },
@@ -3819,6 +3969,15 @@
                     "username"
                 ]
             },
+            "AccountRoleEnum": {
+                "enum": [
+                    "owner",
+                    "member",
+                    "viewer"
+                ],
+                "type": "string",
+                "description": "* `owner` - Owner\n* `member` - Member\n* `viewer` - Viewer"
+            },
             "ActionEnum": {
                 "enum": [
                     "create",
@@ -4189,7 +4348,7 @@
                         "type": "integer"
                     },
                     "role": {
-                        "$ref": "#/components/schemas/RoleEnum"
+                        "$ref": "#/components/schemas/AccountRoleEnum"
                     },
                     "token_prefix": {
                         "type": "string"
@@ -4464,7 +4623,7 @@
                         "type": "integer"
                     },
                     "role": {
-                        "$ref": "#/components/schemas/RoleEnum"
+                        "$ref": "#/components/schemas/AccountRoleEnum"
                     },
                     "token_prefix": {
                         "type": "string"
@@ -4525,7 +4684,7 @@
                     "role": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/RoleEnum"
+                                "$ref": "#/components/schemas/AccountRoleEnum"
                             }
                         ],
                         "default": "member"
@@ -4547,7 +4706,7 @@
                 "type": "object",
                 "properties": {
                     "role": {
-                        "$ref": "#/components/schemas/RoleEnum"
+                        "$ref": "#/components/schemas/AccountRoleEnum"
                     },
                     "expires_at": {
                         "type": "string",
@@ -4723,7 +4882,7 @@
                         "format": "email"
                     },
                     "role": {
-                        "$ref": "#/components/schemas/RoleEnum"
+                        "$ref": "#/components/schemas/AccountRoleEnum"
                     },
                     "is_superuser": {
                         "type": "boolean"
@@ -4807,10 +4966,13 @@
                     "stop",
                     "reorder",
                     "remove",
-                    "archive"
+                    "archive",
+                    "pipe_create",
+                    "pipe_approve",
+                    "pipe_stop"
                 ],
                 "type": "string",
-                "description": "* `settings` - settings\n* `card` - card\n* `enqueue` - enqueue\n* `run` - run\n* `play` - play\n* `pause` - pause\n* `stop` - stop\n* `reorder` - reorder\n* `remove` - remove\n* `archive` - archive"
+                "description": "* `settings` - settings\n* `card` - card\n* `enqueue` - enqueue\n* `run` - run\n* `play` - play\n* `pause` - pause\n* `stop` - stop\n* `reorder` - reorder\n* `remove` - remove\n* `archive` - archive\n* `pipe_create` - pipe_create\n* `pipe_approve` - pipe_approve\n* `pipe_stop` - pipe_stop"
             },
             "OwnPasswordInputRequest": {
                 "type": "object",
@@ -4901,7 +5063,7 @@
                 "type": "object",
                 "properties": {
                     "role": {
-                        "$ref": "#/components/schemas/RoleEnum"
+                        "$ref": "#/components/schemas/AccountRoleEnum"
                     },
                     "is_active": {
                         "type": "boolean"
@@ -5013,6 +5175,124 @@
                     "count",
                     "items"
                 ]
+            },
+            "PipeFailureEnum": {
+                "enum": [
+                    "stop",
+                    "loop"
+                ],
+                "type": "string",
+                "description": "* `stop` - Stop and ask a human\n* `loop` - Loop back and retry"
+            },
+            "PipeInputRequest": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 300
+                    },
+                    "description": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 12000
+                    },
+                    "on_failure": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/PipeFailureEnum"
+                            }
+                        ],
+                        "default": "stop"
+                    },
+                    "max_retries": {
+                        "type": "integer",
+                        "maximum": 5,
+                        "minimum": 0,
+                        "default": 1
+                    },
+                    "play": {
+                        "type": "boolean",
+                        "default": false
+                    },
+                    "stages": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PipeStageInputRequest"
+                        }
+                    }
+                },
+                "required": [
+                    "stages",
+                    "title"
+                ]
+            },
+            "PipeStageInputRequest": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                    },
+                    "role": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/PipeStageRoleEnum"
+                            }
+                        ],
+                        "default": "custom"
+                    },
+                    "instructions": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 8000
+                    },
+                    "worker": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 100
+                    },
+                    "agent": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 100
+                    },
+                    "model": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ModelChoiceRequest"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "directory": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 500
+                    },
+                    "requires_approval": {
+                        "type": "boolean",
+                        "default": false
+                    },
+                    "card_id": {
+                        "type": "integer",
+                        "minimum": 1
+                    }
+                },
+                "required": [
+                    "name"
+                ]
+            },
+            "PipeStageRoleEnum": {
+                "enum": [
+                    "plan",
+                    "execute",
+                    "test",
+                    "custom"
+                ],
+                "type": "string",
+                "description": "* `plan` - Plan\n* `execute` - Execute\n* `test` - Test\n* `custom` - Custom"
             },
             "PlanSettingsRequest": {
                 "type": "object",
@@ -5130,6 +5410,13 @@
                     "template": {
                         "type": "string",
                         "maxLength": 8000
+                    },
+                    "pipe": {
+                        "$ref": "#/components/schemas/PipeInputRequest"
+                    },
+                    "pipe_id": {
+                        "type": "integer",
+                        "minimum": 1
                     }
                 },
                 "required": [
@@ -5356,15 +5643,6 @@
                 "required": [
                     "status"
                 ]
-            },
-            "RoleEnum": {
-                "enum": [
-                    "owner",
-                    "member",
-                    "viewer"
-                ],
-                "type": "string",
-                "description": "* `owner` - Owner\n* `member` - Member\n* `viewer` - Viewer"
             },
             "SessionInputRequest": {
                 "type": "object",

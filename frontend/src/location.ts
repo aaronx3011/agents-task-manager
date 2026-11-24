@@ -12,7 +12,9 @@ function read(): LocationState {
           ? "queue"
           : params.get("planning_tab") === "settings"
             ? "settings"
-            : "overview",
+            : params.get("planning_tab") === "pipes"
+              ? "pipes"
+              : "overview",
     newProject: params.get("new_project") === "true",
     section:
       params.get("section") === "voice"

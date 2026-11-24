@@ -95,7 +95,7 @@ export interface Filters {
   ready: string;
 }
 export interface LocationState {
-  planningTab: "overview" | "board" | "queue" | "settings";
+  planningTab: "overview" | "board" | "queue" | "pipes" | "settings";
   newProject: boolean;
   section:
     | "tasks"
