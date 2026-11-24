@@ -657,6 +657,11 @@ class PlanningJob(models.Model):
     snapshot = models.JSONField(default=dict)
     prompt = models.TextField(blank=True)
     report_token_hash = models.CharField(max_length=64, blank=True, editable=False)
+    # Set when this job executes one stage of a pipe (#437). Stage order, worker
+    # and model live on PipeStage; the queue remains the only executor.
+    pipe_stage = models.ForeignKey(
+        "PipeStage", null=True, blank=True, on_delete=models.SET_NULL, related_name="jobs"
+    )
     attempt = models.OneToOneField(
         TaskExecutionAttempt, null=True, blank=True, on_delete=models.PROTECT
     )
@@ -688,6 +693,105 @@ class PlanningJob(models.Model):
                 name="one_live_job_per_card",
             ),
         ]
+
+
+class Pipe(models.Model):
+    """Named, ordered plan -> execute -> test pipeline (#437).
+
+    A pipe is not a second executor: each stage becomes an ordinary
+    ``PlanningJob`` in the project's durable queue, and only the next stage is
+    admitted after the previous stage's task is explicitly done (or after an
+    explicit checkpoint approval).
+    """
+
+    class Failure(models.TextChoices):
+        STOP = "stop", "Stop and ask a human"
+        LOOP = "loop", "Loop back and retry"
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        RUNNING = "running", "Running"
+        AWAITING_APPROVAL = "awaiting_approval", "Awaiting approval"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    plan = models.ForeignKey(ProjectPlan, on_delete=models.PROTECT, related_name="pipes")
+    title = models.CharField(max_length=300)
+    description = models.TextField(blank=True)
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.QUEUED, db_index=True
+    )
+    # Test-stage failure policy and its bounded retry budget.
+    on_failure = models.CharField(
+        max_length=10, choices=Failure.choices, default=Failure.STOP
+    )
+    max_retries = models.PositiveSmallIntegerField(default=1)
+    retries_used = models.PositiveSmallIntegerField(default=0)
+    # Highest stage position whose checkpoint a human approved.
+    approved_stage = models.PositiveIntegerField(default=0)
+    # Latest failed artifact, kept across retries for the next attempt's prompt.
+    last_failure = models.TextField(blank=True)
+    detail = models.TextField(blank=True)
+    actor = models.CharField(max_length=100, blank=True)
+    actor_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["pk"]
+
+    def __str__(self):
+        return f"Pipe {self.pk}:{self.title}"
+
+
+class PipeStage(models.Model):
+    """One ordered step of a pipe, bound to a card (and so to a task on launch)."""
+
+    class Role(models.TextChoices):
+        PLAN = "plan", "Plan"
+        EXECUTE = "execute", "Execute"
+        TEST = "test", "Test"
+        CUSTOM = "custom", "Custom"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        QUEUED = "queued", "Queued"
+        RUNNING = "running", "Running"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+        SKIPPED = "skipped", "Skipped"
+
+    pipe = models.ForeignKey(Pipe, on_delete=models.PROTECT, related_name="stages")
+    position = models.PositiveIntegerField(default=1)
+    name = models.CharField(max_length=100)
+    role = models.CharField(max_length=20, choices=Role.choices, default=Role.CUSTOM)
+    instructions = models.TextField(blank=True)
+    worker = models.ForeignKey(Worker, on_delete=models.PROTECT, related_name="+")
+    agent = models.CharField(max_length=100, blank=True)
+    model = models.JSONField(null=True, blank=True)
+    directory = models.CharField(max_length=500, blank=True)
+    requires_approval = models.BooleanField(default=False)
+    card = models.ForeignKey(
+        PlanningCard, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    # Handoff artifact: the completed task's result summary for this stage.
+    artifact = models.TextField(blank=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["position", "pk"]
+        constraints = [
+            models.UniqueConstraint(fields=["pipe", "position"], name="unique_pipe_stage_position")
+        ]
+
+    def __str__(self):
+        return f"Pipe {self.pipe_id} stage {self.position}:{self.name}"
 
 
 class NotionLink(models.Model):

@@ -17,6 +17,8 @@ from .errors import TaskError
 from .models import (
     Agent,
     PendingInteraction,
+    Pipe,
+    PipeStage,
     PlanningCard,
     PlanningJob,
     Project,
@@ -779,6 +781,59 @@ def sync_planning_card(task):
         card.save(update_fields=["plan", "column", "position", "updated_at"])
 
 
+def _pipe_read(pipe):
+    """Bounded dashboard view of a pipe, its stages, artifacts and latest jobs."""
+    stages = []
+    for stage in pipe.stages.select_related("worker", "card__task").order_by("position", "pk"):
+        job = (
+            stage.jobs.select_related("attempt__task", "worker")
+            .order_by("-position", "-pk")
+            .first()
+        )
+        attempt = job.attempt if job else None
+        stages.append(
+            {
+                "id": stage.pk,
+                "position": stage.position,
+                "name": stage.name,
+                "role": stage.role,
+                "status": stage.status,
+                "worker": stage.worker.name,
+                "agent": stage.agent,
+                "model": stage.model,
+                "directory": stage.directory,
+                "requires_approval": stage.requires_approval,
+                "artifact": stage.artifact,
+                "attempts": stage.attempts,
+                "started_at": _iso(stage.started_at) if stage.started_at else None,
+                "completed_at": _iso(stage.completed_at) if stage.completed_at else None,
+                "card": stage.card_id,
+                "task": attempt.task_id
+                if attempt
+                else (stage.card.task_id if stage.card_id else None),
+                "job": job.pk if job else None,
+                "job_status": job.status if job else None,
+                "job_detail": job.detail[:500] if job else "",
+                "session": attempt.remote_session_id if attempt else "",
+                "task_status": attempt.task.status
+                if attempt
+                else (stage.card.task.status if stage.card_id and stage.card.task_id else None),
+            }
+        )
+    return {
+        "id": pipe.pk,
+        "title": pipe.title,
+        "description": pipe.description,
+        "status": pipe.status,
+        "detail": pipe.detail,
+        "on_failure": pipe.on_failure,
+        "max_retries": pipe.max_retries,
+        "retries_used": pipe.retries_used,
+        "approved_stage": pipe.approved_stage,
+        "stages": stages,
+    }
+
+
 def planning_read(project):
     from .models import planning_columns
 
@@ -826,7 +881,7 @@ def planning_read(project):
         )
         for job in plan.jobs.filter(
             Q(status__in=["queued", "running"]) | Q(pk__in=history)
-        ).select_related("card", "worker", "attempt__task"):
+        ).select_related("card", "worker", "attempt__task", "pipe_stage__pipe"):
             attempt = job.attempt
             jobs.append(
                 {
@@ -844,8 +899,23 @@ def planning_read(project):
                     "task": attempt.task_id if attempt else None,
                     "session": attempt.remote_session_id if attempt else "",
                     "task_status": attempt.task.status if attempt else None,
+                    "pipe": job.pipe_stage.pipe_id if job.pipe_stage_id else None,
+                    "stage": (
+                        {
+                            "id": job.pipe_stage_id,
+                            "position": job.pipe_stage.position,
+                            "name": job.pipe_stage.name,
+                            "role": job.pipe_stage.role,
+                        }
+                        if job.pipe_stage_id
+                        else None
+                    ),
                 }
             )
+    pipes = []
+    if plan:
+        for pipe in plan.pipes.prefetch_related("stages__worker").select_related("plan")[:20]:
+            pipes.append(_pipe_read(pipe))
     return {
         "project": project.slug,
         "name": project.name,
@@ -855,6 +925,7 @@ def planning_read(project):
         "pause_reason": plan.pause_reason if plan else "",
         "cards": cards,
         "jobs": sorted(jobs, key=lambda row: (row["position"], row["id"])),
+        "pipes": pipes,
     }
 
 
@@ -867,7 +938,23 @@ def mutate_planning(project, actor, data):
     if data["revision"] != plan.revision:
         raise TaskError("Project changed. Refresh before saving your changes.", 409)
     operation = data["operation"]
-    if operation == "settings":
+    if operation == "pipe_create":
+        raw = dict(data["pipe"])
+        play = bool(raw.pop("play", False))
+        _create_pipe(plan, actor, raw, play=play)
+    elif operation == "pipe_approve":
+        pipe = plan.pipes.filter(pk=data.get("pipe_id")).first()
+        if not pipe:
+            raise TaskError("Pipe not found on this project", 404)
+        _approve_pipe(plan, pipe, actor)
+    elif operation == "pipe_stop":
+        pipe = plan.pipes.filter(pk=data.get("pipe_id")).first()
+        if not pipe:
+            raise TaskError("Pipe not found on this project", 404)
+        if pipe.status in {Pipe.Status.COMPLETED, Pipe.Status.CANCELLED}:
+            raise TaskError(f"Pipe '{pipe.title}' is already {pipe.status}", 409)
+        _stop_pipe(plan, pipe, actor)
+    elif operation == "settings":
         values = data["settings"]
         worker = Worker.objects.filter(name=values.pop("worker", "")).first()
         values["agent"] = (values.get("agent") or "").strip()
@@ -962,6 +1049,17 @@ def mutate_planning(project, actor, data):
         queued = list(plan.jobs.filter(status="queued").values_list("pk", flat=True))
         if len(ids) != len(set(ids)) or set(ids) != set(queued):
             raise TaskError("Reorder must include every queued job exactly once", 409)
+        stage_positions = {}
+        for job in plan.jobs.filter(
+            pk__in=ids, status="queued", pipe_stage__isnull=False
+        ).select_related("pipe_stage"):
+            stage_positions.setdefault(job.pipe_stage.pipe_id, []).append(
+                (ids.index(job.pk), job.pipe_stage.position)
+            )
+        for sequence in stage_positions.values():
+            positions = [position for _, position in sorted(sequence)]
+            if positions != sorted(positions):
+                raise TaskError("Keep pipe stages in their configured order", 409)
         base = (
             plan.jobs.exclude(status="queued")
             .order_by("-position")
@@ -977,6 +1075,8 @@ def mutate_planning(project, actor, data):
             raise TaskError("Queue job not found", 404)
         if job.status != "queued":
             raise TaskError("Only queued jobs can be removed", 409)
+        if job.pipe_stage_id:
+            raise TaskError("This job is a pipe stage; stop the pipe instead of removing it", 409)
         job.status = "cancelled"
         job.detail = f"Removed from queue by {actor}; task status unchanged"
         job.completed_at = timezone.now()
@@ -996,6 +1096,13 @@ def mutate_planning(project, actor, data):
         card.archived = True
         card.save(update_fields=["archived"])
     elif operation == "play":
+        awaiting = plan.pipes.filter(status=Pipe.Status.AWAITING_APPROVAL).first()
+        if awaiting:
+            raise TaskError(
+                f"Pipe '{awaiting.title}' awaits checkpoint approval. "
+                "Approve it instead of pressing Play.",
+                409,
+            )
         if not plan.jobs.filter(status__in=["queued", "running"]).exists():
             raise TaskError("Add tasks to the queue before pressing Play", 409)
         plan.playing = True
@@ -1004,7 +1111,11 @@ def mutate_planning(project, actor, data):
         plan.playing = False
         plan.pause_reason = "Paused by operator"
         if operation == "stop":
-            job = plan.jobs.filter(status="running").select_related("attempt", "worker").first()
+            job = (
+                plan.jobs.filter(status="running")
+                .select_related("attempt", "worker", "pipe_stage__pipe")
+                .first()
+            )
             if job:
                 if not job.attempt.remote_session_id:
                     raise TaskError(
@@ -1027,6 +1138,14 @@ def mutate_planning(project, actor, data):
                     "Stopped by operator; task remains owned until explicitly resolved or released."
                 )
                 job.save(update_fields=["status", "detail", "stop_command"])
+                if job.pipe_stage_id:
+                    _mark_pipe_stopped(
+                        plan,
+                        job.pipe_stage.pipe,
+                        f"Pipe '{job.pipe_stage.pipe.title}' stopped by operator; "
+                        "task work is not completed",
+                        actor,
+                    )
     else:
         raise TaskError("Unsupported planning operation", 400)
     plan.revision += 1
@@ -1182,18 +1301,60 @@ def _job_brief(job):
         "agent": job.snapshot.get("agent") or "worker default",
         "directory": job.snapshot.get("directory", ""),
         "detail": job.detail[:500],
+        "pipe": job.pipe_stage.pipe_id if job.pipe_stage_id else None,
+        "stage": (
+            {
+                "id": job.pipe_stage_id,
+                "position": job.pipe_stage.position,
+                "name": job.pipe_stage.name,
+                "role": job.pipe_stage.role,
+            }
+            if job.pipe_stage_id
+            else None
+        ),
+    }
+
+
+def _pipe_brief(pipe):
+    stages = []
+    for stage in pipe.stages.select_related("worker").order_by("position", "pk"):
+        job = stage.jobs.order_by("-position", "-pk").first()
+        stages.append(
+            {
+                "position": stage.position,
+                "name": stage.name,
+                "role": stage.role,
+                "status": stage.status,
+                "worker": stage.worker.name,
+                "model": model_label(stage.model) or "worker default",
+                "requires_approval": stage.requires_approval,
+                "artifact": stage.artifact[:1000],
+                "job": job.pk if job else None,
+                "job_status": job.status if job else None,
+            }
+        )
+    return {
+        "pipe": pipe.pk,
+        "title": pipe.title,
+        "status": pipe.status,
+        "detail": pipe.detail[:500],
+        "on_failure": pipe.on_failure,
+        "retries_used": pipe.retries_used,
+        "max_retries": pipe.max_retries,
+        "awaiting_approval": pipe.status == Pipe.Status.AWAITING_APPROVAL,
+        "stages": stages,
     }
 
 
 def queue_summary(plan):
     active = list(
         plan.jobs.filter(status__in=["queued", "running"]).select_related(
-            "card", "worker__agent", "attempt__task"
+            "card", "worker__agent", "attempt__task", "pipe_stage__pipe"
         )
     )
     recent = list(
         plan.jobs.exclude(status__in=["queued", "running"])
-        .select_related("card", "worker__agent", "attempt__task")
+        .select_related("card", "worker__agent", "attempt__task", "pipe_stage__pipe")
         .order_by("-id")[:5]
     )
     if not active:
@@ -1212,6 +1373,14 @@ def queue_summary(plan):
         "jobs": [_job_brief(job) for job in active[:20]],
         "active_count": len(active),
         "recent": [_job_brief(job) for job in recent],
+        "pipes": [
+            _pipe_brief(pipe)
+            for pipe in plan.pipes.exclude(
+                status__in=[Pipe.Status.COMPLETED, Pipe.Status.CANCELLED]
+            )
+            .prefetch_related("stages__worker")
+            .order_by("-pk")[:10]
+        ],
         "note": (
             "queued means accepted and waiting; running means a session was requested on the "
             "worker; only task status done means the work was reported complete"
@@ -1223,6 +1392,116 @@ def voice_queue_read(project):
     plan, _ = ProjectPlan.objects.get_or_create(project=project)
     workers = Worker.objects.select_related("agent").filter(is_enabled=True).order_by("name")[:10]
     return {**queue_summary(plan), "workers": [worker_brief(w) for w in workers]}
+
+
+@transaction.atomic
+def voice_create_pipe(project, actor, data):
+    """Queue a multi-stage pipe from the PM router; nothing runs before sync."""
+    plan, _ = ProjectPlan.objects.get_or_create(project=project)
+    plan = locked(ProjectPlan.objects.filter(pk=plan.pk)).get()
+    play = bool(data.get("play", True))
+    pipe = _create_pipe(plan, actor, data, play=play)
+    plan.revision += 1
+    plan.save(update_fields=["revision"])
+    transaction.on_commit(
+        lambda: dispatch_notification("planning.changed", subject="planning"), robust=True
+    )
+    first_job = pipe.jobs.order_by("position").first()
+    ahead = plan.jobs.filter(
+        status__in=["queued", "running"], position__lt=first_job.position if first_job else 0
+    ).count()
+    return {
+        "pipe": pipe.pk,
+        "title": pipe.title,
+        "project": project.slug,
+        "status": pipe.status,
+        "stages": [
+            {
+                "position": stage.position,
+                "name": stage.name,
+                "role": stage.role,
+                "worker": stage.worker.name,
+                "model": model_label(stage.model) or "worker default",
+                "directory": stage.directory,
+                "requires_approval": stage.requires_approval,
+            }
+            for stage in pipe.stages.select_related("worker").order_by("position")
+        ],
+        "on_failure": pipe.on_failure,
+        "max_retries": pipe.max_retries,
+        "first_job": first_job.pk if first_job else None,
+        "jobs_ahead": ahead,
+        "queue_playing": plan.playing,
+        "state": (
+            "Pipe accepted and queued; the first stage starts on its worker's next sync. "
+            "Nothing has completed yet"
+            if plan.playing
+            else "Pipe added to the queue but it is not playing; nothing will start"
+        ),
+    }
+
+
+@transaction.atomic
+def voice_approve_pipe(project, actor, pipe_id):
+    plan = ProjectPlan.objects.filter(project=project).first()
+    if not plan:
+        raise TaskError(f"Project {project.slug} has no pipe queue", 409)
+    plan = locked(ProjectPlan.objects.filter(pk=plan.pk)).get()
+    pipe = plan.pipes.filter(pk=pipe_id).first()
+    if not pipe:
+        raise TaskError(f"Unknown pipe #{pipe_id} in project {project.slug}", 404)
+    _approve_pipe(plan, pipe, actor)
+    plan.revision += 1
+    plan.save(update_fields=["revision"])
+    transaction.on_commit(
+        lambda: dispatch_notification("planning.changed", subject="planning"), robust=True
+    )
+    pipe.refresh_from_db()
+    plan.refresh_from_db()
+    return {
+        "pipe": pipe.pk,
+        "title": pipe.title,
+        "status": pipe.status,
+        "approved_stage": pipe.approved_stage,
+        "queue_playing": plan.playing,
+        "state": "Checkpoint approved; the next stage is queued and starts on its worker's next "
+        "sync. Nothing has completed yet.",
+    }
+
+
+@transaction.atomic
+def voice_stop_pipe(project, actor, pipe_id):
+    plan = ProjectPlan.objects.filter(project=project).first()
+    if not plan:
+        raise TaskError(f"Project {project.slug} has no pipe queue", 409)
+    plan = locked(ProjectPlan.objects.filter(pk=plan.pk)).get()
+    pipe = plan.pipes.filter(pk=pipe_id).first()
+    if not pipe:
+        raise TaskError(f"Unknown pipe #{pipe_id} in project {project.slug}", 404)
+    if pipe.status in {Pipe.Status.COMPLETED, Pipe.Status.CANCELLED}:
+        raise TaskError(f"Pipe '{pipe.title}' is already {pipe.status}", 409)
+    job = _stop_pipe(plan, pipe, actor)
+    plan.revision += 1
+    plan.save(update_fields=["revision"])
+    transaction.on_commit(
+        lambda: dispatch_notification("planning.changed", subject="planning"), robust=True
+    )
+    stop_command = job.stop_command if job and job.stop_command_id else None
+    return {
+        "pipe": pipe.pk,
+        "title": pipe.title,
+        "status": pipe.status,
+        "interrupt": (
+            {"id": stop_command.pk, "status": stop_command.status} if stop_command else None
+        ),
+        "state": (
+            f"Pipe paused; interrupt command #{stop_command.pk} accepted and queued. "
+            "Interruption is not confirmed; task work is not completed."
+            if stop_command
+            else "Pipe stopped; no session was running, so no interrupt was queued. "
+            "Waiting stages were cancelled; no task was completed."
+        ),
+    }
 
 
 @transaction.atomic
@@ -1519,6 +1798,470 @@ def _refresh_queued_job(plan, card):
     job.save(update_fields=["worker", "snapshot"])
 
 
+def _pipe_stage_config(plan, raw, position):
+    """Validate one stage without mutating anything (#437).
+
+    Refusals happen before the first card or job is written, so a bad stage
+    cannot leave a half-created pipe behind.
+    """
+    name = (raw.get("name") or f"Stage {position}").strip()[:100]
+    role = raw.get("role") or PipeStage.Role.CUSTOM
+    if role not in PipeStage.Role.values:
+        raise TaskError(f"Unknown pipe stage role '{role}'", 400)
+    worker_name = (raw.get("worker") or "").strip()
+    if worker_name:
+        worker = _resolve_worker(worker_name)
+    else:
+        worker = plan.default_worker
+    if not worker:
+        raise TaskError(f"Stage '{name}' needs a worker; the project has no default worker", 400)
+    agent = (raw.get("agent") or "").strip()
+    if agent and not _agent_allowed(worker, agent):
+        raise TaskError(f"Agent {agent} is not available on worker {worker.name}", 400)
+    model = raw.get("model")
+    if model and not _model_allowed(worker, model):
+        raise TaskError(
+            f"Model {model_label(model)} is not in worker {worker.name}'s model catalog", 400
+        )
+    _require_ready_worker(worker, f"pipe stage '{name}'")
+    directory = (
+        (raw.get("directory") or "").strip()
+        or plan.directory
+        or worker.create_directory
+        or worker.directory
+    )
+    if not directory:
+        raise TaskError(f"Stage '{name}' has no directory; configure one for the worker", 400)
+    card = None
+    card_id = raw.get("card_id")
+    if card_id:
+        card = plan.cards.filter(pk=card_id, archived=False).first()
+        if not card:
+            raise TaskError(f"Stage '{name}' card not found on this project", 404)
+        if plan.jobs.filter(card=card, status__in=["queued", "running"]).exists():
+            raise TaskError(f"Stage '{name}' card already has queued or running work", 409)
+        if card.task_id and card.task.status in {Task.Status.DONE, Task.Status.CANCELLED}:
+            raise TaskError(
+                f"Stage '{name}' card's task is terminal; create a new card for this stage", 409
+            )
+    return {
+        "name": name,
+        "role": role,
+        "instructions": (raw.get("instructions") or "").strip(),
+        "worker": worker,
+        "agent": agent,
+        "model": model,
+        "directory": directory,
+        "requires_approval": bool(raw.get("requires_approval")),
+        "card": card,
+    }
+
+
+def _pipe_stage_card(plan, pipe, stage):
+    """Card (and so eventual task) a stage runs on; created once per attempt."""
+    column = plan.columns[0]
+    return PlanningCard.objects.create(
+        plan=plan,
+        title=f"{pipe.title} · {stage.name}"[:300],
+        description=stage.instructions or pipe.description,
+        column=column,
+        position=plan.cards.filter(column=column, archived=False).count(),
+        instructions=stage.instructions,
+        worker=stage.worker,
+        agent=stage.agent,
+        model=stage.model,
+        handoff_mode="",
+    )
+
+
+def _admit_pipe_stage(plan, pipe, stage, actor=None, after_position=None):
+    """Queue one stage as an ordinary PlanningJob.
+
+    When ``after_position`` is given the next stage is inserted directly after
+    the job that just finished, shifting later queued jobs by one so the pipe's
+    stages stay contiguous in the durable order.
+    """
+    if stage.status in {PipeStage.Status.QUEUED, PipeStage.Status.RUNNING}:
+        return stage.jobs.filter(status__in=["queued", "running"]).order_by("-id").first()
+    card = stage.card or _pipe_stage_card(plan, pipe, stage)
+    stage.card = card
+    if after_position is None:
+        position = (
+            plan.jobs.order_by("-position").values_list("position", flat=True).first() or 0
+        ) + 1
+    else:
+        position = after_position + 1
+        plan.jobs.filter(status="queued", position__gte=position).update(position=F("position") + 1)
+    snapshot = {
+        **_card_snapshot(card),
+        "context": plan.context,
+        "standing_instructions": plan.instructions,
+        "instructions": stage.instructions or card.instructions,
+        "template": "",
+        "directory": stage.directory,
+        "agent": stage.agent,
+        "model": stage.model,
+        "handoff_mode": _card_handoff(plan, card),
+        "project": plan.project.slug,
+        "repo_url": plan.project.repo_url,
+        "docs_path": plan.project.docs_path,
+        "pipe": {"id": pipe.pk, "title": pipe.title},
+        "stage": {
+            "id": stage.pk,
+            "position": stage.position,
+            "name": stage.name,
+            "role": stage.role,
+            "total": pipe.stages.count(),
+        },
+    }
+    job = PlanningJob.objects.create(
+        plan=plan,
+        card=card,
+        worker=stage.worker,
+        snapshot=snapshot,
+        pipe_stage=stage,
+        position=position,
+        actor=actor or pipe.actor,
+        actor_user=pipe.actor_user,
+    )
+    stage.status = PipeStage.Status.QUEUED
+    stage.attempts += 1
+    stage.save(update_fields=["card", "status", "attempts"])
+    if pipe.status in {Pipe.Status.QUEUED, Pipe.Status.RUNNING}:
+        pipe.status = Pipe.Status.RUNNING
+        pipe.save(update_fields=["status", "updated_at"])
+    return job
+
+
+def _create_pipe(plan, actor, data, play=False):
+    """Create a pipe, its stage cards and its first queued stage job (#437)."""
+    title = (data.get("title") or "").strip()
+    if not title:
+        raise TaskError("A pipe needs a title", 400)
+    raw_stages = data.get("stages") or []
+    if not 1 <= len(raw_stages) <= 10:
+        raise TaskError("A pipe needs between 1 and 10 stages", 400)
+    on_failure = data.get("on_failure") or Pipe.Failure.STOP
+    if on_failure not in Pipe.Failure.values:
+        raise TaskError("Pipe failure policy must be stop or loop", 400)
+    max_retries = data.get("max_retries", 1)
+    if not 0 <= max_retries <= 5:
+        raise TaskError("Pipe max_retries must be between 0 and 5", 400)
+    configs = [
+        _pipe_stage_config(plan, raw, index) for index, raw in enumerate(raw_stages, start=1)
+    ]
+    roles = [config["role"] for config in configs]
+    if on_failure == Pipe.Failure.LOOP:
+        test_index = next((i for i, role in enumerate(roles) if role == PipeStage.Role.TEST), None)
+        if test_index is None:
+            raise TaskError("A looping pipe needs a test stage", 400)
+        if PipeStage.Role.EXECUTE not in roles[:test_index]:
+            raise TaskError("A looping pipe needs an execute stage before its test stage", 400)
+        if max_retries < 1:
+            raise TaskError("A looping pipe needs at least one retry", 400)
+    names = [config["name"] for config in configs]
+    if len(set(names)) != len(names):
+        raise TaskError("Pipe stage names must be unique", 400)
+    card_ids = [config["card"].pk for config in configs if config["card"]]
+    if len(set(card_ids)) != len(card_ids):
+        raise TaskError("Each pipe stage needs a different card", 400)
+    pipe = Pipe.objects.create(
+        plan=plan,
+        title=title[:300],
+        description=(data.get("description") or "").strip(),
+        on_failure=on_failure,
+        max_retries=max_retries,
+        actor=actor,
+        actor_user=human_user(actor),
+    )
+    stages = []
+    for index, config in enumerate(configs, start=1):
+        stage = PipeStage.objects.create(
+            pipe=pipe,
+            position=index,
+            name=config["name"],
+            role=config["role"],
+            instructions=config["instructions"],
+            worker=config["worker"],
+            agent=config["agent"],
+            model=config["model"],
+            directory=config["directory"],
+            requires_approval=config["requires_approval"],
+        )
+        if config["card"]:
+            stage.card = config["card"]
+            stage.save(update_fields=["card"])
+        else:
+            stage.card = _pipe_stage_card(plan, pipe, stage)
+            stage.save(update_fields=["card"])
+        stages.append(stage)
+    _admit_pipe_stage(plan, pipe, stages[0], actor=actor)
+    if play:
+        plan.playing = True
+        plan.pause_reason = ""
+    return pipe
+
+
+def _clone_pipe_stage_card(plan, pipe, stage):
+    column = stage.card.column if stage.card else plan.columns[0]
+    return PlanningCard.objects.create(
+        plan=plan,
+        title=f"{pipe.title} · {stage.name} · retry {pipe.retries_used}"[:300],
+        description=stage.instructions or pipe.description,
+        column=column,
+        position=plan.cards.filter(column=column, archived=False).count(),
+        instructions=stage.instructions,
+        worker=stage.worker,
+        agent=stage.agent,
+        model=stage.model,
+    )
+
+
+def _pipe_stage_log(stage, actor, message):
+    task_id = stage.card.task_id if stage.card_id else None
+    if not task_id:
+        return
+    task = Task.objects.filter(pk=task_id).first()
+    if task:
+        log_human(task, TaskEvent.Type.NOTE, None, message, actor)
+
+
+def _advance_pipe(plan, job, task):
+    """Record a completed stage's artifact and admit the next stage.
+
+    Only an explicit task done reaches here; the queue has already marked the
+    job completed. A checkpoint pauses the plan and Play is refused until an
+    explicit approve operation.
+    """
+    stage = job.pipe_stage
+    pipe = stage.pipe
+    stage.status = PipeStage.Status.COMPLETED
+    stage.artifact = (task.result_summary or job.detail or "")[:10000]
+    stage.completed_at = timezone.now()
+    stage.save(update_fields=["status", "artifact", "completed_at"])
+    next_stage = pipe.stages.filter(position__gt=stage.position).order_by("position").first()
+    _pipe_stage_log(
+        stage,
+        pipe.actor,
+        f"Pipe '{pipe.title}' stage {stage.position}/{pipe.stages.count()} "
+        f"'{stage.name}' completed; artifact handed to the next stage"
+        if next_stage
+        else f"Pipe '{pipe.title}' stage {stage.position} '{stage.name}' completed; pipe finished",
+    )
+    if next_stage is None:
+        pipe.status = Pipe.Status.COMPLETED
+        pipe.detail = f"All {pipe.stages.count()} stages completed"
+        pipe.save(update_fields=["status", "detail", "updated_at"])
+        return
+    if stage.requires_approval and pipe.approved_stage < stage.position:
+        pipe.status = Pipe.Status.AWAITING_APPROVAL
+        pipe.detail = (
+            f"Awaiting approval after stage {stage.position} '{stage.name}'. "
+            "Approving resumes the pipe; Play alone will not."
+        )
+        pipe.save(update_fields=["status", "detail", "updated_at"])
+        _pause_planning(plan, f"Pipe '{pipe.title}': {pipe.detail}")
+        return
+    _admit_pipe_stage(plan, pipe, next_stage, actor=pipe.actor, after_position=job.position)
+
+
+def _handle_pipe_failure(plan, job, reason):
+    """Apply the pipe's failure policy. Returns True when the pipe handled it."""
+    stage = job.pipe_stage
+    if not stage:
+        return False
+    pipe = stage.pipe
+    reason = (reason or "Stage failed without a reason")[:10000]
+    stage.status = PipeStage.Status.FAILED
+    stage.artifact = reason
+    stage.completed_at = timezone.now()
+    stage.save(update_fields=["status", "artifact", "completed_at"])
+    pipe.last_failure = reason
+    looping = (
+        pipe.on_failure == Pipe.Failure.LOOP
+        and stage.role == PipeStage.Role.TEST
+        and pipe.retries_used < pipe.max_retries
+    )
+    execute = (
+        pipe.stages.filter(position__lt=stage.position, role=PipeStage.Role.EXECUTE)
+        .order_by("-position")
+        .first()
+        if looping
+        else None
+    )
+    if execute:
+        pipe.retries_used += 1
+        pipe.status = Pipe.Status.QUEUED
+        pipe.detail = (
+            f"Test stage failed; looping back to '{execute.name}' "
+            f"(retry {pipe.retries_used}/{pipe.max_retries})"
+        )
+        pipe.save(update_fields=["status", "detail", "last_failure", "retries_used", "updated_at"])
+        for retried in pipe.stages.filter(position__gte=execute.position).order_by("position"):
+            retried.card = _clone_pipe_stage_card(plan, pipe, retried)
+            retried.status = PipeStage.Status.PENDING
+            retried.artifact = ""
+            retried.started_at = None
+            retried.completed_at = None
+            retried.save(update_fields=["card", "status", "artifact", "started_at", "completed_at"])
+        job.status = "cancelled"
+        job.completed_at = timezone.now()
+        job.detail = (
+            f"Pipe retry {pipe.retries_used}/{pipe.max_retries} after test failure: {reason[:500]}"
+        )
+        job.save(update_fields=["status", "detail", "completed_at"])
+        execute.refresh_from_db()
+        _pipe_stage_log(
+            stage,
+            pipe.actor,
+            f"Pipe '{pipe.title}' test failed; retry {pipe.retries_used}/{pipe.max_retries} "
+            f"queued from stage '{execute.name}'",
+        )
+        _admit_pipe_stage(plan, pipe, execute, actor=pipe.actor, after_position=job.position)
+        return True
+    pipe.status = Pipe.Status.FAILED
+    pipe.detail = f"Failed at stage {stage.position} '{stage.name}': {reason[:1500]}"
+    pipe.save(update_fields=["status", "detail", "last_failure", "updated_at"])
+    job.status = "failed"
+    job.completed_at = timezone.now()
+    job.detail = reason[:2000]
+    job.save(update_fields=["status", "detail", "completed_at"])
+    _pause_planning(plan, f"Pipe '{pipe.title}' failed: {pipe.detail}")
+    _pipe_stage_log(stage, pipe.actor, f"Pipe '{pipe.title}' failed: {pipe.detail}")
+    return True
+
+
+def _approve_pipe(plan, pipe, actor):
+    if pipe.status != Pipe.Status.AWAITING_APPROVAL:
+        raise TaskError(f"Pipe '{pipe.title}' is {pipe.status}; no checkpoint is waiting", 409)
+    checkpoint = (
+        pipe.stages.filter(status=PipeStage.Status.COMPLETED, requires_approval=True)
+        .order_by("-position")
+        .first()
+    )
+    if not checkpoint or checkpoint.position <= pipe.approved_stage:
+        raise TaskError("No checkpoint is awaiting approval", 409)
+    next_stage = pipe.stages.filter(position__gt=checkpoint.position).order_by("position").first()
+    pipe.approved_stage = checkpoint.position
+    if next_stage:
+        last_job = checkpoint.jobs.order_by("-position").first()
+        _admit_pipe_stage(
+            plan,
+            pipe,
+            next_stage,
+            actor=actor,
+            after_position=last_job.position if last_job else None,
+        )
+        pipe.status = Pipe.Status.RUNNING
+        pipe.detail = f"Checkpoint after stage {checkpoint.position} approved"
+        plan.playing = True
+        plan.pause_reason = ""
+    else:
+        pipe.status = Pipe.Status.COMPLETED
+        pipe.detail = "Checkpoint approved; no further stages"
+    pipe.save(update_fields=["status", "detail", "approved_stage", "updated_at"])
+    _pipe_stage_log(
+        checkpoint,
+        actor,
+        f"Pipe '{pipe.title}' checkpoint after stage {checkpoint.position} "
+        f"'{checkpoint.name}' approved by {actor}",
+    )
+    return pipe
+
+
+def _mark_pipe_stopped(plan, pipe, detail, actor):
+    pipe.status = Pipe.Status.FAILED
+    pipe.detail = detail[:2000]
+    pipe.save(update_fields=["status", "detail", "updated_at"])
+    now = timezone.now()
+    for stage in pipe.stages.filter(
+        status__in=[PipeStage.Status.PENDING, PipeStage.Status.QUEUED, PipeStage.Status.RUNNING]
+    ):
+        stage.status = (
+            PipeStage.Status.FAILED
+            if stage.status == PipeStage.Status.RUNNING
+            else PipeStage.Status.SKIPPED
+        )
+        stage.completed_at = now
+        stage.save(update_fields=["status", "completed_at"])
+    pipe.jobs.filter(status="queued").update(
+        status="cancelled", detail=f"Pipe stopped by {actor}", completed_at=now
+    )
+    plan.playing = False
+    plan.pause_reason = detail[:2000]
+
+
+def _stop_pipe(plan, pipe, actor):
+    job = (
+        pipe.jobs.filter(status="running")
+        .select_related("attempt", "worker")
+        .order_by("-position")
+        .first()
+    )
+    if job:
+        if not job.attempt_id or not job.attempt.remote_session_id:
+            raise TaskError(
+                "Session creation is still in flight. Pause, then stop once the session is known.",
+                409,
+            )
+        stop_command, _ = enqueue_worker_command(
+            job.worker.agent,
+            actor,
+            job.worker,
+            "interrupt",
+            {},
+            remote_session_id=job.attempt.remote_session_id,
+            client_request_id=f"planning-stop-{job.pk}",
+        )
+        job.status = "failed"
+        job.stop_command = stop_command
+        job.detail = (
+            "Pipe stopped by operator; task remains owned until explicitly resolved or released."
+        )
+        job.save(update_fields=["status", "detail", "stop_command"])
+    _mark_pipe_stopped(
+        plan, pipe, f"Pipe '{pipe.title}' stopped by operator; task work is not completed", actor
+    )
+    return job
+
+
+def _pipe_prompt_section(job):
+    stage = job.pipe_stage
+    pipe = stage.pipe
+    total = pipe.stages.count()
+    earlier = []
+    for earlier_stage in pipe.stages.filter(position__lt=stage.position).order_by("position"):
+        if not earlier_stage.artifact:
+            continue
+        earlier.append(
+            f"### Stage {earlier_stage.position}/{total} {earlier_stage.name} "
+            f"({earlier_stage.role}, worker {earlier_stage.worker.name})\n"
+            f"{earlier_stage.artifact[:8000]}"
+        )
+    retry = ""
+    if pipe.last_failure and stage.position > 1:
+        retry = (
+            f"\n## Last failed test report\n{pipe.last_failure[:4000]}\n"
+            "Use it to fix the implementation before re-running the test stage.\n"
+        )
+    policy = (
+        f"loop back to execute with bounded retries ({pipe.retries_used}/{pipe.max_retries} used)"
+        if pipe.on_failure == Pipe.Failure.LOOP
+        else "stop and ask a human"
+    )
+    return (
+        f"\n## Pipe: {pipe.title} — stage {stage.position}/{total} '{stage.name}' "
+        f"({stage.role})\n{pipe.description or ''}\n"
+        f"On failure: {policy}.\n"
+        f"\n### Upstream artifacts\n"
+        f"{chr(10).join(earlier) if earlier else 'None (this is the first stage).'}\n{retry}"
+        "\n## Stage handoff\n"
+        "Your final report summary is the artifact the next stage receives; it must state the "
+        "concrete spec, files, behavior and verification produced. The next stage cannot see your "
+        "session, so do not omit information it needs.\n"
+    )
+
+
 def _planning_prompt(job, task, report_token):
     previous = list(
         job.plan.jobs.filter(status="completed", position__lt=job.position)
@@ -1530,10 +2273,11 @@ def _planning_prompt(job, task, report_token):
         for j in reversed(previous)
         if j.attempt_id
     )
-    return _planning_prompt_text(job, task, report_token, handoffs)
+    pipe_section = _pipe_prompt_section(job) if job.pipe_stage_id else ""
+    return _planning_prompt_text(job, task, report_token, handoffs, pipe_section=pipe_section)
 
 
-def _planning_prompt_text(job, task, report_token, handoffs):
+def _planning_prompt_text(job, task, report_token, handoffs, pipe_section=""):
     s = job.snapshot
     prompt = (
         f"# Project: {s['project']}\nRepository: {s['repo_url']}\nDocumentation: {s['docs_path']}\n"
@@ -1543,6 +2287,7 @@ def _planning_prompt_text(job, task, report_token, handoffs):
         f"\nLabels: {', '.join(s['labels']) or 'None'}\n"
         f"\nChecklist / acceptance criteria:\n{json.dumps(s['checklist'], ensure_ascii=False)}\n"
         f"\n## Selected prompt\n{s['template']}\n\n## Your instructions\n{s['instructions']}\n"
+        f"{pipe_section}"
         f"\n## Previous completed work\n{handoffs or 'None'}\n"
         f"\n## Coordination protocol\nTask {task.pk} is already claimed "
         f"by agent {job.worker.agent.name}. "
@@ -1573,7 +2318,9 @@ def _advance_planning(plan, worker):
     ).distinct():
         _cancel_task_queue(task)
     job = (
-        plan.jobs.filter(status="running").select_related("attempt__task", "card", "worker").first()
+        plan.jobs.filter(status="running")
+        .select_related("attempt__task", "card", "worker", "pipe_stage__pipe")
+        .first()
     )
     if job:
         if job.worker_id != worker.pk:
@@ -1586,11 +2333,13 @@ def _advance_planning(plan, worker):
             (c for c in commands if c and (c.status == "error" or c.delivery_uncertain)), None
         )
         if failure or attempt.outcome in {"error", "uncertain"}:
-            job.status = "failed"
-            job.detail = (
+            detail = (
                 (failure.error or failure.uncertain_text) if failure else attempt.outcome_detail
             )
-            _pause_planning(plan, job.detail or "Command failed; inspect before retrying")
+            if not _handle_pipe_failure(plan, job, detail):
+                job.status = "failed"
+                job.detail = detail
+                _pause_planning(plan, job.detail or "Command failed; inspect before retrying")
         elif task.status == Task.Status.DONE:
             if unsettled or not attempt.prompt_command_id:
                 _pause_planning(
@@ -1603,10 +2352,12 @@ def _advance_planning(plan, worker):
             job.status = "completed"
             job.detail = task.result_summary
             job.completed_at = timezone.now()
+            if job.pipe_stage_id:
+                _advance_pipe(plan, job, task)
         elif task.status != Task.Status.IN_PROGRESS or task.claimed_by_id != attempt.owner_id:
-            _pause_planning(
-                plan, task.blocked_reason or f"Task is {task.status}; resolve it before resuming"
-            )
+            reason = task.blocked_reason or f"Task is {task.status}; resolve it before resuming"
+            if not _handle_pipe_failure(plan, job, reason):
+                _pause_planning(plan, reason)
         elif attempt.session and attempt.session.last_error:
             _pause_planning(plan, attempt.session.last_error)
         elif any(
