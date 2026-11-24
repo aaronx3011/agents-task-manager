@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -11,12 +16,23 @@ import {
   GitBranch,
   ListFilter,
   MessageSquare,
+  ShieldCheck,
   X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { get } from "./api";
 import { api, unwrap } from "./api-client";
+import type { Schemas } from "./api-client";
+import { useAccess } from "./auth";
+import {
+  HANDOFF_MODES,
+  handoffCopy,
+  handoffLockReason,
+  isHandoffMode,
+  normalizeHandoffMode,
+  type HandoffMode,
+} from "./handoff";
 import type { EventPage, TaskEvent } from "./types";
 import {
   Age,
@@ -101,6 +117,67 @@ function EventRow({ event }: { event: TaskEvent }) {
         <Age value={event.created_at} />
       </div>
     </article>
+  );
+}
+function HandoffSection({ task }: { task: Schemas["TaskDetailResponse"] }) {
+  const { canWrite } = useAccess();
+  const client = useQueryClient();
+  const mode = normalizeHandoffMode(task.handoff_mode);
+  const locked = handoffLockReason(canWrite, task.status);
+  const change = useMutation({
+    retry: false,
+    mutationFn: (next: HandoffMode) =>
+      unwrap(
+        api.PATCH("/api/v1/tasks/{id}", {
+          params: { path: { id: String(task.id) } },
+          body: { handoff_mode: next },
+        }),
+      ),
+    onSuccess: () => {
+      // The board and list carry the same flag, so refresh them with the task.
+      void client.invalidateQueries({ queryKey: ["task", task.id] });
+      void client.invalidateQueries({ queryKey: ["tasks"] });
+    },
+  });
+  return (
+    <section className="detail-section handoff-section">
+      <h3>
+        <ShieldCheck size={15} />
+        Hand-off mode
+        <span className={`handoff-badge handoff-${mode}`}>
+          {handoffCopy(mode).label}
+        </span>
+      </h3>
+      <div className="handoff-control">
+        <label htmlFor="handoff-mode-select">Prompt approvals</label>
+        <select
+          id="handoff-mode-select"
+          value={mode}
+          disabled={!!locked || change.isPending}
+          onChange={(event) => {
+            const next = event.target.value;
+            if (isHandoffMode(next) && next !== mode) change.mutate(next);
+          }}
+        >
+          {HANDOFF_MODES.map((option) => (
+            <option key={option} value={option}>
+              {handoffCopy(option).label}
+            </option>
+          ))}
+        </select>
+        {change.isPending && <span className="muted">Saving…</span>}
+      </div>
+      <p className="handoff-summary">{handoffCopy(mode).summary}</p>
+      {handoffCopy(mode).escalation && (
+        <p className="handoff-escalation">{handoffCopy(mode).escalation}</p>
+      )}
+      {locked && <p className="muted">{locked}</p>}
+      {change.error && (
+        <p className="handoff-error" role="alert">
+          {change.error.message}
+        </p>
+      )}
+    </section>
   );
 }
 export function TaskModal({
@@ -205,7 +282,8 @@ export function TaskModal({
             </Dialog.Close>
           </div>
           <Dialog.Description className="sr-only">
-            Live, read-only task details, prerequisites and audit history.
+            Live task details, prerequisites and audit history. Agents report
+            everything here; hand-off mode is the one setting you can change.
           </Dialog.Description>
           <div className="modal-heading">
             <Dialog.Title>{data?.title || "Task details"}</Dialog.Title>
@@ -342,6 +420,7 @@ export function TaskModal({
                       <p className="muted">No description provided.</p>
                     )}
                   </section>
+                  <HandoffSection task={data} />
                   {data.blocked_reason && (
                     <section className="detail-section blocker-section">
                       <h3>Blocked reason</h3>

@@ -94,6 +94,18 @@ Pending interactions expose `promptType` (`approve_deny`, `multiple_choice`,
 `free_text`, `unknown`) so clients can tell an auto-answerable prompt from one that
 must be escalated.
 
+**Setting it.** Open a task and use **Hand-off mode → Prompt approvals** in the
+task detail modal; the control states what the selected mode automates and what
+still waits for a human, and the current mode shows as a badge beside the heading.
+Members and owners can change it, viewers see it read-only, and a `done` or
+`cancelled` task is locked because it has no session left for the flag to affect.
+The modal writes `PATCH /api/v1/tasks/{id}`, so the API's existing rules apply
+unchanged and a refused edit surfaces the server's message instead of failing
+quietly. It is also reachable from `create_task`/`update_task` over MCP (below),
+the REST API directly, and Django admin. Source: `frontend/src/handoff.ts` and
+`frontend/src/TaskModal.tsx`; checks: `frontend/tests/handoff.test.mjs` and
+`scripts/verify_handoff_mode_browser.py`. The mobile app does not surface the flag.
+
 ### MCP tools
 
 `mcp_server.py` is a thin, HTTP-only adapter over the authenticated coordinator
@@ -488,6 +500,7 @@ node --test bridge/bridge.test.mjs
 node --test frontend/tests/session-live.test.mjs
 node --test frontend/tests/*.test.mjs
 # Built interface, fixture APIs and microphone: python scripts/verify_voice_agent_browser.py
+# Built interface and fixture APIs: python scripts/verify_handoff_mode_browser.py
 ```
 
 Use PostgreSQL to verify row-lock behavior. The bridge README describes live
