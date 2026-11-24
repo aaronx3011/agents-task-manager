@@ -29,6 +29,16 @@ Link the GitHub issue URL in coordinator task descriptions rather than duplicati
 - Surface tool failures to the user; do not continue untracked. Never automatically
   retry a failed mutation without checking whether it already succeeded.
 
+## Hand-off mode
+- Your claimed task's editable fields change through update_task; status, blockers and
+  summaries stay with update_status and release_task.
+- handoff_mode is off by default. semi_auto auto-approves binary approve/deny permission
+  prompts for sessions linked to that task; set it with create_task or update_task only
+  when the user asks for unattended approvals.
+- list_pending_prompts shows unresolved prompts for your bound worker and each one's
+  promptType. It is read-only: a human answers every prompt, including the
+  multiple-choice and free-text ones semi_auto escalates.
+
 ## Bootstrap exception
 When installing this service itself and MCP is not yet configured, explicitly tell
 the user and track the bootstrap in a claimed GitHub issue. This exception ends when

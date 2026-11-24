@@ -75,6 +75,49 @@ single/multiple/custom rules. Permission replies use `once`, `always`, or
 requires an actual permission request from OpenCode's permission policy. A file
 copy may execute without prompting when the effective policy already permits it.
 
+### Semi-automatic hand-off mode
+
+Each task carries `handoff_mode`, either `off` (the default) or `semi_auto`. With
+`semi_auto`, a binary approve/deny **permission** request from a session linked to
+that task is auto-answered `once`, audited on the task as `handoff.auto_answer`
+and streamed as `handoff.auto_answered`. Everything else still waits for a human
+and is published as `handoff.escalated`: questions of any shape (including one
+titled “Approve”), sessions not linked to a `semi_auto` task, and prompt records
+matching a deny rule — `production`, `deploy`, `dns`, `billing`, `credentials`,
+`destructive_git`, `destructive_delete`, searched case-insensitively across the
+whole record and replaceable with the `HANDOFF_DENY_RULES` setting. The flag
+changes who answers an approve/deny prompt, never what the permission policy asks.
+Requires migration `0023`. Source: `coordinator/handoff.py`; tests:
+`tests/test_handoff.py`.
+
+Pending interactions expose `promptType` (`approve_deny`, `multiple_choice`,
+`free_text`, `unknown`) so clients can tell an auto-answerable prompt from one that
+must be escalated.
+
+### MCP tools
+
+`mcp_server.py` is a thin, HTTP-only adapter over the authenticated coordinator
+API. Alongside the lifecycle tools (`get_overview`, `list_tasks`, `get_task`,
+`create_task`, `claim_next_task`, `claim_task`, `heartbeat`, `update_status`,
+`release_task`, `add_note`, `report_planning_job`) it exposes hand-off mode:
+
+- `create_task` takes an optional `handoff_mode` (`off` default, or `semi_auto`).
+- `update_task` PATCHes a claimed task's editable fields — `title`,
+  `description`, `project`, `priority`, `depends_on`, `handoff_mode` — leaving
+  omitted arguments unchanged. Only the claiming agent may edit a task; another
+  agent's task is rejected with HTTP 403 and an unknown mode with HTTP 400,
+  including the rejecting field name. Status, blockers and summaries stay with the
+  lifecycle tools.
+- `list_pending_prompts` reads unresolved prompts for the caller's bound worker,
+  each with its `promptType`.
+- `get_task` and `list_tasks` return `handoff_mode` on every task.
+
+Answering prompts is deliberately **not** an MCP tool: `permission.reply`,
+`question.reply` and `question.reject` stay with humans through
+`POST /api/v1/commands` and the web and mobile inboxes, so the multiple-choice and
+free-text prompts hand-off mode escalates are not answerable by an agent.
+Reload the MCP connection after upgrading to discover new tools.
+
 ### Delivery and recovery
 
 - Commands follow `queued -> dispatched -> done | error`. For an asynchronous
