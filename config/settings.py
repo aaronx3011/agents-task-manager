@@ -254,5 +254,10 @@ SPECTACULAR_SETTINGS = {
         "TaskStatusUpdateEnum": ["in_progress", "blocked", "review", "done", "cancelled"],
         "CommandResolutionEnum": ["done", "error"],
         "PlanningJobReportStatusEnum": ["heartbeat", "done", "blocked", "review"],
+        "PipeStageRoleEnum": "coordinator.models.PipeStage.Role",
+        "PipeStageStatusEnum": "coordinator.models.PipeStage.Status",
+        "PipeStatusEnum": "coordinator.models.Pipe.Status",
+        "PipeFailureEnum": "coordinator.models.Pipe.Failure",
+        "AccountRoleEnum": "accounts.models.Role",
     },
 }

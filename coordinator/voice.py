@@ -269,6 +269,37 @@ class LaunchInput(serializers.Serializer):
         return data
 
 
+class PipeStageArgs(serializers.Serializer):
+    name = serializers.CharField(max_length=100)
+    role = serializers.ChoiceField(choices=services.PipeStage.Role.choices, default="custom")
+    instructions = serializers.CharField(
+        max_length=8000, allow_blank=True, required=False, default=""
+    )
+    worker = serializers.CharField(max_length=100, allow_blank=True, required=False, default="")
+    agent = serializers.CharField(max_length=100, allow_blank=True, required=False, default="")
+    model = serializers.CharField(max_length=300, allow_blank=True, required=False, default="")
+    directory = serializers.CharField(max_length=500, allow_blank=True, required=False, default="")
+    requires_approval = serializers.BooleanField(default=False)
+
+
+class CreatePipeInput(serializers.Serializer):
+    project = serializers.SlugField()
+    title = serializers.CharField(max_length=300)
+    description = serializers.CharField(
+        max_length=12000, allow_blank=True, required=False, default=""
+    )
+    stages = PipeStageArgs(many=True, min_length=1, max_length=10)
+    on_failure = serializers.ChoiceField(choices=services.Pipe.Failure.choices, default="stop")
+    max_retries = serializers.IntegerField(min_value=0, max_value=5, default=1)
+    play = serializers.BooleanField(default=True)
+
+    def validate_stages(self, value):
+        names = [stage["name"] for stage in value]
+        if len(set(names)) != len(names):
+            raise serializers.ValidationError("Stage names must be unique")
+        return value
+
+
 def validated_tool(operation, data):
     if operation not in TOOL_SCHEMAS:
         raise services.TaskError("Unknown PM tool", 404)
@@ -287,6 +318,8 @@ def validated_tool(operation, data):
         serializer = NoteSerializer(data=payload)
     elif operation == "launch_task":
         serializer = LaunchInput(data=payload)
+    elif operation == "create_pipe":
+        serializer = CreatePipeInput(data=payload)
     elif operation in {"remove_queued_job", "retarget_queued_job"}:
         serializer = QueueEditInput(data=payload)
         if operation == "retarget_queued_job" and not {"worker", "model", "agent"} & set(payload):
@@ -296,7 +329,16 @@ def validated_tool(operation, data):
     if "id" in allowed and operation != "launch_task":
         task_id = serializers.IntegerField(min_value=1).run_validation(payload.get("id"))
         payload["id"] = task_id
-    if operation in {"get_project", "get_queue", "play_queue", "pause_queue", "stop_queue"}:
+    if operation in {
+        "get_project",
+        "get_queue",
+        "play_queue",
+        "pause_queue",
+        "stop_queue",
+        "create_pipe",
+        "approve_pipe",
+        "stop_pipe",
+    }:
         payload["project"] = serializers.SlugField().run_validation(payload.get("project"))
     if serializer:
         serializer.is_valid(raise_exception=True)
@@ -364,6 +406,35 @@ def run_tool(operation, args, user):
             "stop_queue": "stop",
         }[operation]
         return services.voice_edit_queue(project, actor["human_actor"], action, **args)
+    if operation in {"approve_pipe", "stop_pipe"}:
+        project = get_object_or_404(Project, slug=args.pop("project"))
+        handler = (
+            services.voice_approve_pipe if operation == "approve_pipe" else services.voice_stop_pipe
+        )
+        return handler(project, actor["human_actor"], args["pipe_id"])
+    if operation == "create_pipe":
+        project = get_object_or_404(Project, slug=args.pop("project"))
+        plan, _ = ProjectPlan.objects.get_or_create(project=project)
+        stages = []
+        for stage in args["stages"]:
+            stage = dict(stage)
+            model = (stage.pop("model", "") or "").strip()
+            if model:
+                worker_name = (stage.get("worker") or "").strip()
+                resolved = (
+                    services._resolve_worker(worker_name) if worker_name else plan.default_worker
+                )
+                if not resolved:
+                    raise services.TaskError(
+                        f"Stage '{stage.get('name', '')}' needs a worker to verify model {model}",
+                        400,
+                    )
+                stage["model"] = services._parse_model(resolved, model)
+            else:
+                stage["model"] = None
+            stages.append(stage)
+        data = {**args, "stages": stages}
+        return services.voice_create_pipe(project, actor["human_actor"], data)
     if operation == "play_queue":
         project = get_object_or_404(Project, slug=args["project"])
         return services.voice_play_queue(project, actor["human_actor"])

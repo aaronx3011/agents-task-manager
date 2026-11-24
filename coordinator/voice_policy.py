@@ -1,6 +1,6 @@
 """Server-owned Fireworks PM behavior and function definitions."""
 
-POLICY_VERSION = "fireworks-pm-2026-11-17.4"
+POLICY_VERSION = "fireworks-pm-2026-11-24.1"
 PROMPT = """You are the user's practical, approachable project manager and central router
 inside Agent Task Manager. Help them understand projects, decide what to do next,
 and turn clear requests into tracked actions. Speak naturally, briefly, and in
@@ -82,6 +82,16 @@ offline workers, unknown models, empty queues and running-job refusals mean noth
 was changed. You cannot message worker sessions. Do not promise to
 notify later or keep monitoring after the conversation without a real watcher.
 You can refresh current task state whenever asked.
+
+Pipes are ordered multi-stage pipelines (for example plan, then execute, then
+test) where each stage can run on a different worker and model. Use create_pipe
+only when the user asks for such a pipeline; each stage must name a registered
+worker and, optionally, an exact provider/model from that worker's catalog.
+Stages run one at a time on the same durable queue. A pipe can stop for a human
+when a stage fails, or loop back to execute a bounded number of times. If a pipe
+pauses for a checkpoint, only approve_pipe resumes it; play_queue is refused.
+get_queue reports every stage's worker, model and status, and only an explicit
+task done completes a stage. Never describe a queued pipe as completed.
 
 Execute dependent tools in order. Never claim success before the tool confirms
 it. Tool failures are not success. A timed-out write might already have executed:
@@ -205,6 +215,62 @@ TOOL_SCHEMAS = {
         "Pause a project's queue; current work continues but no next job launches.",
         {"project": field("string", "Registered project slug.")},
     ),
+    "create_pipe": (
+        "Create an ordered multi-stage pipe on the project's durable queue when the user "
+        "asks for a plan/execute/test pipeline. Each stage may use a different worker/model.",
+        {
+            "project": field("string", "Registered project slug."),
+            "title": field("string", "Pipe title, max300 characters."),
+            "description": field("string", "Shared pipe objective and context."),
+            "stages": {
+                "type": "array",
+                "description": "Ordered stages, at most10. Each stage becomes one queued task.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": field("string", "Stage name, e.g. Plan."),
+                        "role": field(
+                            "string",
+                            "Stage role.",
+                            enum=["plan", "execute", "test", "custom"],
+                        ),
+                        "instructions": field("string", "Stage-specific instructions."),
+                        "worker": field("string", "Registered worker name; omit for default."),
+                        "model": field("string", "Exact provider/model from that worker."),
+                        "agent": field("string", "Agent name on that worker."),
+                        "directory": field("string", "Working directory; omit for project."),
+                        "requires_approval": field(
+                            "boolean", "Pause for human approval after this stage."
+                        ),
+                    },
+                    "required": ["name"],
+                    "additionalProperties": False,
+                },
+            },
+            "on_failure": field(
+                "string",
+                "Test-stage failure policy: stop for a human or loop back to execute.",
+                enum=["stop", "loop"],
+            ),
+            "max_retries": field("integer", "Bounded retry budget 0-5 for loop; default1."),
+            "play": field("boolean", "Play the queue after queueing; default true."),
+        },
+    ),
+    "approve_pipe": (
+        "Approve a paused pipe checkpoint. This is the only way to resume that pipe.",
+        {
+            "project": field("string", "Registered project slug."),
+            "pipe_id": field("integer", "Pipe ID from get_queue."),
+        },
+    ),
+    "stop_pipe": (
+        "Stop a pipe: pause it, cancel its waiting stages and interrupt its running stage. "
+        "Does not complete or release the task.",
+        {
+            "project": field("string", "Registered project slug."),
+            "pipe_id": field("integer", "Pipe ID from get_queue."),
+        },
+    ),
     "stop_queue": (
         "Pause the queue and enqueue an interrupt for current work. Does not complete "
         "or release the task; interrupt is not confirmed yet.",
@@ -223,6 +289,9 @@ REQUIRED = {
     "stop_queue": ["project"],
     "remove_queued_job": ["project", "job_id"],
     "retarget_queued_job": ["project", "job_id"],
+    "create_pipe": ["project", "title", "stages"],
+    "approve_pipe": ["project", "pipe_id"],
+    "stop_pipe": ["project", "pipe_id"],
 }
 
 

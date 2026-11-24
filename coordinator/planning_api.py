@@ -110,6 +110,37 @@ class CardInput(serializers.Serializer):
         return value
 
 
+class PipeStageInput(serializers.Serializer):
+    name = serializers.CharField(max_length=100)
+    role = serializers.ChoiceField(choices=services.PipeStage.Role.choices, default="custom")
+    instructions = serializers.CharField(
+        max_length=8000, allow_blank=True, required=False, default=""
+    )
+    # Blank uses the project default worker; blank model/agent use its defaults.
+    worker = serializers.CharField(max_length=100, allow_blank=True, required=False, default="")
+    agent = serializers.CharField(max_length=100, allow_blank=True, required=False, default="")
+    model = ModelChoice(allow_null=True, required=False, default=None)
+    directory = serializers.CharField(max_length=500, allow_blank=True, required=False, default="")
+    requires_approval = serializers.BooleanField(default=False)
+    card_id = serializers.IntegerField(min_value=1, required=False)
+
+    def validate_worker(self, value):
+        if value and not Worker.objects.filter(name=value).exists():
+            raise serializers.ValidationError("Unknown worker")
+        return value
+
+
+class PipeInput(serializers.Serializer):
+    title = serializers.CharField(max_length=300)
+    description = serializers.CharField(
+        max_length=12000, allow_blank=True, required=False, default=""
+    )
+    on_failure = serializers.ChoiceField(choices=services.Pipe.Failure.choices, default="stop")
+    max_retries = serializers.IntegerField(min_value=0, max_value=5, default=1)
+    play = serializers.BooleanField(default=False)
+    stages = PipeStageInput(many=True, min_length=1, max_length=10)
+
+
 class PlanningMutation(serializers.Serializer):
     revision = serializers.IntegerField(min_value=0)
     operation = serializers.ChoiceField(
@@ -124,6 +155,9 @@ class PlanningMutation(serializers.Serializer):
             "reorder",
             "remove",
             "archive",
+            "pipe_create",
+            "pipe_approve",
+            "pipe_stop",
         ]
     )
     settings = PlanSettings(required=False)
@@ -135,6 +169,8 @@ class PlanningMutation(serializers.Serializer):
     )
     instructions = serializers.CharField(max_length=8000, allow_blank=True, required=False)
     template = serializers.CharField(max_length=8000, allow_blank=True, required=False)
+    pipe = PipeInput(required=False)
+    pipe_id = serializers.IntegerField(min_value=1, required=False)
 
     def validate(self, data):
         field = {
@@ -145,6 +181,9 @@ class PlanningMutation(serializers.Serializer):
             "remove": "job_id",
             "archive": "card_id",
             "reorder": "job_ids",
+            "pipe_create": "pipe",
+            "pipe_approve": "pipe_id",
+            "pipe_stop": "pipe_id",
         }.get(data["operation"])
         if field and field not in data:
             raise serializers.ValidationError({field: "This field is required"})

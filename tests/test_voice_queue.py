@@ -64,10 +64,14 @@ def test_policy_advertises_queue_actions_without_auth_fields():
         "retarget_queued_job",
         "pause_queue",
         "stop_queue",
+        "create_pipe",
+        "approve_pipe",
+        "stop_pipe",
     } <= names
     assert "durable ordered queue" in PROMPT and "next sync" in PROMPT
+    assert "ordered multi-stage pipelines" in PROMPT
     assert "worker/session dispatch" not in PROMPT
-    assert POLICY_VERSION.endswith(".4")
+    assert POLICY_VERSION.endswith(".1")
 
 
 def test_launch_new_task_queues_plays_and_dispatches_on_sync(
