@@ -11,7 +11,7 @@ from django.db.models import BigIntegerField, F, Q
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
-from . import sync
+from . import handoff, sync
 from .dbretry import retry_sqlite
 from .errors import TaskError
 from .models import (
@@ -153,6 +153,7 @@ def create_task(
     depends_on=(),
     human_actor=None,
     card=None,
+    handoff_mode=Task.HandoffMode.OFF,
 ):
     """Create a task; every task is shown on its project's planning board.
 
@@ -167,6 +168,7 @@ def create_task(
         title=title,
         description=description,
         priority=priority,
+        handoff_mode=handoff_mode,
         created_by=agent,
     )
     task.depends_on.set(dependencies)
@@ -351,7 +353,7 @@ def edit_task(agent, task_id, changes, human_actor=None):
     lock_admin_edits()
     task = get_locked(task_id)
     require_owner(task, agent, human_actor)
-    editable = {"title", "description", "project", "priority", "depends_on"}
+    editable = {"title", "description", "project", "priority", "depends_on", "handoff_mode"}
     if set(changes) - editable:
         raise TaskError("Use lifecycle actions for protected task fields", 400)
     for name, value in changes.items():
@@ -2666,6 +2668,7 @@ def interaction_card(interaction):
     card = {
         "id": interaction.request_id,
         "kind": interaction.kind,
+        "promptType": handoff.classify_prompt(interaction.kind, data),
         "sessionID": interaction.remote_session_id or None,
         "lastSeenAt": _iso(interaction.last_seen_at) or _iso(interaction.first_seen_at),
         "replyDispatched": bool(interaction.reply_command_id),
@@ -2779,12 +2782,15 @@ def ingest_pending_interactions(worker, pending):
                     setattr(interaction, name, value)
             if session and interaction.session_id != session.pk:
                 interaction.session = session
-            if interaction.resolved_at and outcome["complete"]:
+            reopened = bool(interaction.resolved_at and outcome["complete"])
+            if reopened:
                 # A complete snapshot re-observing a request re-opens it.
                 interaction.resolved_at = None
                 interaction.resolution = ""
             interaction.last_seen_at = now
             interaction.save()
+            if created or reopened:
+                maybe_auto_answer(worker, interaction)
             keep.add((kind, interaction.request_id))
             outcome["seen"] += 1
     if outcome["complete"]:
@@ -2822,6 +2828,83 @@ def ingest_pending_interactions(worker, pending):
             interaction.session = session
             interaction.save(update_fields=["session"])
     return outcome
+
+
+def handoff_task_for(worker, interaction):
+    """The semi-automatic task whose live attempt owns this prompt's session, if any."""
+    if not interaction.remote_session_id:
+        return None
+    attempt = (
+        TaskExecutionAttempt.objects.filter(
+            worker=worker,
+            remote_session_id=interaction.remote_session_id,
+            outcome__in=[
+                TaskExecutionAttempt.Outcome.PENDING,
+                TaskExecutionAttempt.Outcome.ACCEPTED,
+            ],
+            task__handoff_mode=Task.HandoffMode.SEMI_AUTO,
+        )
+        .select_related("task")
+        .first()
+    )
+    return attempt.task if attempt else None
+
+
+def maybe_auto_answer(worker, interaction):
+    """Hand-off mode (#431): auto-approve binary prompts, escalate everything else.
+
+    Reuses the normal permission.reply command path, so ownership, duplicate and
+    queue checks still apply. Any failure leaves the prompt pending for a human.
+    Every decision is written to the session stream; approvals also to the task
+    audit trail.
+    """
+    task = handoff_task_for(worker, interaction)
+    if task is None or interaction.reply_command_id:
+        return None
+    prompt_type, action, rule = handoff.decide(interaction.kind, interaction.data)
+    decision = "once" if action == "approve" else "escalated"
+    if action == "approve":
+        try:
+            with transaction.atomic():
+                enqueue_worker_command(
+                    None,
+                    "handoff",
+                    worker,
+                    "permission.reply",
+                    {"requestID": interaction.request_id, "reply": "once"},
+                    remote_session_id=interaction.remote_session_id,
+                    client_request_id=f"handoff-{interaction.pk}",
+                )
+        except TaskError as exc:
+            decision, rule = "escalated", rule or f"enqueue failed: {exc}"
+    audit = {
+        "taskId": task.pk,
+        "sessionID": interaction.remote_session_id,
+        "requestID": interaction.request_id,
+        "promptType": prompt_type,
+        "decision": decision,
+        "rule": rule,
+        "at": _iso(timezone.now()),
+    }
+    event_type = "handoff.auto_answered" if decision == "once" else "handoff.escalated"
+    store_events(
+        worker,
+        [
+            {
+                "type": event_type,
+                "sessionID": interaction.remote_session_id or None,
+                "payload": {"type": event_type, "properties": audit},
+            }
+        ],
+    )
+    if decision == "once":
+        task.log(
+            TaskEvent.Type.HANDOFF_AUTO_ANSWER,
+            None,
+            f"Auto-approved {prompt_type} prompt {interaction.request_id} "
+            f"(session {interaction.remote_session_id}, decision {decision}, rule none)",
+        )
+    return audit
 
 
 def _notify_interaction(worker, event_type, interaction):

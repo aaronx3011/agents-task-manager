@@ -1141,6 +1141,7 @@ export interface components {
      *     * `execution.launched` - Execution launched
      *     * `execution.linked` - Execution session linked
      *     * `execution.done` - Execution outcome
+     *     * `handoff.auto_answer` - Hand-off auto-answer
      * @enum {string}
      */
     EventTypeEnum:
@@ -1152,7 +1153,14 @@ export interface components {
       | "note"
       | "execution.launched"
       | "execution.linked"
-      | "execution.done";
+      | "execution.done"
+      | "handoff.auto_answer";
+    /**
+     * @description * `off` - Off
+     *     * `semi_auto` - Semi-automatic
+     * @enum {string}
+     */
+    HandoffModeEnum: "off" | "semi_auto";
     HeartbeatResult: {
       ok: boolean;
       /** Format: date-time */
@@ -1288,6 +1296,7 @@ export interface components {
       project?: string;
       priority?: number;
       depends_on?: number[];
+      handoff_mode?: components["schemas"]["HandoffModeEnum"];
     };
     PatchedUserUpdateRequest: {
       role?: components["schemas"]["RoleEnum"];
@@ -1297,6 +1306,15 @@ export interface components {
       /** @description Request ID; send it back as payload.requestID. */
       id: string;
       kind: components["schemas"]["PendingInteractionCardKindEnum"];
+      /**
+       * @description Hand-off classification (#431); only approve_deny can be auto-answered.
+       *
+       *     * `approve_deny` - approve_deny
+       *     * `multiple_choice` - multiple_choice
+       *     * `free_text` - free_text
+       *     * `unknown` - unknown
+       */
+      promptType: components["schemas"]["PromptTypeEnum"];
       worker: string;
       sessionID: string | null;
       sessionTitle: string | null;
@@ -1392,6 +1410,15 @@ export interface components {
       name: string;
       text: string;
     };
+    /**
+     * @description * `approve_deny` - approve_deny
+     *     * `multiple_choice` - multiple_choice
+     *     * `free_text` - free_text
+     *     * `unknown` - unknown
+     * @enum {string}
+     */
+    PromptTypeEnum:
+      "approve_deny" | "multiple_choice" | "free_text" | "unknown";
     RealtimeTicket: {
       ticket: string;
       expires_in: number;
@@ -1466,6 +1493,7 @@ export interface components {
       depends_on: number[];
       readonly blocked_reason: string;
       readonly result_summary: string;
+      handoff_mode: components["schemas"]["HandoffModeEnum"];
       readonly is_ready: boolean;
       readonly dependency_progress: components["schemas"]["DependencyProgress"];
       readonly created_by: string | null;
@@ -1490,6 +1518,7 @@ export interface components {
       depends_on: number[];
       readonly blocked_reason: string;
       readonly result_summary: string;
+      handoff_mode: components["schemas"]["HandoffModeEnum"];
       readonly is_ready: boolean;
       readonly dependency_progress: components["schemas"]["DependencyProgress"];
       readonly created_by: string | null;
@@ -1523,6 +1552,7 @@ export interface components {
       project: string;
       priority?: number;
       depends_on?: number[];
+      handoff_mode?: components["schemas"]["HandoffModeEnum"];
     };
     /**
      * @description * `pending` - Pending
