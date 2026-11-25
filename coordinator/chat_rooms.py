@@ -95,7 +95,7 @@ def message_card(message):
     }
 
 
-class ModelChoice(serializers.Serializer):
+class ChatModelChoice(serializers.Serializer):
     providerID = serializers.CharField(max_length=100)
     modelID = serializers.CharField(max_length=200)
 
@@ -120,7 +120,7 @@ class ParticipantInput(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=ChatParticipant.Kind.choices, required=False, default=ChatParticipant.Kind.PROVIDER
     )
-    model = ModelChoice(required=False)
+    model = ChatModelChoice(required=False)
     worker = serializers.CharField(max_length=100, required=False, allow_blank=True)
     agent = serializers.CharField(max_length=100, required=False, allow_blank=True)
     canAct = serializers.BooleanField(required=False, default=False)
@@ -131,7 +131,7 @@ class ParticipantInput(serializers.Serializer):
 class ParticipantPatchInput(serializers.Serializer):
     role = serializers.CharField(max_length=60, required=False)
     persona = serializers.CharField(max_length=20000, allow_blank=True, required=False)
-    model = ModelChoice(required=False)
+    model = ChatModelChoice(required=False)
     agent = serializers.CharField(max_length=100, required=False, allow_blank=True)
     canAct = serializers.BooleanField(required=False)
     isMuted = serializers.BooleanField(required=False)
@@ -151,10 +151,13 @@ class AdvanceInput(serializers.Serializer):
 class RoomView(APIView):
     """Base: owners write, agent keys and signed-in viewers read."""
 
+    # Project default order: a Bearer agent key, a mobile device token, then the
+    # CSRF-checked browser session. Session auth stays last so writes from a
+    # browser are still CSRF-enforced.
     authentication_classes = [
-        authentication.SessionAuthentication,
-        UserTokenAuthentication,
         AgentKeyAuthentication,
+        UserTokenAuthentication,
+        authentication.SessionAuthentication,
     ]
 
     def get_permissions(self):
@@ -201,12 +204,13 @@ def resolve_worker(payload, kind):
     if not name:
         raise serializers.ValidationError({"worker": "Worker participants need a worker"})
     worker = services._resolve_worker(name)
-    services._require_ready_worker(worker)
+    services._require_ready_worker(worker, "this chat room participant")
     return worker
 
 
 class RoomsView(RoomView):
     @extend_schema(
+        operation_id="chat_rooms_list",
         parameters=[
             OpenApiParameter("project", str, description="Registered project slug."),
             OpenApiParameter("status", str, description="open or closed."),
@@ -224,7 +228,9 @@ class RoomsView(RoomView):
         rows = list(rooms[: settings.CHAT_ROOM_PAGE_LIMIT])
         return Response({"count": rooms.count(), "items": [room_card(room) for room in rows]})
 
-    @extend_schema(request=RoomInput, responses=OpenApiTypes.OBJECT)
+    @extend_schema(
+        operation_id="chat_rooms_create", request=RoomInput, responses=OpenApiTypes.OBJECT
+    )
     @retry_sqlite
     @transaction.atomic
     def post(self, request):
@@ -253,11 +259,13 @@ class RoomsView(RoomView):
 
 
 class RoomDetailView(RoomView):
-    @extend_schema(responses=OpenApiTypes.OBJECT)
+    @extend_schema(operation_id="chat_room_retrieve", responses=OpenApiTypes.OBJECT)
     def get(self, request, pk):
         return Response(room_card(get_room(pk), detail=True))
 
-    @extend_schema(request=RoomPatchInput, responses=OpenApiTypes.OBJECT)
+    @extend_schema(
+        operation_id="chat_room_update", request=RoomPatchInput, responses=OpenApiTypes.OBJECT
+    )
     @retry_sqlite
     @transaction.atomic
     def patch(self, request, pk):
@@ -292,7 +300,7 @@ class RoomDetailView(RoomView):
         room.save(update_fields=[*fields, "updated_at"])
         return Response(room_card(room, detail=True))
 
-    @extend_schema(responses=OpenApiTypes.OBJECT)
+    @extend_schema(operation_id="chat_room_close", responses=OpenApiTypes.OBJECT)
     @retry_sqlite
     @transaction.atomic
     def delete(self, request, pk):
@@ -308,7 +316,11 @@ class RoomDetailView(RoomView):
 
 
 class ParticipantsView(RoomView):
-    @extend_schema(request=ParticipantInput, responses=OpenApiTypes.OBJECT)
+    @extend_schema(
+        operation_id="chat_participant_create",
+        request=ParticipantInput,
+        responses=OpenApiTypes.OBJECT,
+    )
     @retry_sqlite
     @transaction.atomic
     def post(self, request, pk):
@@ -347,7 +359,11 @@ class ParticipantsView(RoomView):
 
 
 class ParticipantDetailView(RoomView):
-    @extend_schema(request=ParticipantPatchInput, responses=OpenApiTypes.OBJECT)
+    @extend_schema(
+        operation_id="chat_participant_update",
+        request=ParticipantPatchInput,
+        responses=OpenApiTypes.OBJECT,
+    )
     @retry_sqlite
     @transaction.atomic
     def patch(self, request, pk, participant_id):
@@ -403,7 +419,7 @@ class ParticipantDetailView(RoomView):
         participant.save(update_fields=[*fields, "updated_at"])
         return Response(participant_card(participant))
 
-    @extend_schema(responses=OpenApiTypes.OBJECT)
+    @extend_schema(operation_id="chat_participant_delete", responses=OpenApiTypes.OBJECT)
     @retry_sqlite
     @transaction.atomic
     def delete(self, request, pk, participant_id):
@@ -423,6 +439,7 @@ class ParticipantDetailView(RoomView):
 
 class MessagesView(RoomView):
     @extend_schema(
+        operation_id="chat_messages_list",
         parameters=[
             OpenApiParameter("latest", bool, description="Newest page, oldest-first."),
             OpenApiParameter("before", int, description="Exclusive older-page cursor."),
@@ -464,7 +481,11 @@ class MessagesView(RoomView):
             }
         )
 
-    @extend_schema(request=PostMessageInput, responses=OpenApiTypes.OBJECT)
+    @extend_schema(
+        operation_id="chat_messages_create",
+        request=PostMessageInput,
+        responses=OpenApiTypes.OBJECT,
+    )
     def post(self, request, pk):
         data = PostMessageInput(data=request.data)
         data.is_valid(raise_exception=True)
@@ -476,7 +497,9 @@ class MessagesView(RoomView):
 
 
 class AdvanceView(RoomView):
-    @extend_schema(request=AdvanceInput, responses=OpenApiTypes.OBJECT)
+    @extend_schema(
+        operation_id="chat_room_advance", request=AdvanceInput, responses=OpenApiTypes.OBJECT
+    )
     def post(self, request, pk):
         data = AdvanceInput(data=request.data)
         data.is_valid(raise_exception=True)
@@ -499,7 +522,7 @@ class AdvanceView(RoomView):
 
 
 class ChatModelsView(RoomView):
-    @extend_schema(responses=OpenApiTypes.OBJECT)
+    @extend_schema(operation_id="chat_models_list", responses=OpenApiTypes.OBJECT)
     def get(self, request):
         return Response(
             {

@@ -161,6 +161,130 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/chat/models": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Base: owners write, agent keys and signed-in viewers read. */
+    get: operations["chat_models_list"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/chat/rooms": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Base: owners write, agent keys and signed-in viewers read. */
+    get: operations["chat_rooms_list"];
+    put?: never;
+    /** @description Base: owners write, agent keys and signed-in viewers read. */
+    post: operations["chat_rooms_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/chat/rooms/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Base: owners write, agent keys and signed-in viewers read. */
+    get: operations["chat_room_retrieve"];
+    put?: never;
+    post?: never;
+    /** @description Close the room. History is retained; hard deletion is admin-only. */
+    delete: operations["chat_room_close"];
+    options?: never;
+    head?: never;
+    /** @description Base: owners write, agent keys and signed-in viewers read. */
+    patch: operations["chat_room_update"];
+    trace?: never;
+  };
+  "/api/v1/chat/rooms/{id}/advance": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Base: owners write, agent keys and signed-in viewers read. */
+    post: operations["chat_room_advance"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/chat/rooms/{id}/messages": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Base: owners write, agent keys and signed-in viewers read. */
+    get: operations["chat_messages_list"];
+    put?: never;
+    /** @description Base: owners write, agent keys and signed-in viewers read. */
+    post: operations["chat_messages_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/chat/rooms/{id}/participants": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Base: owners write, agent keys and signed-in viewers read. */
+    post: operations["chat_participant_create"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/chat/rooms/{id}/participants/{participant_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** @description Base: owners write, agent keys and signed-in viewers read. */
+    delete: operations["chat_participant_delete"];
+    options?: never;
+    head?: never;
+    /** @description Base: owners write, agent keys and signed-in viewers read. */
+    patch: operations["chat_participant_update"];
+    trace?: never;
+  };
   "/api/v1/commands": {
     parameters: {
       query?: never;
@@ -1023,6 +1147,11 @@ export interface components {
       | "permission.reply"
       | "question.reply"
       | "question.reject";
+    AdvanceInputRequest: {
+      rounds?: number;
+      /** @default false */
+      reset: boolean;
+    };
     AgentCard: {
       id: number;
       name: string;
@@ -1080,6 +1209,10 @@ export interface components {
     };
     ChatInputRequest: {
       text: string;
+    };
+    ChatModelChoiceRequest: {
+      providerID: string;
+      modelID: string;
     };
     ChatOutput: {
       text: string;
@@ -1343,8 +1476,44 @@ export interface components {
       count: number;
       items: components["schemas"]["Task"][];
     };
+    /**
+     * @description * `provider` - Server-side provider call
+     *     * `worker` - Bridge worker session
+     * @enum {string}
+     */
+    ParticipantInputKindEnum: "provider" | "worker";
+    ParticipantInputRequest: {
+      role: string;
+      /** @default  */
+      persona: string;
+      /** @default provider */
+      kind: components["schemas"]["ParticipantInputKindEnum"];
+      model?: components["schemas"]["ChatModelChoiceRequest"];
+      worker?: string;
+      agent?: string;
+      /** @default false */
+      canAct: boolean;
+      /** @default false */
+      isMuted: boolean;
+      position?: number;
+    };
     PasswordInputRequest: {
       password: string;
+    };
+    PatchedParticipantPatchInputRequest: {
+      role?: string;
+      persona?: string;
+      model?: components["schemas"]["ChatModelChoiceRequest"];
+      agent?: string;
+      canAct?: boolean;
+      isMuted?: boolean;
+      position?: number;
+    };
+    PatchedRoomPatchInputRequest: {
+      name?: string;
+      topic?: string;
+      status?: components["schemas"]["RoomPatchInputStatusEnum"];
+      roundsPerTurn?: number;
     };
     PatchedTaskRequest: {
       title?: string;
@@ -1490,6 +1659,10 @@ export interface components {
       pipe_id?: number;
       pipe_edit?: components["schemas"]["PipeEditInputRequest"];
     };
+    PostMessageInputRequest: {
+      text: string;
+      rounds?: number;
+    };
     ProjectCreated: {
       slug: string;
       name: string;
@@ -1555,6 +1728,19 @@ export interface components {
       result?: unknown;
       error?: string;
     };
+    RoomInputRequest: {
+      project: string;
+      name: string;
+      /** @default  */
+      topic: string;
+      roundsPerTurn?: number;
+    };
+    /**
+     * @description * `open` - Open
+     *     * `closed` - Closed
+     * @enum {string}
+     */
+    RoomPatchInputStatusEnum: "open" | "closed";
     SessionInputRequest: {
       /** @default false */
       text_only: boolean;
@@ -2100,6 +2286,322 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["LoginError"];
+        };
+      };
+    };
+  };
+  chat_models_list: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  chat_rooms_list: {
+    parameters: {
+      query?: {
+        /** @description Registered project slug. */
+        project?: string;
+        /** @description open or closed. */
+        status?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  chat_rooms_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RoomInputRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["RoomInputRequest"];
+        "multipart/form-data": components["schemas"]["RoomInputRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  chat_room_retrieve: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  chat_room_close: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No response body */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  chat_room_update: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["PatchedRoomPatchInputRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["PatchedRoomPatchInputRequest"];
+        "multipart/form-data": components["schemas"]["PatchedRoomPatchInputRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  chat_room_advance: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["AdvanceInputRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["AdvanceInputRequest"];
+        "multipart/form-data": components["schemas"]["AdvanceInputRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  chat_messages_list: {
+    parameters: {
+      query?: {
+        /** @description Exclusive newer-page cursor. */
+        after?: number;
+        /** @description Exclusive older-page cursor. */
+        before?: number;
+        /** @description Newest page, oldest-first. */
+        latest?: boolean;
+        /** @description Page size, capped. */
+        limit?: number;
+      };
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  chat_messages_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["PostMessageInputRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["PostMessageInputRequest"];
+        "multipart/form-data": components["schemas"]["PostMessageInputRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  chat_participant_create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ParticipantInputRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["ParticipantInputRequest"];
+        "multipart/form-data": components["schemas"]["ParticipantInputRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  chat_participant_delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+        participant_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No response body */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  chat_participant_update: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: number;
+        participant_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["PatchedParticipantPatchInputRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["PatchedParticipantPatchInputRequest"];
+        "multipart/form-data": components["schemas"]["PatchedParticipantPatchInputRequest"];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
         };
       };
     };

@@ -538,6 +538,649 @@
                 }
             }
         },
+        "/api/v1/chat/models": {
+            "get": {
+                "operationId": "chat_models_list",
+                "description": "Base: owners write, agent keys and signed-in viewers read.",
+                "tags": [
+                    "chat"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/chat/rooms": {
+            "get": {
+                "operationId": "chat_rooms_list",
+                "description": "Base: owners write, agent keys and signed-in viewers read.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "project",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Registered project slug."
+                    },
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "open or closed."
+                    }
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "chat_rooms_create",
+                "description": "Base: owners write, agent keys and signed-in viewers read.",
+                "tags": [
+                    "chat"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RoomInputRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RoomInputRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RoomInputRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/chat/rooms/{id}": {
+            "get": {
+                "operationId": "chat_room_retrieve",
+                "description": "Base: owners write, agent keys and signed-in viewers read.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "chat_room_update",
+                "description": "Base: owners write, agent keys and signed-in viewers read.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedRoomPatchInputRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedRoomPatchInputRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedRoomPatchInputRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "chat_room_close",
+                "description": "Close the room. History is retained; hard deletion is admin-only.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/chat/rooms/{id}/advance": {
+            "post": {
+                "operationId": "chat_room_advance",
+                "description": "Base: owners write, agent keys and signed-in viewers read.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AdvanceInputRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AdvanceInputRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AdvanceInputRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/chat/rooms/{id}/messages": {
+            "get": {
+                "operationId": "chat_messages_list",
+                "description": "Base: owners write, agent keys and signed-in viewers read.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "after",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Exclusive newer-page cursor."
+                    },
+                    {
+                        "in": "query",
+                        "name": "before",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Exclusive older-page cursor."
+                    },
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "latest",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "Newest page, oldest-first."
+                    },
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Page size, capped."
+                    }
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "chat_messages_create",
+                "description": "Base: owners write, agent keys and signed-in viewers read.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PostMessageInputRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PostMessageInputRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PostMessageInputRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/chat/rooms/{id}/participants": {
+            "post": {
+                "operationId": "chat_participant_create",
+                "description": "Base: owners write, agent keys and signed-in viewers read.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ParticipantInputRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ParticipantInputRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ParticipantInputRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/chat/rooms/{id}/participants/{participant_id}": {
+            "patch": {
+                "operationId": "chat_participant_update",
+                "description": "Base: owners write, agent keys and signed-in viewers read.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "participant_id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedParticipantPatchInputRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedParticipantPatchInputRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedParticipantPatchInputRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "chat_participant_delete",
+                "description": "Base: owners write, agent keys and signed-in viewers read.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "participant_id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "security": [
+                    {
+                        "agentKey": []
+                    },
+                    {
+                        "deviceToken": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/commands": {
             "get": {
                 "operationId": "commands_list",
@@ -4102,6 +4745,19 @@
                 "type": "string",
                 "description": "* `create` - create\n* `prompt` - prompt\n* `interrupt` - interrupt\n* `permission.reply` - permission.reply\n* `question.reply` - question.reply\n* `question.reject` - question.reject"
             },
+            "AdvanceInputRequest": {
+                "type": "object",
+                "properties": {
+                    "rounds": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "reset": {
+                        "type": "boolean",
+                        "default": false
+                    }
+                }
+            },
             "AgentCard": {
                 "type": "object",
                 "properties": {
@@ -4332,6 +4988,25 @@
                 },
                 "required": [
                     "text"
+                ]
+            },
+            "ChatModelChoiceRequest": {
+                "type": "object",
+                "properties": {
+                    "providerID": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                    },
+                    "modelID": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                    }
+                },
+                "required": [
+                    "modelID",
+                    "providerID"
                 ]
             },
             "ChatOutput": {
@@ -5127,6 +5802,63 @@
                     }
                 }
             },
+            "ParticipantInputKindEnum": {
+                "enum": [
+                    "provider",
+                    "worker"
+                ],
+                "type": "string",
+                "description": "* `provider` - Server-side provider call\n* `worker` - Bridge worker session"
+            },
+            "ParticipantInputRequest": {
+                "type": "object",
+                "properties": {
+                    "role": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 60
+                    },
+                    "persona": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 20000
+                    },
+                    "kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ParticipantInputKindEnum"
+                            }
+                        ],
+                        "default": "provider"
+                    },
+                    "model": {
+                        "$ref": "#/components/schemas/ChatModelChoiceRequest"
+                    },
+                    "worker": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "agent": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "canAct": {
+                        "type": "boolean",
+                        "default": false
+                    },
+                    "isMuted": {
+                        "type": "boolean",
+                        "default": false
+                    },
+                    "position": {
+                        "type": "integer",
+                        "minimum": 1
+                    }
+                },
+                "required": [
+                    "role"
+                ]
+            },
             "PasswordInputRequest": {
                 "type": "object",
                 "properties": {
@@ -5140,6 +5872,58 @@
                 "required": [
                     "password"
                 ]
+            },
+            "PatchedParticipantPatchInputRequest": {
+                "type": "object",
+                "properties": {
+                    "role": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 60
+                    },
+                    "persona": {
+                        "type": "string",
+                        "maxLength": 20000
+                    },
+                    "model": {
+                        "$ref": "#/components/schemas/ChatModelChoiceRequest"
+                    },
+                    "agent": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "canAct": {
+                        "type": "boolean"
+                    },
+                    "isMuted": {
+                        "type": "boolean"
+                    },
+                    "position": {
+                        "type": "integer",
+                        "minimum": 1
+                    }
+                }
+            },
+            "PatchedRoomPatchInputRequest": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                    },
+                    "topic": {
+                        "type": "string",
+                        "maxLength": 20000
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/RoomPatchInputStatusEnum"
+                    },
+                    "roundsPerTurn": {
+                        "type": "integer",
+                        "minimum": 1
+                    }
+                }
             },
             "PatchedTaskRequest": {
                 "type": "object",
@@ -5620,6 +6404,23 @@
                     "revision"
                 ]
             },
+            "PostMessageInputRequest": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 20000
+                    },
+                    "rounds": {
+                        "type": "integer",
+                        "minimum": 1
+                    }
+                },
+                "required": [
+                    "text"
+                ]
+            },
             "ProjectCreated": {
                 "type": "object",
                 "properties": {
@@ -5839,6 +6640,42 @@
                 "required": [
                     "status"
                 ]
+            },
+            "RoomInputRequest": {
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^[-a-zA-Z0-9_]+$"
+                    },
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                    },
+                    "topic": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 20000
+                    },
+                    "roundsPerTurn": {
+                        "type": "integer",
+                        "minimum": 1
+                    }
+                },
+                "required": [
+                    "name",
+                    "project"
+                ]
+            },
+            "RoomPatchInputStatusEnum": {
+                "enum": [
+                    "open",
+                    "closed"
+                ],
+                "type": "string",
+                "description": "* `open` - Open\n* `closed` - Closed"
             },
             "SessionInputRequest": {
                 "type": "object",
