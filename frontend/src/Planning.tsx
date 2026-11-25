@@ -1450,6 +1450,10 @@ function editableCard(card: Card) {
     worker: card.worker || "",
     agent: card.agent,
     model: card.model,
+    // Must be sent explicitly: the server treats an absent field as "unchanged",
+    // so omitting it here silently discarded the user's choice (#137).
+    // "" is the real value for "inherit the project default", not a missing one.
+    handoff_mode: card.handoff_mode ?? "",
   };
 }
 

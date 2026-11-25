@@ -77,8 +77,8 @@ def planning_body(plan):
         playing=False,
         pause_reason="",
         cards=[
-            planning_card(1, "Inherits the project default", "", project_mode),
-            planning_card(2, "Opted out explicitly", "off", project_mode),
+            planning_card(1, "Inherits the project default", plan["cards"][1], project_mode),
+            planning_card(2, "Opted out explicitly", plan["cards"][2], project_mode),
         ],
         jobs=[],
     )
@@ -130,7 +130,7 @@ def main():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     origin = f"http://127.0.0.1:{server.server_port}"
     state = dict(role="owner", mode="off", status="in_progress", patch_status=200)
-    plan = dict(handoff_mode="off", revision=1)
+    plan = dict(handoff_mode="off", revision=1, cards={1: "", 2: "off"})
     patches, plan_mutations, errors = [], [], []
 
     def api(route):
@@ -173,6 +173,12 @@ def main():
                 plan_mutations.append(sent)
                 if sent["operation"] == "settings":
                     plan["handoff_mode"] = sent["settings"]["handoff_mode"]
+                if sent["operation"] == "card":
+                    card = sent["card"]
+                    # Mirror the server: an absent field is simply not written,
+                    # which is exactly how the dropped override went unnoticed.
+                    if "handoff_mode" in card:
+                        plan["cards"][card["id"]] = card["handoff_mode"]
                 plan["revision"] += 1
             body = planning_body(plan)
         elif path.endswith("/workers"):
@@ -303,6 +309,24 @@ def main():
             )
             card_select.select_option("off")
             expect(card_select).to_have_value("off")
+
+            # 11. Saving must actually SEND the override. Regression: editableCard
+            # whitelisted the card payload and silently dropped handoff_mode, so the
+            # choice reverted on reload while the running-task PATCH path worked.
+            page.get_by_role("button", name="Save card").click()
+            card_writes = [m for m in plan_mutations if m["operation"] == "card"]
+            assert card_writes, plan_mutations
+            assert card_writes[-1]["card"].get("handoff_mode") == "off", (
+                "card save dropped handoff_mode: " + repr(card_writes[-1]["card"])
+            )
+            assert plan["cards"][1] == "off", plan["cards"]
+
+            # 12. And it must survive a reload, which is what the user sees.
+            board = planning("board")
+            board.locator(".planning-card", has_text="Inherits the project default").get_by_role(
+                "button", name="Inherits the project default"
+            ).click()
+            expect(page.get_by_label("Task hand-off mode")).to_have_value("off")
 
             # Turning the project default off un-badges the inheriting card.
             plan["handoff_mode"] = "off"
