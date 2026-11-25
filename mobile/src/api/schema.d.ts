@@ -1315,6 +1315,8 @@ export interface components {
      *     * `pipe_create` - pipe_create
      *     * `pipe_approve` - pipe_approve
      *     * `pipe_stop` - pipe_stop
+     *     * `pipe_edit` - pipe_edit
+     *     * `pipe_remove` - pipe_remove
      * @enum {string}
      */
     OperationEnum:
@@ -1330,7 +1332,9 @@ export interface components {
       | "archive"
       | "pipe_create"
       | "pipe_approve"
-      | "pipe_stop";
+      | "pipe_stop"
+      | "pipe_edit"
+      | "pipe_remove";
     OwnPasswordInputRequest: {
       current_password: string;
       new_password: string;
@@ -1389,6 +1393,14 @@ export interface components {
       count: number;
       items: components["schemas"]["PendingInteractionCard"][];
     };
+    PipeEditInputRequest: {
+      pipe_id: number;
+      title?: string;
+      description?: string;
+      on_failure?: components["schemas"]["PipeFailureEnum"];
+      max_retries?: number;
+      stages?: components["schemas"]["PipeStageEditInputRequest"][];
+    };
     /**
      * @description * `stop` - Stop and ask a human
      *     * `loop` - Loop back and retry
@@ -1406,6 +1418,17 @@ export interface components {
       /** @default false */
       play: boolean;
       stages: components["schemas"]["PipeStageInputRequest"][];
+    };
+    PipeStageEditInputRequest: {
+      id?: number;
+      name?: string;
+      role?: components["schemas"]["PipeStageRoleEnum"];
+      instructions?: string;
+      worker?: string;
+      agent?: string;
+      model?: components["schemas"]["ModelChoiceRequest"] | null;
+      directory?: string;
+      requires_approval?: boolean;
     };
     PipeStageInputRequest: {
       name: string;
@@ -1465,6 +1488,7 @@ export interface components {
       template?: string;
       pipe?: components["schemas"]["PipeInputRequest"];
       pipe_id?: number;
+      pipe_edit?: components["schemas"]["PipeEditInputRequest"];
     };
     ProjectCreated: {
       slug: string;

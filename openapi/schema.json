@@ -5081,10 +5081,12 @@
                     "archive",
                     "pipe_create",
                     "pipe_approve",
-                    "pipe_stop"
+                    "pipe_stop",
+                    "pipe_edit",
+                    "pipe_remove"
                 ],
                 "type": "string",
-                "description": "* `settings` - settings\n* `card` - card\n* `enqueue` - enqueue\n* `run` - run\n* `play` - play\n* `pause` - pause\n* `stop` - stop\n* `reorder` - reorder\n* `remove` - remove\n* `archive` - archive\n* `pipe_create` - pipe_create\n* `pipe_approve` - pipe_approve\n* `pipe_stop` - pipe_stop"
+                "description": "* `settings` - settings\n* `card` - card\n* `enqueue` - enqueue\n* `run` - run\n* `play` - play\n* `pause` - pause\n* `stop` - stop\n* `reorder` - reorder\n* `remove` - remove\n* `archive` - archive\n* `pipe_create` - pipe_create\n* `pipe_approve` - pipe_approve\n* `pipe_stop` - pipe_stop\n* `pipe_edit` - pipe_edit\n* `pipe_remove` - pipe_remove"
             },
             "OwnPasswordInputRequest": {
                 "type": "object",
@@ -5288,6 +5290,41 @@
                     "items"
                 ]
             },
+            "PipeEditInputRequest": {
+                "type": "object",
+                "properties": {
+                    "pipe_id": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 300
+                    },
+                    "description": {
+                        "type": "string",
+                        "maxLength": 12000
+                    },
+                    "on_failure": {
+                        "$ref": "#/components/schemas/PipeFailureEnum"
+                    },
+                    "max_retries": {
+                        "type": "integer",
+                        "maximum": 5,
+                        "minimum": 0
+                    },
+                    "stages": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PipeStageEditInputRequest"
+                        }
+                    }
+                },
+                "required": [
+                    "pipe_id"
+                ]
+            },
             "PipeFailureEnum": {
                 "enum": [
                     "stop",
@@ -5338,6 +5375,50 @@
                     "stages",
                     "title"
                 ]
+            },
+            "PipeStageEditInputRequest": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                    },
+                    "role": {
+                        "$ref": "#/components/schemas/PipeStageRoleEnum"
+                    },
+                    "instructions": {
+                        "type": "string",
+                        "maxLength": 8000
+                    },
+                    "worker": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "agent": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "model": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ModelChoiceRequest"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "directory": {
+                        "type": "string",
+                        "maxLength": 500
+                    },
+                    "requires_approval": {
+                        "type": "boolean"
+                    }
+                }
             },
             "PipeStageInputRequest": {
                 "type": "object",
@@ -5529,6 +5610,9 @@
                     "pipe_id": {
                         "type": "integer",
                         "minimum": 1
+                    },
+                    "pipe_edit": {
+                        "$ref": "#/components/schemas/PipeEditInputRequest"
                     }
                 },
                 "required": [

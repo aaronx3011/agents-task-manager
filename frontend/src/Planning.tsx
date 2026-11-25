@@ -86,6 +86,7 @@ interface PipeStageView {
   name: string;
   role: string;
   status: string;
+  instructions: string;
   worker: string;
   agent: string;
   model: ModelChoice | null;
@@ -1459,6 +1460,7 @@ function editableCard(card: Card) {
 
 /** Options for a per-card worker select; blank means the project default. */
 interface PipeStageDraft {
+  id?: number;
   name: string;
   role: string;
   instructions: string;
@@ -1468,9 +1470,15 @@ interface PipeStageDraft {
   model: string;
   directory: string;
   requires_approval: boolean;
+  status?: string;
+  /** Completed and running stages can never be changed. */
+  immutable?: boolean;
+  /** The stage already queued to run next cannot be reordered. */
+  lockedOrder?: boolean;
 }
 
 const PIPE_ROLES = ["plan", "execute", "test", "custom"] as const;
+const PIPE_ACTIVE = ["queued", "running", "awaiting_approval"];
 
 function defaultPipeStages(): PipeStageDraft[] {
   return [
@@ -1510,6 +1518,33 @@ function defaultPipeStages(): PipeStageDraft[] {
   ];
 }
 
+function editPipeStages(pipe: PipeView): PipeStageDraft[] {
+  return pipe.stages.map((stage) => ({
+    id: stage.id,
+    name: stage.name,
+    role: stage.role,
+    instructions: stage.instructions,
+    worker: stage.worker,
+    agent: stage.agent,
+    model: stage.model
+      ? `${stage.model.providerID}/${stage.model.modelID}`
+      : "",
+    directory: stage.directory,
+    requires_approval: stage.requires_approval,
+    status: stage.status,
+    immutable: stage.status === "completed" || stage.status === "running",
+    lockedOrder:
+      stage.status === "completed" ||
+      stage.status === "running" ||
+      stage.status === "queued",
+  }));
+}
+
+function stageModel(value: string): ModelChoice | null {
+  const [providerID, ...rest] = value.split("/");
+  return value && rest.length ? { providerID, modelID: rest.join("/") } : null;
+}
+
 function PipesPanel({
   pipes,
   workers,
@@ -1531,6 +1566,11 @@ function PipesPanel({
   session: (stage: PipeStageView) => void;
 }) {
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<PipeView | null>(null);
+  const close = () => {
+    setCreating(false);
+    setEditing(null);
+  };
   return (
     <div className="planning-pipes">
       <p>
@@ -1542,19 +1582,41 @@ function PipesPanel({
       <div className="planning-pipe-toolbar">
         <button
           disabled={!canWrite || busy}
-          onClick={() => setCreating((value) => !value)}
+          onClick={() => {
+            setEditing(null);
+            setCreating((value) => !value);
+          }}
         >
           <Plus size={16} /> {creating ? "Close" : "New pipe"}
         </button>
       </div>
       {creating && canWrite && (
         <PipeForm
+          key="new"
+          initial={null}
           workers={workers}
           busy={busy}
-          close={() => setCreating(false)}
+          close={close}
           submit={async (pipe) => {
             const ok = await mutate({ operation: "pipe_create", pipe });
-            if (ok) setCreating(false);
+            if (ok) close();
+            return ok;
+          }}
+        />
+      )}
+      {editing && canWrite && (
+        <PipeForm
+          key={editing.id}
+          initial={editing}
+          workers={workers}
+          busy={busy}
+          close={close}
+          submit={async (pipe) => {
+            const ok = await mutate({
+              operation: "pipe_edit",
+              pipe_edit: pipe,
+            });
+            if (ok) close();
             return ok;
           }}
         />
@@ -1591,6 +1653,17 @@ function PipesPanel({
                   Approve checkpoint
                 </button>
               )}
+              {PIPE_ACTIVE.includes(pipe.status) && (
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    setCreating(false);
+                    setEditing(pipe);
+                  }}
+                >
+                  Edit pipe
+                </button>
+              )}
               {!["completed", "cancelled", "failed"].includes(pipe.status) && (
                 <button
                   disabled={busy}
@@ -1601,6 +1674,16 @@ function PipesPanel({
                   <Square size={14} /> Stop pipe
                 </button>
               )}
+              <button
+                disabled={busy}
+                onClick={() =>
+                  void mutate({ operation: "pipe_remove", pipe_id: pipe.id })
+                }
+              >
+                {PIPE_ACTIVE.includes(pipe.status)
+                  ? "Remove pipe"
+                  : "Remove from list"}
+              </button>
             </div>
           </header>
           <ol className="planning-pipe-stages">
@@ -1652,22 +1735,29 @@ function PipesPanel({
 }
 
 function PipeForm({
+  initial,
   workers,
   busy,
   close,
   submit,
 }: {
+  initial: PipeView | null;
   workers: Worker[];
   busy: boolean;
   close: () => void;
   submit: (pipe: Record<string, unknown>) => Promise<boolean>;
 }) {
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [onFailure, setOnFailure] = useState<"stop" | "loop">("stop");
-  const [maxRetries, setMaxRetries] = useState(1);
+  const editing = !!initial;
+  const [title, setTitle] = useState(initial?.title || "");
+  const [description, setDescription] = useState(initial?.description || "");
+  const [onFailure, setOnFailure] = useState<"stop" | "loop">(
+    initial?.on_failure || "stop",
+  );
+  const [maxRetries, setMaxRetries] = useState(initial?.max_retries ?? 1);
   const [play, setPlay] = useState(true);
-  const [stages, setStages] = useState<PipeStageDraft[]>(defaultPipeStages());
+  const [stages, setStages] = useState<PipeStageDraft[]>(
+    initial ? editPipeStages(initial) : defaultPipeStages(),
+  );
   const [error, setError] = useState("");
   const update = (index: number, changes: Partial<PipeStageDraft>) =>
     setStages((current) =>
@@ -1675,6 +1765,22 @@ function PipeForm({
         position === index ? { ...stage, ...changes } : stage,
       ),
     );
+  const canMove = (index: number, direction: number) => {
+    const target = index + direction;
+    if (target < 0 || target >= stages.length) return false;
+    const locked = (stage: PipeStageDraft) =>
+      Boolean(stage.immutable || stage.lockedOrder);
+    return !locked(stages[index]) && !locked(stages[target]);
+  };
+  const move = (index: number, direction: number) => {
+    if (!canMove(index, direction)) return;
+    setStages((current) => {
+      const next = [...current];
+      const target = index + direction;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
   return (
     <form
       className="planning-pipe-form"
@@ -1686,31 +1792,32 @@ function PipeForm({
           return;
         }
         const payloadStages = stages.map((stage) => {
-          const [providerID, ...rest] = stage.model.split("/");
+          if (editing && stage.immutable) return { id: stage.id };
           return {
+            ...(stage.id ? { id: stage.id } : {}),
             name: stage.name,
             role: stage.role,
             instructions: stage.instructions,
             worker: stage.worker,
             agent: stage.agent,
-            model:
-              stage.model && rest.length
-                ? { providerID, modelID: rest.join("/") }
-                : null,
+            model: stageModel(stage.model),
             directory: stage.directory,
             requires_approval: stage.requires_approval,
           };
         });
-        void submit({
+        const shared = {
           title,
           description,
           on_failure: onFailure,
           max_retries: maxRetries,
-          play,
           stages: payloadStages,
-        });
+        };
+        void submit(
+          editing ? { pipe_id: initial.id, ...shared } : { ...shared, play },
+        );
       }}
     >
+      <h3>{editing ? `Edit pipe: ${initial?.title}` : "New pipe"}</h3>
       <label>
         Pipe title
         <input
@@ -1754,21 +1861,45 @@ function PipeForm({
             onChange={(event) => setMaxRetries(Number(event.target.value))}
           />
         </label>
-        <label className="planning-inline-check">
-          <input
-            type="checkbox"
-            checked={play}
-            onChange={(event) => setPlay(event.target.checked)}
-          />
-          Play the queue immediately
-        </label>
+        {!editing && (
+          <label className="planning-inline-check">
+            <input
+              type="checkbox"
+              checked={play}
+              onChange={(event) => setPlay(event.target.checked)}
+            />
+            Play the queue immediately
+          </label>
+        )}
       </div>
       <fieldset>
         <legend>Stages</legend>
         {stages.map((stage, index) => {
           const worker = workers.find((item) => item.name === stage.worker);
+          if (editing && stage.immutable) {
+            return (
+              <div
+                className="planning-pipe-stage-editor planning-pipe-stage-locked"
+                key={stage.id}
+              >
+                <strong>
+                  {index + 1}. {stage.name}
+                </strong>
+                <small>
+                  {stage.status} · {stage.worker}
+                  {stage.model
+                    ? ` · ${stage.model}`
+                    : " · worker default model"}
+                </small>
+                <small>
+                  Locked: completed and running stages cannot be edited,
+                  reordered or removed.
+                </small>
+              </div>
+            );
+          }
           return (
-            <div className="planning-pipe-stage-editor" key={index}>
+            <div className="planning-pipe-stage-editor" key={stage.id || index}>
               <div className="planning-settings-grid">
                 <label>
                   Name
@@ -1871,6 +2002,22 @@ function PipeForm({
                   />
                   Pause for my approval after this stage
                 </label>
+                <button
+                  type="button"
+                  disabled={stages.length < 2}
+                  aria-label={`Move ${stage.name} up`}
+                  onClick={() => move(index, -1)}
+                >
+                  <ArrowUp size={14} />
+                </button>
+                <button
+                  type="button"
+                  disabled={stages.length < 2}
+                  aria-label={`Move ${stage.name} down`}
+                  onClick={() => move(index, 1)}
+                >
+                  <ArrowDown size={14} />
+                </button>
                 {stages.length > 1 && (
                   <button
                     type="button"
@@ -1884,6 +2031,12 @@ function PipeForm({
                   </button>
                 )}
               </div>
+              {stage.lockedOrder && (
+                <small>
+                  This stage is already queued to run next, so its order is
+                  fixed. You can still edit its worker, model and instructions.
+                </small>
+              )}
             </div>
           );
         })}
@@ -1916,7 +2069,7 @@ function PipeForm({
       )}
       <footer>
         <button type="submit" disabled={busy || !title.trim()}>
-          {busy ? "Creating…" : "Create pipe"}
+          {busy ? "Saving…" : editing ? "Save pipe" : "Create pipe"}
         </button>
         <button type="button" disabled={busy} onClick={close}>
           Cancel

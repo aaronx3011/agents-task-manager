@@ -407,3 +407,13 @@
   align-items: center;
   gap: 8px !important;
 }
+
+.planning-pipe-stage-locked {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border, #343643);
+  border-radius: 6px;
+  opacity: 0.75;
+}

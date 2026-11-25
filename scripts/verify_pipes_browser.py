@@ -41,6 +41,7 @@ def stage(position, name, role, status, artifact="", requires_approval=False):
         name=name,
         role=role,
         status=status,
+        instructions=f"{name} instructions",
         worker="worker-a",
         agent="",
         model=dict(providerID="test", modelID="model"),
@@ -61,7 +62,7 @@ def stage(position, name, role, status, artifact="", requires_approval=False):
 def pipe_body(state):
     return dict(
         id=7,
-        title="Ship login",
+        title=state["title"],
         description="Plan, build and verify",
         status=state["status"],
         detail=state["detail"],
@@ -78,6 +79,7 @@ def pipe_body(state):
 
 
 def planning_body(state):
+    pipes = [] if state["removed"] else [pipe_body(state)] + state["created"]
     return dict(
         project="alpha",
         name="Alpha",
@@ -97,7 +99,7 @@ def planning_body(state):
         pause_reason=state["pause_reason"],
         cards=[],
         jobs=[],
-        pipes=[pipe_body(state)] + state["created"],
+        pipes=pipes,
     )
 
 
@@ -122,6 +124,8 @@ def main():
         playing=False,
         pause_reason="Pipe 'Ship login' awaits approval",
         created=[],
+        removed=False,
+        title="Ship login",
     )
     mutations, errors = [], []
 
@@ -157,9 +161,15 @@ def main():
                     state["approved"] = 1
                     state["detail"] = "Checkpoint after stage 1 approved"
                     state["playing"] = True
-                elif operation == "pipe_stop":
+                elif operation == "pipe_stop" and sent["pipe_id"] == 7:
                     state["status"] = "failed"
                     state["detail"] = "Pipe stopped by operator"
+                    state["playing"] = False
+                elif operation == "pipe_edit":
+                    payload = sent["pipe_edit"]
+                    state["title"] = payload["title"]
+                elif operation == "pipe_remove":
+                    state["removed"] = True
                     state["playing"] = False
                 elif operation == "pipe_create":
                     data = sent["pipe"]
@@ -253,18 +263,51 @@ def main():
             ).click()
             assert mutations[-1]["operation"] == "pipe_stop"
 
-            # 5. A viewer can read but not create, approve or stop.
+            # 5. Edit changes the title and keeps completed stages locked.
+            edit_card = view.locator(".planning-pipe", has_text="Ship login")
+            edit_card.get_by_role("button", name="Edit pipe").click()
+            edit_form = view.locator(".planning-pipe-form")
+            expect(edit_form).to_contain_text("Edit pipe: Ship login")
+            edit_form.get_by_label("Pipe title").fill("Ship login edited")
+            expect(edit_form.locator(".planning-pipe-stage-locked")).to_contain_text("completed")
+            expect(edit_form.locator(".planning-pipe-stage-locked").locator("input")).to_have_count(
+                0
+            )
+            edit_form.get_by_role("button", name="Save pipe").click()
+            edit = [item for item in mutations if item["operation"] == "pipe_edit"][-1]
+            assert edit["pipe_edit"]["title"] == "Ship login edited", edit
+            assert edit["pipe_edit"]["stages"][0] == {"id": 1}, edit
+            assert edit["pipe_edit"]["stages"][1]["name"] == "Execute"
+            assert edit["pipe_edit"]["stages"][1]["model"] == {
+                "providerID": "test",
+                "modelID": "model",
+            }
+            expect(view).to_contain_text("Ship login edited")
+
+            # 7. A viewer can read but not create, approve, edit, stop or remove.
             state["role"] = "viewer"
             view = pipes_page()
             expect(view.get_by_role("button", name="New pipe")).to_be_disabled()
             expect(view.get_by_role("button", name="Stop pipe").first).to_be_disabled()
+            expect(view.get_by_role("button", name="Edit pipe").first).to_be_disabled()
+            expect(view.get_by_role("button", name="Remove pipe").first).to_be_disabled()
 
-            # 6. Mobile keeps the stages and controls reachable.
+            # 8. Mobile keeps the stages and controls reachable.
             state["role"] = "owner"
             page.set_viewport_size(dict(width=390, height=844))
             view = pipes_page()
             expect(view.locator(".planning-pipe").first).to_be_visible()
             expect(view.get_by_role("button", name="New pipe")).to_be_visible()
+
+            state["role"] = "owner"
+            view = pipes_page()
+            # 6. Remove archives and hides the pipe; no task is marked done.
+            view.locator(".planning-pipe", has_text="Ship login edited").get_by_role(
+                "button", name="Remove pipe"
+            ).click()
+            assert mutations[-1]["operation"] == "pipe_remove"
+            assert mutations[-1]["pipe_id"] == 7
+            expect(view.locator(".planning-pipe")).to_have_count(0)
 
             context.close()
             browser.close()

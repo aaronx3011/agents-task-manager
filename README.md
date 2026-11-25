@@ -303,9 +303,20 @@ Failure policy is per pipe:
 A checkpoint pauses the pipe with `awaiting_approval`; **Play** is refused until
 **Approve checkpoint** (`pipe_approve`) queues the next stage. Stop pauses, cancels
 waiting stage jobs and interrupts a running stage without marking its task done.
-Running stages are never silently retargeted or removed; remove/reorder refuse pipe
-stage jobs. Owner/CSRF/capability gates, durable ordering and explicit-completion
-rules are unchanged.
+
+**Edit pipe** (`pipe_edit`) changes an active pipe's title, failure policy, retry
+budget and its pending/queued stages: name, role, instructions, worker,
+agent/model, directory and checkpoint. A queued stage's `PlanningJob` adopts the
+new worker/snapshot and starts with it; a running job is never changed. Reorder,
+add and remove apply only to the editable tail: completed and running stages stay
+in place, and the stage already queued to run next can be edited or removed but
+not reordered. **Remove pipe** (`pipe_remove`) refuses while a stage runs (Stop
+first), cancels waiting stages/jobs and archives the pipe; history and audit stay
+in the task/queue records, and the pipe drops out of the active Pipes list and
+queue summary. Finished pipes can also be archived. Owner/CSRF/capability gates,
+durable ordering and explicit-completion rules are unchanged; the generic queue
+remove/reorder still refuses pipe stage jobs.
+
 
 Planning API: staff-session-only `GET/POST /api/projects/{slug}/planning`, with
 CSRF on writes and revision-based conflict detection. Read-only pipe inspection is
@@ -314,7 +325,7 @@ also available to MCP agents and signed-in viewers through
 MCP tools `list_pipes` and `get_pipe` call those routes. Agent reporting uses
 `POST /api/planning/jobs/{id}/report` plus agent authentication and the scoped
 token. Architecture/operations and verification: [issue #28](https://github.com/aaronx3011/agents-task-manager/issues/28).
-Apply migration `0025` before serving pipes. Source:
+Apply migration `0026` before serving pipe editing/removal (0025 for pipes). Source:
 `frontend/src/Planning.tsx`, `coordinator/planning_api.py`, and planning services
 in `coordinator/services.py`; focused regression tests: `tests/test_planning.py`
 and `tests/test_pipes.py`. Pipes need no Compose/env changes.
