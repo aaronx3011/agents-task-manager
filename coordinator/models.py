@@ -833,3 +833,210 @@ class NotionLink(models.Model):
     def __str__(self):
         target = f"project {self.project_id}" if self.project_id else f"task {self.task_id}"
         return f"Notion {target} → {self.page_id or 'unlinked'}"
+
+
+class ChatRoom(models.Model):
+    """A persisted multi-participant conversation scoped to one project (GH #149).
+
+    Several AI participants, each holding a distinct role and bound to its own
+    model, read one shared history and answer in character. Turn exclusivity uses
+    the ``VoiceConversation.busy_until`` lease pattern: the lease identity is the
+    exact ``turn_busy_until`` value, so a turn proves ownership by matching its own
+    deadline and a successor that overwrote it makes the loser abort without
+    mutating. ``pending_speakers`` keeps the round-robin order durable, so a crash
+    mid-turn loses at most the speaker in flight instead of skipping it.
+    """
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        CLOSED = "closed", "Closed"
+
+    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="chat_rooms")
+    name = models.CharField(max_length=120)
+    topic = models.TextField(blank=True)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.OPEN, db_index=True
+    )
+    rounds_per_turn = models.PositiveSmallIntegerField(default=1)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="chat_rooms"
+    )
+    turn_busy_until = models.DateTimeField(null=True, blank=True)
+    turn_seq = models.PositiveIntegerField(default=0)
+    # Participant ids still owed a reply for the current turn, consumed from the front.
+    pending_speakers = models.JSONField(default=list, blank=True)
+    # Only ever written under the room row lock, so they cannot drift from the rows.
+    message_count = models.PositiveIntegerField(default=0)
+    history_bytes = models.PositiveBigIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-pk"]
+        constraints = [
+            models.UniqueConstraint(fields=["project", "name"], name="chat_room_name_per_project")
+        ]
+        indexes = [models.Index(fields=["status", "-updated_at"])]
+
+    def __str__(self):
+        return f"Room {self.pk}:{self.name}"
+
+
+class ChatParticipant(models.Model):
+    """A role in a room, bound to a model and (for the worker kind) to a worker.
+
+    ``PipeStage`` is the existing (role, worker, agent, model) binding shape, but
+    ``PipeStage.role`` is a closed pipeline label that cannot carry a persona, so a
+    participant keeps a free-text ``role`` label plus its own ``persona`` prompt.
+    """
+
+    class Kind(models.TextChoices):
+        PROVIDER = "provider", "Server-side provider call"
+        WORKER = "worker", "Bridge worker session"
+
+    room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name="participants")
+    position = models.PositiveSmallIntegerField()
+    role = models.CharField(max_length=60)
+    persona = models.TextField(blank=True)
+    kind = models.CharField(max_length=16, choices=Kind.choices, default=Kind.PROVIDER)
+    model = models.JSONField(null=True, blank=True)
+    worker = models.ForeignKey(
+        Worker, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+    )
+    agent = models.CharField(max_length=100, blank=True)
+    # At most one acting participant per room; every other participant is read-only.
+    can_act = models.BooleanField(default=False)
+    is_muted = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["position", "pk"]
+        constraints = [
+            models.UniqueConstraint(fields=["room", "position"], name="chat_participant_position"),
+            models.UniqueConstraint(fields=["room", "role"], name="chat_participant_role"),
+            models.UniqueConstraint(
+                fields=["room"],
+                condition=Q(can_act=True),
+                name="chat_room_single_actor",
+            ),
+            models.CheckConstraint(
+                condition=Q(kind="provider", worker__isnull=True)
+                | Q(kind="worker", worker__isnull=False),
+                name="chat_participant_kind_binding",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Room {self.room_id} {self.position}:{self.role}"
+
+
+class ChatMessage(models.Model):
+    """One persisted room message. The server-owned ``seq`` is the read cursor.
+
+    Unlike the observed worker transcript, every write here is ours, so there are
+    no out-of-order backfills and no retention gaps: a gapless per-room sequence
+    replaces the worker path's ``remote_time``/pk compound cursor.
+    """
+
+    class Author(models.TextChoices):
+        HUMAN = "human", "Human"
+        PARTICIPANT = "participant", "Participant"
+        SYSTEM = "system", "System"
+
+    room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name="messages")
+    seq = models.PositiveIntegerField()
+    turn = models.PositiveIntegerField(default=0)
+    author_kind = models.CharField(max_length=16, choices=Author.choices)
+    participant = models.ForeignKey(
+        ChatParticipant, on_delete=models.SET_NULL, null=True, blank=True, related_name="messages"
+    )
+    author_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    # Denormalized so a removed participant's lines keep their speaker name.
+    role_label = models.CharField(max_length=60, blank=True)
+    text = models.TextField()
+    tool_events = models.JSONField(default=list, blank=True)
+    model = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-seq", "-pk"]
+        constraints = [models.UniqueConstraint(fields=["room", "seq"], name="chat_message_seq")]
+        indexes = [models.Index(fields=["room", "-seq"])]
+
+    def __str__(self):
+        return f"Room {self.room_id} message {self.seq}"
+
+
+class ChatToolResult(models.Model):
+    """Write-idempotency ledger for an acting participant's tool calls.
+
+    Same shape and purpose as ``VoiceToolResult``: a replayed write returns the
+    first result instead of performing the side effect twice.
+    """
+
+    room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name="tool_results")
+    participant = models.ForeignKey(
+        ChatParticipant, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    fingerprint = models.CharField(max_length=64)
+    tool = models.CharField(max_length=40)
+    result = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["room", "fingerprint"], name="chat_tool_result_once")
+        ]
+
+    def __str__(self):
+        return f"Room {self.room_id} tool {self.tool}"
+
+
+class ChatWorkerTurn(models.Model):
+    """Correlates a worker-backed participant's turn to its dispatched command.
+
+    Unused until worker-backed participants land (GH #150); it ships now so that
+    phase stays additive and needs no second migration of the participant table.
+    A ``prompt`` command returns no reply text, so the reply is recovered by
+    matching new assistant ``WorkerMessage`` rows above ``watermark_message_id``.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        DISPATCHED = "dispatched", "Dispatched"
+        ANSWERED = "answered", "Answered"
+        FAILED = "failed", "Failed"
+
+    room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name="worker_turns")
+    participant = models.ForeignKey(
+        ChatParticipant, on_delete=models.CASCADE, related_name="worker_turns"
+    )
+    turn = models.PositiveIntegerField()
+    create_command = models.ForeignKey(
+        WorkerCommand, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    prompt_command = models.ForeignKey(
+        WorkerCommand, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    remote_session_id = models.CharField(max_length=128, blank=True)
+    watermark_message_id = models.BigIntegerField(null=True, blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    reply = models.ForeignKey(
+        ChatMessage, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    dispatched_at = models.DateTimeField(null=True, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["turn", "pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["room", "turn", "participant"], name="chat_worker_turn_once"
+            )
+        ]
+
+    def __str__(self):
+        return f"Room {self.room_id} turn {self.turn} participant {self.participant_id}"

@@ -49,6 +49,36 @@ VOICE_MAX_CLIP_BYTES = positive_env_int(
     "VOICE_MAX_CLIP_BYTES", VOICE_MAX_CLIP_SECONDS * 24000 * 2 + 1024
 )
 
+# Multi-AI chat rooms (GH #149). A provider participant may only select a model
+# from this allowlist, which is what lets two participants in one room run
+# different models while the provider origin itself stays allowlisted in
+# voice_runtime.provider_request.
+CHAT_ROOM_MODELS = tuple(
+    name.strip()
+    for name in os.environ.get("CHAT_ROOM_MODELS", FIREWORKS_MODEL).split(",")
+    if name.strip()
+)
+CHAT_ROOM_MAX_PARTICIPANTS = positive_env_int("CHAT_ROOM_MAX_PARTICIPANTS", 6)
+CHAT_ROOM_MAX_ROUNDS = positive_env_int("CHAT_ROOM_MAX_ROUNDS", 3)
+# Voice has no tool-round cap; a room multiplies every turn by its participants.
+CHAT_ROOM_MAX_TOOL_ROUNDS = positive_env_int("CHAT_ROOM_MAX_TOOL_ROUNDS", 4)
+# Prompt window only. Nothing is ever pruned from the stored transcript.
+CHAT_ROOM_CONTEXT_MESSAGES = positive_env_int("CHAT_ROOM_CONTEXT_MESSAGES", 60)
+CHAT_ROOM_CONTEXT_BYTES = positive_env_int("CHAT_ROOM_CONTEXT_BYTES", 400000)
+CHAT_ROOM_MAX_OUTPUT_TOKENS = positive_env_int("CHAT_ROOM_MAX_OUTPUT_TOKENS", 2048)
+CHAT_ROOM_MAX_MESSAGES = positive_env_int("CHAT_ROOM_MAX_MESSAGES", 2000)
+CHAT_ROOM_MAX_HISTORY_BYTES = positive_env_int("CHAT_ROOM_MAX_HISTORY_BYTES", 4000000)
+CHAT_ROOM_MAX_OPEN_ROOMS_PER_USER = positive_env_int("CHAT_ROOM_MAX_OPEN_ROOMS_PER_USER", 10)
+CHAT_ROOM_TURN_LEASE_SECONDS = positive_env_int("CHAT_ROOM_TURN_LEASE_SECONDS", 300)
+CHAT_ROOM_PAGE_LIMIT = positive_env_int("CHAT_ROOM_PAGE_LIMIT", 50)
+CHAT_ROOM_LIVE_TTL = positive_env_int("CHAT_ROOM_LIVE_TTL", 15)
+if CHAT_ROOM_MAX_OUTPUT_TOKENS >= PM_CONTEXT_WINDOW_TOKENS:
+    raise ImproperlyConfigured(
+        "CHAT_ROOM_MAX_OUTPUT_TOKENS must be less than PM_CONTEXT_WINDOW_TOKENS"
+    )
+if FIREWORKS_API_KEY and not CHAT_ROOM_MODELS:
+    raise ImproperlyConfigured("CHAT_ROOM_MODELS must list at least one model id")
+
 
 def env_bool(name, default=False):
     return os.environ.get(name, str(default)).lower() in {"1", "true", "yes"}
