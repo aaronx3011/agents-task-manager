@@ -4,6 +4,8 @@ from django.dispatch import receiver
 
 from .models import (
     Agent,
+    ChatMessage,
+    ChatRoom,
     Project,
     TaskEvent,
     Worker,
@@ -78,6 +80,25 @@ def worker_message_committed(sender, instance, created, **kwargs):
             worker=Worker(pk=worker_id),
             session=WorkerSession(pk=session_id),
         )
+
+    transaction.on_commit(notify_dashboard, robust=True)
+
+
+@receiver(post_save, sender=ChatMessage)
+def chat_message_committed(sender, instance, created, **kwargs):
+    """Room messages push an invalidation notice, not the text (GH #149).
+
+    The client refetches the room with the ``after`` cursor it already holds, so
+    one small notice per message serves every open tab and nothing message-sized
+    travels through the broker. A broker outage still cannot fail a committed
+    message, because the send is deferred and ``robust``.
+    """
+    if not created:
+        return
+    room_id = instance.room_id
+
+    def notify_dashboard():
+        dispatch_notification("chat.message.created", subject="chatroom", room=ChatRoom(pk=room_id))
 
     transaction.on_commit(notify_dashboard, robust=True)
 

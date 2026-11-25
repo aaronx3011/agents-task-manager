@@ -4,7 +4,18 @@ from django.db import transaction
 from django.http import HttpResponse
 
 from . import services
-from .models import Agent, NotionLink, Project, Task, TaskEvent, Worker, WorkerCommand
+from .models import (
+    Agent,
+    ChatMessage,
+    ChatParticipant,
+    ChatRoom,
+    NotionLink,
+    Project,
+    Task,
+    TaskEvent,
+    Worker,
+    WorkerCommand,
+)
 
 
 @admin.register(Worker)
@@ -259,3 +270,57 @@ class WorkerCommandAdmin(admin.ModelAdmin):
     def purge_terminal(self, request, queryset):
         removed, _ = queryset.exclude(status="queued").exclude(status="dispatched").delete()
         self.message_user(request, f"Deleted {removed} resolved command(s).")
+
+
+class ChatParticipantInline(admin.TabularInline):
+    model = ChatParticipant
+    extra = 0
+    fields = ("position", "role", "kind", "model", "worker", "agent", "can_act", "is_muted")
+
+
+@admin.register(ChatRoom)
+class ChatRoomAdmin(admin.ModelAdmin):
+    """Rooms hold no credential, so unlike VoiceConversation they are safe here."""
+
+    list_display = ("name", "project", "status", "message_count", "turn_seq", "updated_at")
+    list_filter = ("status", "project")
+    search_fields = ("name", "topic")
+    readonly_fields = (
+        "created_by",
+        "turn_busy_until",
+        "turn_seq",
+        "pending_speakers",
+        "message_count",
+        "history_bytes",
+        "created_at",
+        "updated_at",
+    )
+    inlines = [ChatParticipantInline]
+
+
+@admin.register(ChatMessage)
+class ChatMessageAdmin(admin.ModelAdmin):
+    """Read-only: the transcript is evidence, so it is never edited in admin."""
+
+    list_display = ("room", "seq", "turn", "author_kind", "role_label", "created_at")
+    list_filter = ("author_kind", "room")
+    search_fields = ("text", "role_label")
+    readonly_fields = (
+        "room",
+        "seq",
+        "turn",
+        "author_kind",
+        "participant",
+        "author_user",
+        "role_label",
+        "text",
+        "tool_events",
+        "model",
+        "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

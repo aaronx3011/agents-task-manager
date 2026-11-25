@@ -61,9 +61,9 @@ def publish_change(event_id=None, task_id=None, event_type=None, extra=None):
 
 
 def dispatch_notification(
-    event_type, subject, worker=None, session=None, command=None, event_id=None
+    event_type, subject, worker=None, session=None, command=None, event_id=None, room=None
 ):
-    """Post-commit worker-domain invalidation (#11/#15)."""
+    """Post-commit worker-domain invalidation (#11/#15), plus chat rooms (#149)."""
     publish_change(
         event_id=event_id,
         event_type=event_type,
@@ -72,6 +72,7 @@ def dispatch_notification(
             "worker_id": worker.pk if worker else None,
             "session_id": getattr(session, "pk", None),
             "command_id": getattr(command, "pk", None),
+            "room_id": getattr(room, "pk", None),
         },
     )
 
@@ -224,5 +225,8 @@ class DashboardConsumer(AsyncJsonWebsocketConsumer):
                 "worker_id": event.get("worker_id"),
                 "session_id": event.get("session_id"),
                 "command_id": event.get("command_id"),
+                # Chat rooms refetch the room's own history with the `after`
+                # cursor the client already holds, so the notice stays small.
+                "room_id": event.get("room_id"),
             }
         )
