@@ -781,6 +781,11 @@ def sync_planning_card(task):
         card.save(update_fields=["plan", "column", "position", "updated_at"])
 
 
+def _pipe_jobs(pipe):
+    """Planning jobs executing a pipe's stages; Pipe has no direct jobs relation."""
+    return PlanningJob.objects.filter(pipe_stage__pipe=pipe)
+
+
 def _pipe_read(pipe):
     """Bounded dashboard view of a pipe, its stages, artifacts and latest jobs."""
     stages = []
@@ -1434,11 +1439,11 @@ def voice_create_pipe(project, actor, data):
     play = bool(data.get("play", True))
     pipe = _create_pipe(plan, actor, data, play=play)
     plan.revision += 1
-    plan.save(update_fields=["revision"])
+    plan.save(update_fields=["revision", "playing", "pause_reason"])
     transaction.on_commit(
         lambda: dispatch_notification("planning.changed", subject="planning"), robust=True
     )
-    first_job = pipe.jobs.order_by("position").first()
+    first_job = _pipe_jobs(pipe).order_by("position").first()
     ahead = plan.jobs.filter(
         status__in=["queued", "running"], position__lt=first_job.position if first_job else 0
     ).count()
@@ -1484,7 +1489,7 @@ def voice_approve_pipe(project, actor, pipe_id):
         raise TaskError(f"Unknown pipe #{pipe_id} in project {project.slug}", 404)
     _approve_pipe(plan, pipe, actor)
     plan.revision += 1
-    plan.save(update_fields=["revision"])
+    plan.save(update_fields=["revision", "playing", "pause_reason"])
     transaction.on_commit(
         lambda: dispatch_notification("planning.changed", subject="planning"), robust=True
     )
@@ -1514,7 +1519,7 @@ def voice_stop_pipe(project, actor, pipe_id):
         raise TaskError(f"Pipe '{pipe.title}' is already {pipe.status}", 409)
     job = _stop_pipe(plan, pipe, actor)
     plan.revision += 1
-    plan.save(update_fields=["revision"])
+    plan.save(update_fields=["revision", "playing", "pause_reason"])
     transaction.on_commit(
         lambda: dispatch_notification("planning.changed", subject="planning"), robust=True
     )
@@ -2216,7 +2221,7 @@ def _mark_pipe_stopped(plan, pipe, detail, actor):
         )
         stage.completed_at = now
         stage.save(update_fields=["status", "completed_at"])
-    pipe.jobs.filter(status="queued").update(
+    _pipe_jobs(pipe).filter(status="queued").update(
         status="cancelled", detail=f"Pipe stopped by {actor}", completed_at=now
     )
     plan.playing = False
@@ -2225,7 +2230,8 @@ def _mark_pipe_stopped(plan, pipe, detail, actor):
 
 def _stop_pipe(plan, pipe, actor):
     job = (
-        pipe.jobs.filter(status="running")
+        _pipe_jobs(pipe)
+        .filter(status="running")
         .select_related("attempt", "worker")
         .order_by("-position")
         .first()
@@ -2517,6 +2523,10 @@ def _advance_planning(plan, worker):
             next_job.report_token_hash = hashlib.sha256(report_token.encode()).hexdigest()
             next_job.status = "running"
             next_job.save(update_fields=["attempt", "prompt", "report_token_hash", "status"])
+            if next_job.pipe_stage_id:
+                PipeStage.objects.filter(pk=next_job.pipe_stage_id).update(
+                    status=PipeStage.Status.RUNNING
+                )
     except TaskError as exc:
         _pause_planning(plan, exc.message)
 

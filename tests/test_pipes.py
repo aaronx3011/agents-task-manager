@@ -408,3 +408,82 @@ def test_refusals_leave_no_partial_pipe(setup):
         content_type="application/json",
     )
     assert response.status_code in {401, 403}
+
+
+def test_voice_create_pipe_queues_without_playing(setup):
+    staff, workers, plan, clients = setup
+    payload = stage_payload(workers)
+    payload["play"] = False
+
+    result = services.voice_create_pipe(plan.project, "router", payload)
+
+    pipe = Pipe.objects.get(pk=result["pipe"])
+    job = PlanningJob.objects.get(pipe_stage__pipe=pipe)
+    plan.refresh_from_db()
+    assert result["first_job"] == job.pk
+    assert result["jobs_ahead"] == 0
+    assert job.status == "queued"
+    assert pipe.stages.get(position=1).status == "queued"
+    assert not plan.playing
+    assert result["state"].startswith("Pipe added to the queue but it is not playing")
+
+
+def test_voice_stop_pipe_cancels_a_queued_stage(setup):
+    staff, workers, plan, clients = setup
+    pipe = create_pipe(staff, plan, stage_payload(workers))
+
+    result = services.voice_stop_pipe(plan.project, "router", pipe.pk)
+
+    pipe.refresh_from_db()
+    plan.refresh_from_db()
+    job = PlanningJob.objects.get(pipe_stage__pipe=pipe)
+    assert result["interrupt"] is None
+    assert pipe.status == Pipe.Status.FAILED
+    assert pipe.stages.get(position=1).status == PipeStage.Status.SKIPPED
+    assert job.status == "cancelled"
+    assert job.detail == "Pipe stopped by router"
+    assert not plan.playing
+
+
+def test_voice_stop_pipe_interrupts_a_running_stage(setup):
+    staff, workers, plan, clients = setup
+    pipe = create_pipe(staff, plan, stage_payload(workers))
+    launch_stage(clients, "worker-plan", "ses_stop")
+    job = PlanningJob.objects.get(pipe_stage__pipe=pipe, pipe_stage__position=1)
+    assert job.status == "running"
+    assert pipe.stages.get(position=1).status == PipeStage.Status.RUNNING
+
+    result = services.voice_stop_pipe(plan.project, "router", pipe.pk)
+
+    pipe.refresh_from_db()
+    job.refresh_from_db()
+    assert result["interrupt"]["status"] == "queued"
+    assert pipe.status == Pipe.Status.FAILED
+    assert pipe.stages.get(position=1).status == PipeStage.Status.FAILED
+    assert job.status == "failed"
+    assert job.stop_command_id is not None
+
+
+def test_planning_api_pipe_stop_cancels_a_queued_stage(setup):
+    staff, workers, plan, clients = setup
+    pipe = create_pipe(staff, plan, stage_payload(workers))
+
+    response = mutate(staff, plan, "pipe_stop", pipe_id=pipe.pk)
+
+    assert response.status_code == 200, response.content
+    pipe.refresh_from_db()
+    job = PlanningJob.objects.get(pipe_stage__pipe=pipe)
+    assert pipe.status == Pipe.Status.FAILED
+    assert job.status == "cancelled"
+    assert pipe.stages.get(position=1).status == PipeStage.Status.SKIPPED
+
+
+def test_voice_create_pipe_play_starts_the_queue(setup):
+    staff, workers, plan, clients = setup
+
+    result = services.voice_create_pipe(plan.project, "router", stage_payload(workers))
+
+    plan.refresh_from_db()
+    assert plan.playing
+    assert result["queue_playing"] is True
+    assert result["state"].startswith("Pipe accepted and queued")
