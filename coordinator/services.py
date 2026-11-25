@@ -803,6 +803,7 @@ def _pipe_read(pipe):
                 "name": stage.name,
                 "role": stage.role,
                 "status": stage.status,
+                "instructions": stage.instructions,
                 "worker": stage.worker.name,
                 "agent": stage.agent,
                 "model": stage.model,
@@ -835,6 +836,7 @@ def _pipe_read(pipe):
         "max_retries": pipe.max_retries,
         "retries_used": pipe.retries_used,
         "approved_stage": pipe.approved_stage,
+        "archived": pipe.archived,
         "stages": stages,
     }
 
@@ -919,7 +921,11 @@ def planning_read(project):
             )
     pipes = []
     if plan:
-        for pipe in plan.pipes.prefetch_related("stages__worker").select_related("plan")[:20]:
+        for pipe in (
+            plan.pipes.filter(archived=False)
+            .prefetch_related("stages__worker")
+            .select_related("plan")[:20]
+        ):
             pipes.append(_pipe_read(pipe))
     return {
         "project": project.slug,
@@ -945,7 +951,7 @@ def pipes_read(project, limit=20, offset=0):
             "offset": offset,
             "pipes": [],
         }
-    queryset = plan.pipes.order_by("-pk")
+    queryset = plan.pipes.filter(archived=False).order_by("-pk")
     rows = queryset.prefetch_related("stages__worker").select_related("plan")[
         offset : offset + limit
     ]
@@ -991,6 +997,17 @@ def mutate_planning(project, actor, data):
         if pipe.status in {Pipe.Status.COMPLETED, Pipe.Status.CANCELLED}:
             raise TaskError(f"Pipe '{pipe.title}' is already {pipe.status}", 409)
         _stop_pipe(plan, pipe, actor)
+    elif operation == "pipe_edit":
+        values = dict(data["pipe_edit"])
+        pipe = plan.pipes.filter(pk=values.pop("pipe_id")).first()
+        if not pipe:
+            raise TaskError("Pipe not found on this project", 404)
+        _edit_pipe(plan, pipe, actor, values)
+    elif operation == "pipe_remove":
+        pipe = plan.pipes.filter(pk=data.get("pipe_id")).first()
+        if not pipe:
+            raise TaskError("Pipe not found on this project", 404)
+        _remove_pipe(plan, pipe, actor)
     elif operation == "settings":
         values = data["settings"]
         worker = Worker.objects.filter(name=values.pop("worker", "")).first()
@@ -1133,7 +1150,7 @@ def mutate_planning(project, actor, data):
         card.archived = True
         card.save(update_fields=["archived"])
     elif operation == "play":
-        awaiting = plan.pipes.filter(status=Pipe.Status.AWAITING_APPROVAL).first()
+        awaiting = plan.pipes.filter(status=Pipe.Status.AWAITING_APPROVAL, archived=False).first()
         if awaiting:
             raise TaskError(
                 f"Pipe '{awaiting.title}' awaits checkpoint approval. "
@@ -1362,6 +1379,7 @@ def _pipe_brief(pipe):
                 "name": stage.name,
                 "role": stage.role,
                 "status": stage.status,
+                "instructions": stage.instructions,
                 "worker": stage.worker.name,
                 "model": model_label(stage.model) or "worker default",
                 "requires_approval": stage.requires_approval,
@@ -1412,9 +1430,8 @@ def queue_summary(plan):
         "recent": [_job_brief(job) for job in recent],
         "pipes": [
             _pipe_brief(pipe)
-            for pipe in plan.pipes.exclude(
-                status__in=[Pipe.Status.COMPLETED, Pipe.Status.CANCELLED]
-            )
+            for pipe in plan.pipes.filter(archived=False)
+            .exclude(status__in=[Pipe.Status.COMPLETED, Pipe.Status.CANCELLED])
             .prefetch_related("stages__worker")
             .order_by("-pk")[:10]
         ],
@@ -1970,6 +1987,21 @@ def _admit_pipe_stage(plan, pipe, stage, actor=None, after_position=None):
     return job
 
 
+def _validate_pipe_policy(on_failure, max_retries, roles):
+    if on_failure not in Pipe.Failure.values:
+        raise TaskError("Pipe failure policy must be stop or loop", 400)
+    if not 0 <= max_retries <= 5:
+        raise TaskError("Pipe max_retries must be between 0 and 5", 400)
+    if on_failure == Pipe.Failure.LOOP:
+        test_index = next((i for i, role in enumerate(roles) if role == PipeStage.Role.TEST), None)
+        if test_index is None:
+            raise TaskError("A looping pipe needs a test stage", 400)
+        if PipeStage.Role.EXECUTE not in roles[:test_index]:
+            raise TaskError("A looping pipe needs an execute stage before its test stage", 400)
+        if max_retries < 1:
+            raise TaskError("A looping pipe needs at least one retry", 400)
+
+
 def _create_pipe(plan, actor, data, play=False):
     """Create a pipe, its stage cards and its first queued stage job (#437)."""
     title = (data.get("title") or "").strip()
@@ -1979,23 +2011,11 @@ def _create_pipe(plan, actor, data, play=False):
     if not 1 <= len(raw_stages) <= 10:
         raise TaskError("A pipe needs between 1 and 10 stages", 400)
     on_failure = data.get("on_failure") or Pipe.Failure.STOP
-    if on_failure not in Pipe.Failure.values:
-        raise TaskError("Pipe failure policy must be stop or loop", 400)
     max_retries = data.get("max_retries", 1)
-    if not 0 <= max_retries <= 5:
-        raise TaskError("Pipe max_retries must be between 0 and 5", 400)
     configs = [
         _pipe_stage_config(plan, raw, index) for index, raw in enumerate(raw_stages, start=1)
     ]
-    roles = [config["role"] for config in configs]
-    if on_failure == Pipe.Failure.LOOP:
-        test_index = next((i for i, role in enumerate(roles) if role == PipeStage.Role.TEST), None)
-        if test_index is None:
-            raise TaskError("A looping pipe needs a test stage", 400)
-        if PipeStage.Role.EXECUTE not in roles[:test_index]:
-            raise TaskError("A looping pipe needs an execute stage before its test stage", 400)
-        if max_retries < 1:
-            raise TaskError("A looping pipe needs at least one retry", 400)
+    _validate_pipe_policy(on_failure, max_retries, [config["role"] for config in configs])
     names = [config["name"] for config in configs]
     if len(set(names)) != len(names):
         raise TaskError("Pipe stage names must be unique", 400)
@@ -2261,6 +2281,340 @@ def _stop_pipe(plan, pipe, actor):
         plan, pipe, f"Pipe '{pipe.title}' stopped by operator; task work is not completed", actor
     )
     return job
+
+
+PIPE_EDITABLE_STATUSES = {
+    Pipe.Status.QUEUED,
+    Pipe.Status.RUNNING,
+    Pipe.Status.AWAITING_APPROVAL,
+}
+PIPE_IMMUTABLE_STAGE_STATUSES = {PipeStage.Status.COMPLETED, PipeStage.Status.RUNNING}
+PIPE_STAGE_FIELDS = (
+    "name",
+    "role",
+    "instructions",
+    "worker",
+    "agent",
+    "model",
+    "directory",
+    "requires_approval",
+)
+
+
+def _pipe_stage_values(stage):
+    return {
+        "name": stage.name,
+        "role": stage.role,
+        "instructions": stage.instructions,
+        "worker": stage.worker.name,
+        "agent": stage.agent,
+        "model": stage.model,
+        "directory": stage.directory,
+        "requires_approval": stage.requires_approval,
+    }
+
+
+def _refresh_pipe_stage_job(plan, pipe, stage):
+    """A queued stage job adopts its edited config; a running job is never touched."""
+    job = stage.jobs.filter(status="queued").order_by("-position", "-pk").first()
+    if job is None:
+        return
+    card = stage.card
+    if card is not None:
+        card.worker = stage.worker
+        card.agent = stage.agent
+        card.model = stage.model
+        card.instructions = stage.instructions
+        card.save(update_fields=["worker", "agent", "model", "instructions", "updated_at"])
+    snapshot = {
+        **job.snapshot,
+        "agent": stage.agent,
+        "model": stage.model,
+        "directory": stage.directory,
+        "instructions": stage.instructions or (card.instructions if card else ""),
+        "stage": {
+            "id": stage.pk,
+            "position": stage.position,
+            "name": stage.name,
+            "role": stage.role,
+            "total": pipe.stages.count(),
+        },
+    }
+    job.worker = stage.worker
+    job.snapshot = snapshot
+    job.save(update_fields=["worker", "snapshot"])
+
+
+def _ensure_pipe_progress(plan, pipe, actor, after_position=None):
+    """Keep an edited active pipe moving after its only waiting stage was replaced."""
+    if pipe.status not in {Pipe.Status.QUEUED, Pipe.Status.RUNNING}:
+        return
+    if _pipe_jobs(pipe).filter(status__in=["queued", "running"]).exists():
+        return
+    next_stage = (
+        pipe.stages.exclude(status=PipeStage.Status.COMPLETED).order_by("position", "pk").first()
+    )
+    if next_stage is None:
+        pipe.status = Pipe.Status.COMPLETED
+        pipe.detail = f"All {pipe.stages.count()} stages completed"
+        pipe.save(update_fields=["status", "detail", "updated_at"])
+        return
+    last_done = _pipe_jobs(pipe).filter(status="completed").order_by("-position").first()
+    _admit_pipe_stage(
+        plan,
+        pipe,
+        next_stage,
+        actor=actor,
+        after_position=after_position
+        if after_position is not None
+        else (last_done.position if last_done else None),
+    )
+
+
+def _edit_pipe(plan, pipe, actor, data):
+    """Edit an active pipe without touching completed or running stages (#462)."""
+    if pipe.archived:
+        raise TaskError(f"Pipe '{pipe.title}' was removed; it cannot be edited", 409)
+    if pipe.status not in PIPE_EDITABLE_STATUSES:
+        raise TaskError(
+            f"Pipe '{pipe.title}' is {pipe.status}; only queued, running or "
+            "awaiting-approval pipes can be edited",
+            409,
+        )
+    title = pipe.title
+    if "title" in data:
+        title = (data["title"] or "").strip()
+        if not title:
+            raise TaskError("A pipe needs a title", 400)
+    description = data.get("description", pipe.description)
+    on_failure = data.get("on_failure", pipe.on_failure)
+    max_retries = data.get("max_retries", pipe.max_retries)
+    if not 0 <= max_retries <= 5:
+        raise TaskError("Pipe max_retries must be between 0 and 5", 400)
+    existing = list(pipe.stages.select_related("worker").order_by("position", "pk"))
+    by_id = {stage.pk: stage for stage in existing}
+    updates = []
+    desired = []
+    seen = set()
+    removed_names = []
+    if "stages" in data:
+        entries = data["stages"]
+        if not 1 <= len(entries) <= 10:
+            raise TaskError("A pipe needs between 1 and 10 stages", 400)
+        for index, entry in enumerate(entries, start=1):
+            stage_id = entry.get("id")
+            if stage_id is not None:
+                stage = by_id.get(stage_id)
+                if stage is None:
+                    raise TaskError(f"Stage #{stage_id} does not belong to this pipe", 404)
+                if stage_id in seen:
+                    raise TaskError("Each stage may appear only once", 409)
+                seen.add(stage_id)
+                values = _pipe_stage_values(stage)
+                for key in PIPE_STAGE_FIELDS:
+                    if key in entry:
+                        values[key] = entry[key]
+                if "worker" in entry:
+                    values["worker"] = (entry["worker"] or "").strip()
+                if stage.status in PIPE_IMMUTABLE_STAGE_STATUSES:
+                    if values != _pipe_stage_values(stage):
+                        raise TaskError(
+                            f"Stage {stage.position} '{stage.name}' is {stage.status} "
+                            "and cannot be edited, reordered or removed",
+                            409,
+                        )
+                    desired.append(("stage", stage))
+                    updates.append((stage, values, False))
+                else:
+                    config = _pipe_stage_config(plan, values, index)
+                    desired.append(("stage", stage))
+                    updates.append((stage, config, True))
+            else:
+                config = _pipe_stage_config(plan, entry, index)
+                desired.append(("new", config))
+        role_source = []
+        for kind, item in desired:
+            if kind == "stage":
+                role_source.append(
+                    next(values["role"] for stage, values, _ in updates if stage.pk == item.pk)
+                )
+            else:
+                role_source.append(item["role"])
+        names = [
+            next(values["name"] for stage, values, _ in updates if stage.pk == item.pk)
+            if kind == "stage"
+            else item["name"]
+            for kind, item in desired
+        ]
+        if len(set(names)) != len(names):
+            raise TaskError("Pipe stage names must be unique", 400)
+        _validate_pipe_policy(on_failure, max_retries, role_source)
+        desired_ids = [item.pk for kind, item in desired if kind == "stage"]
+        immutable_ids = [
+            stage.pk for stage in existing if stage.status in PIPE_IMMUTABLE_STAGE_STATUSES
+        ]
+        if desired_ids[: len(immutable_ids)] != immutable_ids:
+            raise TaskError(
+                "Completed and running stages must stay first and in their current order",
+                409,
+            )
+        for stage in existing:
+            if stage.status == PipeStage.Status.QUEUED and stage.pk in seen:
+                if desired_ids.index(stage.pk) + 1 != stage.position:
+                    raise TaskError(
+                        f"Stage {stage.position} '{stage.name}' is already queued to run next "
+                        "and cannot be reordered; edit it or remove it instead",
+                        409,
+                    )
+        replacement_after = None
+        for stage in existing:
+            if stage.status in PIPE_IMMUTABLE_STAGE_STATUSES or stage.pk in seen:
+                continue
+            removed_names.append(stage.name)
+        # Mutate only after every refusal check above passed.
+        pipe.stages.update(position=F("position") + 1000)
+        for stage, values, editable in updates:
+            if not editable:
+                continue
+            stage.name = values["name"]
+            stage.role = values["role"]
+            stage.instructions = values["instructions"]
+            stage.worker = values["worker"]
+            stage.agent = values["agent"]
+            stage.model = values["model"]
+            stage.directory = values["directory"]
+            stage.requires_approval = values["requires_approval"]
+            stage.save(
+                update_fields=[
+                    "name",
+                    "role",
+                    "instructions",
+                    "worker",
+                    "agent",
+                    "model",
+                    "directory",
+                    "requires_approval",
+                ]
+            )
+            if stage.card_id:
+                PlanningCard.objects.filter(pk=stage.card_id).update(
+                    worker=stage.worker,
+                    agent=stage.agent,
+                    model=stage.model,
+                    instructions=stage.instructions,
+                )
+        for stage in existing:
+            if stage.status in PIPE_IMMUTABLE_STAGE_STATUSES or stage.pk in seen:
+                continue
+            now = timezone.now()
+            for job in stage.jobs.filter(status="queued"):
+                job.status = "cancelled"
+                job.detail = f"Stage removed from pipe '{pipe.title}' by {actor}"
+                job.completed_at = now
+                job.save(update_fields=["status", "detail", "completed_at"])
+                if replacement_after is None or job.position - 1 < replacement_after:
+                    replacement_after = job.position - 1
+            if stage.card_id:
+                PlanningCard.objects.filter(pk=stage.card_id, task__isnull=True).update(
+                    archived=True
+                )
+            stage.delete()
+        for offset, (kind, item) in enumerate(desired, start=1):
+            if kind == "new":
+                stage = PipeStage.objects.create(
+                    pipe=pipe,
+                    position=5000 + offset,
+                    name=item["name"],
+                    role=item["role"],
+                    instructions=item["instructions"],
+                    worker=item["worker"],
+                    agent=item["agent"],
+                    model=item["model"],
+                    directory=item["directory"],
+                    requires_approval=item["requires_approval"],
+                )
+                stage.card = _pipe_stage_card(plan, pipe, stage)
+                stage.save(update_fields=["card"])
+                item["stage"] = stage
+        for offset, (kind, item) in enumerate(desired, start=1):
+            stage = item if kind == "stage" else item["stage"]
+            stage.position = offset
+            stage.save(update_fields=["position"])
+        for kind, item in desired:
+            stage = item if kind == "stage" else item["stage"]
+            if stage.status == PipeStage.Status.QUEUED:
+                _refresh_pipe_stage_job(plan, pipe, stage)
+    else:
+        _validate_pipe_policy(
+            on_failure,
+            max_retries,
+            [stage.role for stage in existing],
+        )
+    pipe.title = title[:300]
+    pipe.description = (description or "").strip()
+    pipe.on_failure = on_failure
+    pipe.max_retries = max_retries
+    detail = f"Edited by {actor}"
+    if removed_names:
+        detail += f"; removed stage(s): {', '.join(removed_names)}"
+    pipe.detail = detail[:2000]
+    pipe.save(
+        update_fields=["title", "description", "on_failure", "max_retries", "detail", "updated_at"]
+    )
+    if "stages" in data:
+        _ensure_pipe_progress(plan, pipe, actor, after_position=replacement_after)
+    for kind, item in desired:
+        stage = item if kind == "stage" else item["stage"]
+        if stage.card_id and stage.card.task_id:
+            log_human(
+                stage.card.task,
+                TaskEvent.Type.NOTE,
+                None,
+                f"Pipe '{pipe.title}' stage {stage.position} '{stage.name}' edited by {actor}",
+                actor,
+            )
+    return pipe
+
+
+def _remove_pipe(plan, pipe, actor):
+    """Cancel waiting work and archive a pipe; a running stage must be stopped first."""
+    if pipe.archived:
+        raise TaskError(f"Pipe '{pipe.title}' was already removed", 409)
+    if _pipe_jobs(pipe).filter(status="running").exists():
+        raise TaskError(
+            f"Pipe '{pipe.title}' has a running stage. Stop it first, then remove the pipe.",
+            409,
+        )
+    now = timezone.now()
+    stages = list(pipe.stages.order_by("position", "pk"))
+    for stage in stages:
+        if stage.status in {PipeStage.Status.PENDING, PipeStage.Status.QUEUED}:
+            stage.status = PipeStage.Status.SKIPPED
+            stage.completed_at = now
+            stage.save(update_fields=["status", "completed_at"])
+        if stage.card_id and stage.status == PipeStage.Status.SKIPPED:
+            PlanningCard.objects.filter(pk=stage.card_id, task__isnull=True).update(archived=True)
+    _pipe_jobs(pipe).filter(status="queued").update(
+        status="cancelled",
+        detail=f"Pipe removed by {actor}; waiting work cancelled",
+        completed_at=now,
+    )
+    if pipe.status in PIPE_EDITABLE_STATUSES:
+        pipe.status = Pipe.Status.CANCELLED
+    pipe.archived = True
+    pipe.detail = f"Removed by {actor}; waiting stages cancelled, history kept"
+    pipe.save(update_fields=["status", "archived", "detail", "updated_at"])
+    for stage in stages:
+        if stage.card_id and stage.card.task_id:
+            log_human(
+                stage.card.task,
+                TaskEvent.Type.NOTE,
+                None,
+                f"Pipe '{pipe.title}' removed by {actor}; stage {stage.position} was "
+                f"{stage.status}",
+                actor,
+            )
+    return pipe
 
 
 def _pipe_prompt_section(job):

@@ -731,6 +731,8 @@ class Pipe(models.Model):
     # Latest failed artifact, kept across retries for the next attempt's prompt.
     last_failure = models.TextField(blank=True)
     detail = models.TextField(blank=True)
+    # Removed pipes stay for audit but drop out of the active dashboard/queue.
+    archived = models.BooleanField(default=False, db_index=True)
     actor = models.CharField(max_length=100, blank=True)
     actor_user = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"

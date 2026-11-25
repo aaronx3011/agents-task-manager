@@ -487,3 +487,170 @@ def test_voice_create_pipe_play_starts_the_queue(setup):
     assert plan.playing
     assert result["queue_playing"] is True
     assert result["state"].startswith("Pipe accepted and queued")
+
+
+def stage_map(pipe):
+    return {stage.position: stage for stage in pipe.stages.order_by("position")}
+
+
+def test_edit_queued_stage_retargets_job_and_reorders_tail(setup):
+    staff, workers, plan, clients = setup
+    pipe = create_pipe(staff, plan, stage_payload(workers))
+    stages = stage_map(pipe)
+    queued = PlanningJob.objects.get(pipe_stage__pipe=pipe, status="queued")
+    assert queued.pipe_stage_id == stages[1].pk
+
+    response = mutate(
+        staff,
+        plan,
+        "pipe_edit",
+        pipe_edit={
+            "pipe_id": pipe.pk,
+            "title": "Ship feature v2",
+            "stages": [
+                {
+                    "id": stages[1].pk,
+                    "name": "Plan v2",
+                    "role": "plan",
+                    "worker": "worker-exec",
+                    "model": EXEC_MODEL,
+                    "directory": "/workspace/custom",
+                    "instructions": "REWRITTEN PLAN INSTRUCTIONS",
+                },
+                {"id": stages[3].pk},
+                {
+                    "name": "Review",
+                    "role": "custom",
+                    "worker": "worker-test",
+                    "model": TEST_MODEL,
+                },
+            ],
+        },
+    )
+    assert response.status_code == 200, response.content
+    pipe.refresh_from_db()
+    queued.refresh_from_db()
+    stages[1].refresh_from_db()
+    assert pipe.title == "Ship feature v2"
+    assert pipe.on_failure == "stop"
+    assert queued.worker.name == "worker-exec"
+    assert queued.snapshot["model"] == EXEC_MODEL
+    assert queued.snapshot["directory"] == "/workspace/custom"
+    assert "REWRITTEN PLAN INSTRUCTIONS" in queued.snapshot["instructions"]
+    assert stages[1].worker.name == "worker-exec"
+    assert stages[1].card.worker.name == "worker-exec"
+    assert stages[1].card.model == EXEC_MODEL
+    assert not PipeStage.objects.filter(pk=stages[2].pk).exists()
+    assert PlanningCard.objects.get(pk=stages[2].card_id).archived
+    assert [(s.position, s.name) for s in pipe.stages.order_by("position")] == [
+        (1, "Plan v2"),
+        (2, "Test"),
+        (3, "Review"),
+    ]
+
+    launch_stage(clients, "worker-exec", "ses_edit")
+    queued.refresh_from_db()
+    assert "REWRITTEN PLAN INSTRUCTIONS" in queued.prompt
+    report_stage(clients, "worker-exec", queued, "done", "EDITED PLAN ARTIFACT")
+    sync_worker(clients["worker-exec"], "worker-exec")
+    next_job = PlanningJob.objects.get(status="queued", pipe_stage__pipe=pipe)
+    assert next_job.worker.name == "worker-test"
+    assert next_job.pipe_stage.name == "Test"
+
+
+def test_edit_refuses_running_stages_and_finished_pipes(setup):
+    staff, workers, plan, clients = setup
+    pipe = create_pipe(staff, plan, stage_payload(workers))
+    stages = stage_map(pipe)
+    launch_stage(clients, "worker-plan", "ses_locked")
+    running = PlanningJob.objects.get(pipe_stage__pipe=pipe, status="running")
+
+    response = mutate(
+        staff,
+        plan,
+        "pipe_edit",
+        pipe_edit={
+            "pipe_id": pipe.pk,
+            "stages": [{"id": stages[1].pk, "name": "Renamed while running"}],
+        },
+    )
+    assert response.status_code == 409
+
+    response = mutate(
+        staff,
+        plan,
+        "pipe_edit",
+        pipe_edit={"pipe_id": pipe.pk, "stages": [{"id": stages[2].pk}]},
+    )
+    assert response.status_code == 409
+
+    response = mutate(staff, plan, "pipe_remove", pipe_id=pipe.pk)
+    assert response.status_code == 409
+    assert b"running stage" in response.content
+
+    assert mutate(staff, plan, "pipe_stop", pipe_id=pipe.pk).status_code == 200
+    response = mutate(
+        staff,
+        plan,
+        "pipe_edit",
+        pipe_edit={"pipe_id": pipe.pk, "title": "Too late"},
+    )
+    assert response.status_code == 409
+
+    response = mutate(staff, plan, "pipe_remove", pipe_id=pipe.pk)
+    assert response.status_code == 200, response.content
+    pipe.refresh_from_db()
+    assert pipe.archived and pipe.status == Pipe.Status.FAILED
+    board = staff.get(f"/api/projects/{plan.project.slug}/planning").json()
+    assert all(item["id"] != pipe.pk for item in board["pipes"])
+    assert running.pk in set(
+        PlanningJob.objects.filter(pipe_stage__pipe=pipe).values_list("pk", flat=True)
+    )
+
+
+def test_edit_validates_loop_policy_without_partial_change(setup):
+    staff, workers, plan, clients = setup
+    pipe = create_pipe(staff, plan, stage_payload(workers, failure="stop"))
+    stages = stage_map(pipe)
+    response = mutate(
+        staff,
+        plan,
+        "pipe_edit",
+        pipe_edit={
+            "pipe_id": pipe.pk,
+            "on_failure": "loop",
+            "stages": [{"id": stages[1].pk}, {"id": stages[3].pk}],
+        },
+    )
+    assert response.status_code == 400
+    pipe.refresh_from_db()
+    assert pipe.on_failure == "stop"
+    assert pipe.stages.count() == 3
+
+    response = mutate(
+        staff,
+        plan,
+        "pipe_edit",
+        pipe_edit={"pipe_id": pipe.pk, "on_failure": "loop", "max_retries": 0},
+    )
+    assert response.status_code == 400
+    pipe.refresh_from_db()
+    assert pipe.on_failure == "stop" and pipe.max_retries == 1
+
+
+def test_remove_waiting_pipe_cancels_jobs_and_archives(setup):
+    staff, workers, plan, clients = setup
+    pipe = create_pipe(staff, plan, stage_payload(workers))
+    job = PlanningJob.objects.get(pipe_stage__pipe=pipe, status="queued")
+    response = mutate(staff, plan, "pipe_remove", pipe_id=pipe.pk)
+    assert response.status_code == 200, response.content
+    pipe.refresh_from_db()
+    job.refresh_from_db()
+    assert pipe.archived and pipe.status == Pipe.Status.CANCELLED
+    assert job.status == "cancelled"
+    assert set(pipe.stages.values_list("status", flat=True)) == {"skipped"}
+    board = staff.get(f"/api/projects/{plan.project.slug}/planning").json()
+    assert all(item["id"] != pipe.pk for item in board["pipes"])
+    assert any(item["pipe"] == pipe.pk for item in board["jobs"])  # history kept
+    summary = services.voice_queue_read(plan.project)
+    assert all(item["pipe"] != pipe.pk for item in summary["pipes"])
