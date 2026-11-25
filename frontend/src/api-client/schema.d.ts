@@ -406,6 +406,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/projects/{slug}/pipes": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Read a project's pipes and stages; agent keys and viewers may read. */
+    get: operations["project_pipes_list"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/projects/{slug}/pipes/{pipe_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Read one pipe owned by the project; a foreign pipe is a 404. */
+    get: operations["project_pipe_retrieve"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/projects/{slug}/planning": {
     parameters: {
       query?: never;
@@ -2489,6 +2523,58 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["ProjectCreated"];
+        };
+      };
+    };
+  };
+  project_pipes_list: {
+    parameters: {
+      query?: {
+        /** @description Pipes to return, 1–100 (newest first). */
+        limit?: number;
+        /** @description Pipes to skip. */
+        offset?: number;
+      };
+      header?: never;
+      path: {
+        slug: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  project_pipe_retrieve: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        pipe_id: number;
+        slug: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
         };
       };
     };

@@ -122,7 +122,8 @@ the REST API directly, and Django admin. Source: `frontend/src/handoff.ts` and
 `mcp_server.py` is a thin, HTTP-only adapter over the authenticated coordinator
 API. Alongside the lifecycle tools (`get_overview`, `list_tasks`, `get_task`,
 `create_task`, `claim_next_task`, `claim_task`, `heartbeat`, `update_status`,
-`release_task`, `add_note`, `report_planning_job`) it exposes hand-off mode:
+`release_task`, `add_note`, `report_planning_job`) it exposes hand-off mode,
+read-only prompt lookup and read-only pipe inspection:
 
 - `create_task` takes an optional `handoff_mode` (`off` default, or `semi_auto`).
 - `update_task` PATCHes a claimed task's editable fields — `title`,
@@ -133,13 +134,31 @@ API. Alongside the lifecycle tools (`get_overview`, `list_tasks`, `get_task`,
   lifecycle tools.
 - `list_pending_prompts` reads unresolved prompts for the caller's bound worker,
   each with its `promptType`.
+- `list_pipes(project, limit=20, offset=0)` reads a project's pipes newest first,
+  each with ordered stages, worker, agent, model, directory, status, artifact,
+  latest job/session and task status.
+- `get_pipe(project, pipe_id)` reads one pipe; a pipe belonging to another
+  project is refused with HTTP 404.
 - `get_task` and `list_tasks` return `handoff_mode` on every task.
+
+Pipe tools are **read-only by authorization decision**. Agent Bearer keys are not
+staff sessions and carry no owner/CSRF queue-control capability, so exposing
+`create_pipe`, `approve_pipe` or `stop_pipe` would silently widen agent access to
+worker execution. Those mutations remain on the staff-session planning API
+(`pipe_create`, `pipe_approve`, `pipe_stop`) and the owner-only PM voice toolset.
+The read endpoints are `GET /api/projects/{slug}/pipes` and
+`GET /api/projects/{slug}/pipes/{id}`; they accept agent keys or signed-in
+viewers, refuse anonymous callers and all writes, and are project-scoped.
 
 Answering prompts is deliberately **not** an MCP tool: `permission.reply`,
 `question.reply` and `question.reject` stay with humans through
 `POST /api/v1/commands` and the web and mobile inboxes, so the multiple-choice and
 free-text prompts hand-off mode escalates are not answerable by an agent.
-Reload the MCP connection after upgrading to discover new tools.
+
+**MCP tools ship with the local checkout, not the containers.** A development or
+production deploy cannot deliver a new MCP tool. Each agent must update its
+checkout (or installed adapter) and reload/restart its MCP connection after
+upgrading to discover `list_pipes` and `get_pipe`.
 
 ### Delivery and recovery
 
@@ -289,7 +308,10 @@ stage jobs. Owner/CSRF/capability gates, durable ordering and explicit-completio
 rules are unchanged.
 
 Planning API: staff-session-only `GET/POST /api/projects/{slug}/planning`, with
-CSRF on writes and revision-based conflict detection. Agent reporting uses
+CSRF on writes and revision-based conflict detection. Read-only pipe inspection is
+also available to MCP agents and signed-in viewers through
+`GET /api/projects/{slug}/pipes` and `GET /api/projects/{slug}/pipes/{id}`; the
+MCP tools `list_pipes` and `get_pipe` call those routes. Agent reporting uses
 `POST /api/planning/jobs/{id}/report` plus agent authentication and the scoped
 token. Architecture/operations and verification: [issue #28](https://github.com/aaronx3011/agents-task-manager/issues/28).
 Apply migration `0025` before serving pipes. Source:

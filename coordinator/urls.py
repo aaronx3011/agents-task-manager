@@ -2,7 +2,13 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .dashboard_api import DashboardStateView, MetaView, WorkspaceStateView
-from .planning_api import planning_report, project_planning, projects_create
+from .planning_api import (
+    planning_report,
+    project_pipe,
+    project_pipes,
+    project_planning,
+    projects_create,
+)
 from .views import (
     AgentRegistrationViewSet,
     CommandViewSet,
@@ -34,6 +40,8 @@ urlpatterns = [
     path("projects", projects_create, name="projects-create"),
     path("planning/jobs/<int:pk>/report", planning_report, name="planning-report"),
     path("projects/<slug:slug>/planning", project_planning, name="project-planning"),
+    path("projects/<slug:slug>/pipes", project_pipes, name="project-pipes"),
+    path("projects/<slug:slug>/pipes/<int:pipe_id>", project_pipe, name="project-pipe"),
     path("overview", overview, name="overview"),
     path("meta", MetaView.as_view(), name="meta"),
     path("dashboard/state", DashboardStateView.as_view(), name="api-dashboard-state"),

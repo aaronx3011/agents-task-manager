@@ -318,6 +318,52 @@ def test_stop_policy_fails_and_pauses_for_a_human(setup):
     assert not PlanningJob.objects.filter(status="queued").exists()
 
 
+def test_pipe_reads_are_agent_or_viewer_only_and_project_scoped(setup):
+    staff, workers, plan, clients = setup
+    pipe = create_pipe(staff, plan, stage_payload(workers))
+    stage = pipe.stages.order_by("position").first()
+    stage.artifact = "PLAN ARTIFACT"
+    stage.save(update_fields=["artifact"])
+
+    url = f"/api/projects/{plan.project.slug}/pipes"
+    anonymous = Client()
+    assert anonymous.get(url).status_code in {401, 403}
+    assert anonymous.get(f"{url}/{pipe.pk}").status_code in {401, 403}
+    assert anonymous.post(url).status_code in {401, 403}
+
+    agent = clients["worker-plan"]
+    listed = agent.get(url)
+    assert listed.status_code == 200
+    body = listed.json()
+    assert body["count"] == 1
+    assert body["pipes"][0]["stages"][0]["artifact"] == "PLAN ARTIFACT"
+    single = agent.get(f"{url}/{pipe.pk}")
+    assert single.status_code == 200
+    assert single.json()["pipe"]["stages"][0]["worker"] == "worker-plan"
+
+    viewer = Client()
+    viewer.force_login(User.objects.create_user("pipe-viewer"))
+    assert viewer.get(url).status_code == 200
+    assert viewer.get(f"{url}/{pipe.pk}").status_code == 200
+    assert viewer.post(url).status_code in {403, 405}
+
+    assert agent.get(f"{url}/{pipe.pk + 1}").status_code == 404
+    assert agent.get("/api/projects/unknown/pipes").status_code == 404
+
+
+def test_pipe_reads_validate_pagination(setup):
+    staff, workers, plan, clients = setup
+    create_pipe(staff, plan, stage_payload(workers))
+    url = f"/api/projects/{plan.project.slug}/pipes"
+    agent = clients["worker-plan"]
+    assert agent.get(f"{url}?limit=0").status_code == 400
+    assert agent.get(f"{url}?limit=101").status_code == 400
+    assert agent.get(f"{url}?offset=-1").status_code == 400
+    assert agent.get(f"{url}?limit=abc").status_code == 400
+    page = agent.get(f"{url}?limit=1&offset=5").json()
+    assert page["count"] == 1 and page["pipes"] == []
+
+
 def test_refusals_leave_no_partial_pipe(setup):
     staff, workers, plan, clients = setup
     before = (Pipe.objects.count(), PlanningCard.objects.count(), PlanningJob.objects.count())

@@ -92,3 +92,16 @@ class ViewerReadsMemberWrites(permissions.BasePermission):
     def has_permission(self, request, view):
         minimum = Role.VIEWER if request.method in permissions.SAFE_METHODS else Role.MEMBER
         return human_has_role(request, minimum)
+
+
+class AgentOrViewerReads(permissions.BasePermission):
+    """Read-only endpoints for MCP agents (Bearer keys) and signed-in viewers.
+
+    Writes never pass, so exposing a read model to agents cannot become a queue
+    mutation: pipe create/approve/stop stay on the staff-session planning API.
+    """
+
+    def has_permission(self, request, view):
+        if request.method not in permissions.SAFE_METHODS:
+            return False
+        return bool(get_agent(request)) or human_has_role(request, Role.VIEWER)

@@ -221,6 +221,29 @@ def add_note(task_id: int, message: str) -> dict:
 
 
 @mcp.tool()
+def list_pipes(project: str, limit: int = 20, offset: int = 0) -> dict:
+    """List a project's pipes newest first, with stages, workers, models, status and artifacts.
+
+    Read-only: pipe create/approve/stop remain staff-session-only because they
+    control worker execution and agent keys hold no owner/CSRF queue capability.
+    """
+    return call(
+        "GET",
+        f"projects/{project}/pipes",
+        params={"limit": limit, "offset": offset},
+    )
+
+
+@mcp.tool()
+def get_pipe(project: str, pipe_id: int) -> dict:
+    """Read one pipe on a project: ordered stages, status, artifacts and latest jobs.
+
+    Read-only. A pipe from another project is rejected with HTTP 404.
+    """
+    return call("GET", f"projects/{project}/pipes/{pipe_id}")
+
+
+@mcp.tool()
 def report_planning_job(
     job_id: int,
     token: str,

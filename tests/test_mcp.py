@@ -73,6 +73,13 @@ def requests(monkeypatch):
             {"title": "New", "priority": 0, "depends_on": []},
         ),
         (lambda: tools.list_pending_prompts(), "GET", "/interactions", None),
+        (
+            lambda: tools.list_pipes("design", limit=5, offset=10),
+            "GET",
+            "/projects/design/pipes",
+            None,
+        ),
+        (lambda: tools.get_pipe("design", 9), "GET", "/projects/design/pipes/9", None),
         (lambda: tools.claim_next_task("design"), "POST", "/tasks/next", {"project": "design"}),
         (lambda: tools.claim_task(7), "POST", "/tasks/7/claim", {}),
         (lambda: tools.heartbeat(7), "POST", "/tasks/7/heartbeat", {}),
@@ -118,6 +125,13 @@ def test_list_filters_and_pagination_are_preserved(requests):
         "limit": "5",
         "offset": "10",
     }
+
+
+def test_pipe_reads_forward_pagination(requests):
+    tools.list_pipes("design", limit=5, offset=10)
+    assert dict(requests[0].url.params) == {"limit": "5", "offset": "10"}
+    tools.list_pipes("design")
+    assert dict(requests[1].url.params) == {"limit": "20", "offset": "0"}
 
 
 def test_update_task_requires_a_field_and_never_sends_an_empty_patch(requests):
@@ -303,6 +317,79 @@ def test_list_pending_prompts_reports_the_prompt_type(coordinator):
     assert tools.list_pending_prompts() == {"count": 0, "items": []}
 
 
+@pytest.mark.django_db
+def test_pipe_reads_expose_stages_and_refuse_unknown_or_foreign_pipes(coordinator, project):
+    from django.contrib.auth.models import User
+    from django.test import Client
+    from django.utils import timezone
+
+    from coordinator import services
+    from coordinator.models import Agent, Pipe, Project, ProjectPlan
+
+    model = {"providerID": "test", "modelID": "pipe-model"}
+    worker = services.provision_worker("mcp-worker", Agent.objects.get(name="alpha"))
+    worker.connected = worker.stream_connected = True
+    worker.last_sync_at = timezone.now()
+    worker.default_model = model
+    worker.model_catalog = [model]
+    worker.agent_catalog = [{"name": "build", "mode": "primary"}]
+    worker.directory = "/workspace"
+    worker.save()
+    plan = ProjectPlan.objects.create(
+        project=project, default_worker=worker, directory="/workspace"
+    )
+
+    staff = Client()
+    staff.force_login(User.objects.create_user("pipe-planner", is_staff=True))
+    response = staff.post(
+        f"/api/projects/{plan.project.slug}/planning",
+        {
+            "revision": 0,
+            "operation": "pipe_create",
+            "pipe": {
+                "title": "MCP pipe",
+                "stages": [
+                    {
+                        "name": "Plan",
+                        "role": "plan",
+                        "worker": "mcp-worker",
+                        "model": model,
+                    }
+                ],
+            },
+        },
+        content_type="application/json",
+    )
+    assert response.status_code == 200, response.content
+    pipe = Pipe.objects.get()
+    stage = pipe.stages.get()
+    stage.artifact = "PLAN ARTIFACT"
+    stage.save(update_fields=["artifact"])
+
+    listed = tools.list_pipes("coordinator")
+    assert listed["project"] == "coordinator" and listed["count"] == 1
+    row = listed["pipes"][0]
+    assert row["id"] == pipe.pk and row["status"] == "running"
+    assert row["stages"][0]["name"] == "Plan"
+    assert row["stages"][0]["status"] == "queued"
+    assert row["stages"][0]["worker"] == "mcp-worker"
+    assert row["stages"][0]["model"] == model
+    assert row["stages"][0]["artifact"] == "PLAN ARTIFACT"
+
+    one = tools.get_pipe("coordinator", pipe.pk)
+    assert one["project"] == "coordinator" and one["pipe"]["id"] == pipe.pk
+
+    with pytest.raises(RuntimeError, match="HTTP 404"):
+        tools.get_pipe("coordinator", pipe.pk + 1)
+    foreign = Project.objects.create(slug="foreign", name="Foreign")
+    with pytest.raises(RuntimeError, match="HTTP 404"):
+        tools.get_pipe(foreign.slug, pipe.pk)
+    empty = tools.list_pipes("foreign")
+    assert empty["count"] == 0 and empty["pipes"] == []
+    with pytest.raises(RuntimeError, match="HTTP 404"):
+        tools.list_pipes("missing")
+
+
 def handoff_choices(schema):
     """The enum of a handoff_mode property, whether or not it is wrapped in anyOf."""
     if "enum" in schema:
@@ -331,6 +418,8 @@ def test_stdio_protocol_registers_all_tools():
                         "create_task",
                         "update_task",
                         "list_pending_prompts",
+                        "list_pipes",
+                        "get_pipe",
                         "claim_next_task",
                         "claim_task",
                         "heartbeat",
@@ -352,6 +441,10 @@ def test_stdio_protocol_registers_all_tools():
                     assert handoff_choices(created) == ["off", "semi_auto"]
                     assert created.get("default") == "off"
                     assert schemas["list_pending_prompts"].get("properties", {}) == {}
+                    # Pipe tools are read-only: no create/approve/stop schema exists.
+                    assert schemas["list_pipes"]["required"] == ["project"]
+                    assert schemas["get_pipe"]["required"] == ["project", "pipe_id"]
+                    assert schemas["list_pipes"]["properties"]["limit"].get("default") == 20
 
                     failure = await session.call_tool("get_overview", {})
                     assert failure.isError

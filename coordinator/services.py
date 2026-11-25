@@ -929,6 +929,38 @@ def planning_read(project):
     }
 
 
+def pipes_read(project, limit=20, offset=0):
+    """Bounded, newest-first pipe list for read-only MCP and API clients."""
+    plan = ProjectPlan.objects.filter(project=project).first()
+    if plan is None:
+        return {
+            "project": project.slug,
+            "count": 0,
+            "limit": limit,
+            "offset": offset,
+            "pipes": [],
+        }
+    queryset = plan.pipes.order_by("-pk")
+    rows = queryset.prefetch_related("stages__worker").select_related("plan")[
+        offset : offset + limit
+    ]
+    return {
+        "project": project.slug,
+        "count": queryset.count(),
+        "limit": limit,
+        "offset": offset,
+        "pipes": [_pipe_read(pipe) for pipe in rows],
+    }
+
+
+def pipe_read(project, pipe_id):
+    """One pipe from this project only; a foreign or missing id is a 404."""
+    pipe = Pipe.objects.filter(plan__project=project, pk=pipe_id).select_related("plan").first()
+    if pipe is None:
+        raise TaskError("Pipe not found on this project", 404)
+    return {"project": project.slug, "pipe": _pipe_read(pipe)}
+
+
 @retry_sqlite
 @transaction.atomic
 def mutate_planning(project, actor, data):
