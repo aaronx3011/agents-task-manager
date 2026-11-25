@@ -723,9 +723,7 @@ class Pipe(models.Model):
         max_length=20, choices=Status.choices, default=Status.QUEUED, db_index=True
     )
     # Test-stage failure policy and its bounded retry budget.
-    on_failure = models.CharField(
-        max_length=10, choices=Failure.choices, default=Failure.STOP
-    )
+    on_failure = models.CharField(max_length=10, choices=Failure.choices, default=Failure.STOP)
     max_retries = models.PositiveSmallIntegerField(default=1)
     retries_used = models.PositiveSmallIntegerField(default=0)
     # Highest stage position whose checkpoint a human approved.
