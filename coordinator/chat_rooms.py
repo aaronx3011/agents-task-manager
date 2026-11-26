@@ -103,7 +103,7 @@ class ChatModelChoice(serializers.Serializer):
 class RoomInput(serializers.Serializer):
     project = serializers.SlugField()
     name = serializers.CharField(max_length=120)
-    topic = serializers.CharField(max_length=20000, allow_blank=True, required=False, default="")
+    topic = serializers.CharField(max_length=20000, allow_blank=True, required=False)
     roundsPerTurn = serializers.IntegerField(min_value=1, required=False)
 
 
@@ -116,15 +116,13 @@ class RoomPatchInput(serializers.Serializer):
 
 class ParticipantInput(serializers.Serializer):
     role = serializers.CharField(max_length=60)
-    persona = serializers.CharField(max_length=20000, allow_blank=True, required=False, default="")
-    kind = serializers.ChoiceField(
-        choices=ChatParticipant.Kind.choices, required=False, default=ChatParticipant.Kind.PROVIDER
-    )
+    persona = serializers.CharField(max_length=20000, allow_blank=True, required=False)
+    kind = serializers.ChoiceField(choices=ChatParticipant.Kind.choices, required=False)
     model = ChatModelChoice(required=False)
     worker = serializers.CharField(max_length=100, required=False, allow_blank=True)
     agent = serializers.CharField(max_length=100, required=False, allow_blank=True)
-    canAct = serializers.BooleanField(required=False, default=False)
-    isMuted = serializers.BooleanField(required=False, default=False)
+    canAct = serializers.BooleanField(required=False)
+    isMuted = serializers.BooleanField(required=False)
     position = serializers.IntegerField(min_value=1, required=False)
 
 
@@ -145,7 +143,7 @@ class PostMessageInput(serializers.Serializer):
 
 class AdvanceInput(serializers.Serializer):
     rounds = serializers.IntegerField(min_value=1, required=False)
-    reset = serializers.BooleanField(required=False, default=False)
+    reset = serializers.BooleanField(required=False)
 
 
 class RoomView(APIView):
@@ -335,13 +333,14 @@ class ParticipantsView(RoomView):
             chat_runtime.full("participants", settings.CHAT_ROOM_MAX_PARTICIPANTS)
         if any(item.role == payload["role"] for item in existing):
             raise serializers.ValidationError({"role": "This room already has that role"})
-        kind = payload["kind"]
+        kind = payload.get("kind") or ChatParticipant.Kind.PROVIDER
         worker = resolve_worker(payload, kind)
         model = resolve_model(payload, kind, worker)
         position = payload.get("position") or (existing[-1].position + 1 if existing else 1)
         if any(item.position == position for item in existing):
             raise serializers.ValidationError({"position": "That position is taken"})
-        if payload["canAct"]:
+        can_act = payload.get("canAct", False)
+        if can_act:
             room.participants.filter(can_act=True).update(can_act=False)
         participant = ChatParticipant.objects.create(
             room=room,
@@ -352,8 +351,8 @@ class ParticipantsView(RoomView):
             model=model,
             worker=worker,
             agent=payload.get("agent", ""),
-            can_act=payload["canAct"],
-            is_muted=payload["isMuted"],
+            can_act=can_act,
+            is_muted=payload.get("isMuted", False),
         )
         return Response(participant_card(participant), status=201)
 
@@ -509,7 +508,7 @@ class AdvanceView(RoomView):
             room,
             lambda participant, tool, args: execute_chat_tool(room, participant, tool, args),
             rounds=payload.get("rounds"),
-            reset=payload["reset"],
+            reset=payload.get("reset", False),
         )
         room.refresh_from_db()
         return Response(

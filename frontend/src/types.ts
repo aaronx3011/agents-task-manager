@@ -102,6 +102,7 @@ export interface LocationState {
     | "opencodes"
     | "sessions"
     | "voice"
+    | "chatrooms"
     | "activity"
     | "configuration"
     | "planning"

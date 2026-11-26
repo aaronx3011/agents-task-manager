@@ -1149,8 +1149,7 @@ export interface components {
       | "question.reject";
     AdvanceInputRequest: {
       rounds?: number;
-      /** @default false */
-      reset: boolean;
+      reset?: boolean;
     };
     AgentCard: {
       id: number;
@@ -1484,17 +1483,13 @@ export interface components {
     ParticipantInputKindEnum: "provider" | "worker";
     ParticipantInputRequest: {
       role: string;
-      /** @default  */
-      persona: string;
-      /** @default provider */
-      kind: components["schemas"]["ParticipantInputKindEnum"];
+      persona?: string;
+      kind?: components["schemas"]["ParticipantInputKindEnum"];
       model?: components["schemas"]["ChatModelChoiceRequest"];
       worker?: string;
       agent?: string;
-      /** @default false */
-      canAct: boolean;
-      /** @default false */
-      isMuted: boolean;
+      canAct?: boolean;
+      isMuted?: boolean;
       position?: number;
     };
     PasswordInputRequest: {
@@ -1731,8 +1726,7 @@ export interface components {
     RoomInputRequest: {
       project: string;
       name: string;
-      /** @default  */
-      topic: string;
+      topic?: string;
       roundsPerTurn?: number;
     };
     /**

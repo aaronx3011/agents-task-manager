@@ -1,0 +1,206 @@
+/* Multi-agent chat rooms (GH #149). Three columns: rooms, transcript, roles. */
+.cr-workspace {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr) 280px;
+  gap: 18px;
+  align-items: start;
+  padding: 18px;
+}
+.cr-list h2,
+.cr-rail h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+  margin: 0 0 10px;
+}
+.cr-list ul,
+.cr-rail ul {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.cr-room {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 2px;
+  padding: 9px 11px;
+  border: 1px solid var(--border, #e3e3e6);
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+}
+.cr-room.selected {
+  border-color: var(--accent, #5b5bd6);
+  background: var(--surface-raised, #f6f6fb);
+}
+.cr-room small {
+  color: var(--muted, #6b6b75);
+}
+.cr-new-room,
+.cr-add-participant {
+  display: grid;
+  gap: 8px;
+  padding: 11px;
+  border: 1px solid var(--border, #e3e3e6);
+  border-radius: 10px;
+}
+.cr-new-room label,
+.cr-add-participant label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.82rem;
+}
+.cr-add-participant h3 {
+  margin: 0;
+  font-size: 0.88rem;
+}
+.cr-check {
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 7px;
+  line-height: 1.3;
+}
+.cr-room-view {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+}
+.cr-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+.cr-heading h1 {
+  margin: 2px 0 4px;
+  font-size: 1.4rem;
+}
+.cr-heading p {
+  margin: 0;
+  color: var(--muted, #6b6b75);
+}
+.cr-transcript {
+  display: grid;
+  gap: 10px;
+  max-height: 58vh;
+  overflow-y: auto;
+  padding: 4px;
+}
+.cr-bubble {
+  border: 1px solid var(--border, #e3e3e6);
+  border-radius: 12px;
+  padding: 10px 13px;
+  background: var(--surface, #fff);
+}
+.cr-bubble header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 0.78rem;
+  margin-bottom: 5px;
+}
+.cr-bubble p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cr-bubble.cr-human {
+  background: var(--surface-raised, #f6f6fb);
+  margin-left: 48px;
+}
+.cr-bubble.cr-system {
+  border-style: dashed;
+  color: var(--muted, #6b6b75);
+}
+.cr-speaker {
+  font-weight: 600;
+}
+.cr-model,
+.cr-badge {
+  font-size: 0.7rem;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border, #e3e3e6);
+  color: var(--muted, #6b6b75);
+}
+.cr-badge.cr-acts {
+  border-color: var(--accent, #5b5bd6);
+  color: var(--accent, #5b5bd6);
+}
+.cr-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+.cr-tool {
+  font-size: 0.7rem;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-raised, #f6f6fb);
+}
+.cr-tool-error {
+  color: var(--danger, #c3372b);
+}
+.cr-turn-state {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+.cr-thinking {
+  color: var(--accent, #5b5bd6);
+}
+.cr-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: end;
+}
+.cr-composer textarea {
+  width: 100%;
+  resize: vertical;
+}
+.cr-participant {
+  display: grid;
+  gap: 3px;
+  padding: 9px 11px;
+  border: 1px solid var(--border, #e3e3e6);
+  border-radius: 10px;
+}
+.cr-participant.cr-speaking {
+  border-color: var(--accent, #5b5bd6);
+}
+.cr-participant > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.cr-participant-actions {
+  display: flex;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.cr-error {
+  color: var(--danger, #c3372b);
+  margin: 0;
+}
+
+@media (max-width: 1000px) {
+  .cr-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cr-transcript {
+    max-height: none;
+  }
+  .cr-bubble.cr-human {
+    margin-left: 0;
+  }
+}

@@ -4753,8 +4753,7 @@
                         "minimum": 1
                     },
                     "reset": {
-                        "type": "boolean",
-                        "default": false
+                        "type": "boolean"
                     }
                 }
             },
@@ -5820,16 +5819,10 @@
                     },
                     "persona": {
                         "type": "string",
-                        "default": "",
                         "maxLength": 20000
                     },
                     "kind": {
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/ParticipantInputKindEnum"
-                            }
-                        ],
-                        "default": "provider"
+                        "$ref": "#/components/schemas/ParticipantInputKindEnum"
                     },
                     "model": {
                         "$ref": "#/components/schemas/ChatModelChoiceRequest"
@@ -5843,12 +5836,10 @@
                         "maxLength": 100
                     },
                     "canAct": {
-                        "type": "boolean",
-                        "default": false
+                        "type": "boolean"
                     },
                     "isMuted": {
-                        "type": "boolean",
-                        "default": false
+                        "type": "boolean"
                     },
                     "position": {
                         "type": "integer",
@@ -6656,7 +6647,6 @@
                     },
                     "topic": {
                         "type": "string",
-                        "default": "",
                         "maxLength": 20000
                     },
                     "roundsPerTurn": {

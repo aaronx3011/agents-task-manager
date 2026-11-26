@@ -19,21 +19,23 @@ function read(): LocationState {
     section:
       params.get("section") === "voice"
         ? "voice"
-        : params.get("section") === "planning"
-          ? "planning"
-          : params.get("section") === "sessions"
-            ? "sessions"
-            : params.get("section") === "activity"
-              ? "activity"
-              : params.get("section") === "configuration"
-                ? "configuration"
-                : params.get("section") === "users"
-                  ? "users"
-                  : params.get("section") === "account"
-                    ? "account"
-                    : params.get("section") === "opencodes"
-                      ? "opencodes"
-                      : "tasks",
+        : params.get("section") === "chatrooms"
+          ? "chatrooms"
+          : params.get("section") === "planning"
+            ? "planning"
+            : params.get("section") === "sessions"
+              ? "sessions"
+              : params.get("section") === "activity"
+                ? "activity"
+                : params.get("section") === "configuration"
+                  ? "configuration"
+                  : params.get("section") === "users"
+                    ? "users"
+                    : params.get("section") === "account"
+                      ? "account"
+                      : params.get("section") === "opencodes"
+                        ? "opencodes"
+                        : "tasks",
     worker: params.get("worker") || "",
     session: params.get("session") || "",
     filters: {

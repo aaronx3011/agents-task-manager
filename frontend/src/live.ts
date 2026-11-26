@@ -58,6 +58,7 @@ export function useLiveUpdates() {
           subject?: string;
           worker?: string;
           sessionID?: string;
+          room_id?: number;
         };
         if (message.type === "connected") {
           retry = 1000;
@@ -83,6 +84,12 @@ export function useLiveUpdates() {
               queryKey: ["opencodes", focus.worker, focus.sessionID],
             });
         } else if (message.type === "changed") {
+          // A room message carries only its room id; the open room refetches
+          // its own history rather than receiving the text over the socket.
+          if (message.subject === "chatroom") {
+            void client.invalidateQueries({ queryKey: ["chatrooms"] });
+            return;
+          }
           // Ordinary worker snapshots do not refetch every conversation. The
           // overview polls; commands/interactions/failures still invalidate now.
           const urgent =

@@ -31,6 +31,7 @@ import {
   Settings,
   Monitor,
   MessageSquare,
+  MessagesSquare,
   Mic,
   SlidersHorizontal,
   Sun,
@@ -70,6 +71,7 @@ const VoiceAgent = lazy(() => import("./VoiceAgent"));
 const Configuration = lazy(() => import("./Configuration"));
 const ActivityPage = lazy(() => import("./ActivityPage"));
 const Planning = lazy(() => import("./Planning"));
+const ChatRooms = lazy(() => import("./ChatRooms"));
 const UsersPage = lazy(() =>
   import("./Users").then((module) => ({ default: module.UsersPage })),
 );
@@ -378,6 +380,12 @@ export default function App() {
             </button>
           )}
           <button
+            className={`nav-link ${location.section === "chatrooms" ? "active" : ""}`}
+            onClick={() => navigate({ section: "chatrooms", task: null }, true)}
+          >
+            <MessagesSquare size={17} /> Chat rooms
+          </button>
+          <button
             className={`nav-link ${agentsOpen ? "subtle-active" : ""}`}
             onClick={() => {
               if (location.section !== "tasks") {
@@ -520,21 +528,23 @@ export default function App() {
               <strong>
                 {location.section === "voice"
                   ? "Voice agent"
-                  : location.section === "planning"
-                    ? project?.name || "Project planning"
-                    : location.section === "opencodes"
-                      ? "Connected OpenCodes"
-                      : location.section === "sessions"
-                        ? "Sessions"
-                        : location.section === "activity"
-                          ? "Activity"
-                          : location.section === "configuration"
-                            ? "Configuration"
-                            : location.section === "users"
-                              ? "Users & invites"
-                              : location.section === "account"
-                                ? "Account"
-                                : project?.name || "All projects"}
+                  : location.section === "chatrooms"
+                    ? "Chat rooms"
+                    : location.section === "planning"
+                      ? project?.name || "Project planning"
+                      : location.section === "opencodes"
+                        ? "Connected OpenCodes"
+                        : location.section === "sessions"
+                          ? "Sessions"
+                          : location.section === "activity"
+                            ? "Activity"
+                            : location.section === "configuration"
+                              ? "Configuration"
+                              : location.section === "users"
+                                ? "Users & invites"
+                                : location.section === "account"
+                                  ? "Account"
+                                  : project?.name || "All projects"}
               </strong>
             </div>
             <div className="topbar-actions">
@@ -590,6 +600,14 @@ export default function App() {
               }
             >
               Sessions
+            </button>
+            <button
+              aria-pressed={location.section === "chatrooms"}
+              onClick={() =>
+                navigate({ section: "chatrooms", task: null }, true)
+              }
+            >
+              Chat rooms
             </button>
             <button
               aria-pressed={location.section === "activity"}
@@ -648,6 +666,13 @@ export default function App() {
                 description="The PM agent can create and update tasks with owner authority."
               />
             )
+          ) : location.section === "chatrooms" ? (
+            <Suspense
+              key="chatrooms"
+              fallback={<Loading label="Opening chat rooms…" />}
+            >
+              <ChatRooms project={filters.project} />
+            </Suspense>
           ) : location.section === "planning" ? (
             <Suspense
               key="planning"
