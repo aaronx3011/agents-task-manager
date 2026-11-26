@@ -244,6 +244,50 @@ def get_pipe(project: str, pipe_id: int) -> dict:
 
 
 @mcp.tool()
+def list_chat_rooms(project: str | None = None, status: str | None = None) -> dict:
+    """List multi-AI chat rooms with their status, turn and message counts.
+
+    Read-only: posting into a room spends model budget and an acting
+    participant mutates with its owner's authority, so room writes stay
+    staff-session-only, as pipe create/approve/stop do.
+    """
+    params = {}
+    if project is not None:
+        params["project"] = project
+    if status is not None:
+        params["status"] = status
+    return call("GET", "chat/rooms", params=params)
+
+
+@mcp.tool()
+def get_chat_room(room_id: int) -> dict:
+    """Read one chat room: its topic, participants, roles, models and turn state."""
+    return call("GET", f"chat/rooms/{room_id}")
+
+
+@mcp.tool()
+def read_chat_messages(
+    room_id: int,
+    limit: int = 20,
+    before: int | None = None,
+    after: int | None = None,
+) -> dict:
+    """Read a page of a room's transcript. Newest page by default.
+
+    Pass `before` for an older page or `after` for a newer one, using the
+    cursors a previous page returned; the two cannot be combined.
+    """
+    params = {"limit": limit}
+    if after is not None:
+        params["after"] = after
+    elif before is not None:
+        params["before"] = before
+    else:
+        params["latest"] = "true"
+    return call("GET", f"chat/rooms/{room_id}/messages", params=params)
+
+
+@mcp.tool()
 def report_planning_job(
     job_id: int,
     token: str,

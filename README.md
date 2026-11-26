@@ -150,6 +150,12 @@ The read endpoints are `GET /api/projects/{slug}/pipes` and
 `GET /api/projects/{slug}/pipes/{id}`; they accept agent keys or signed-in
 viewers, refuse anonymous callers and all writes, and are project-scoped.
 
+Chat rooms are read-only in the MCP for the same reason, plus two of their own:
+posting into a room spends model budget, and an acting participant mutates with
+its owner's authority. `list_chat_rooms`, `get_chat_room` and
+`read_chat_messages` call `GET /api/v1/chat/rooms`, `.../chat/rooms/{id}` and
+`.../chat/rooms/{id}/messages`.
+
 Answering prompts is deliberately **not** an MCP tool: `permission.reply`,
 `question.reply` and `question.reject` stay with humans through
 `POST /api/v1/commands` and the web and mobile inboxes, so the multiple-choice and
@@ -158,7 +164,8 @@ free-text prompts hand-off mode escalates are not answerable by an agent.
 **MCP tools ship with the local checkout, not the containers.** A development or
 production deploy cannot deliver a new MCP tool. Each agent must update its
 checkout (or installed adapter) and reload/restart its MCP connection after
-upgrading to discover `list_pipes` and `get_pipe`.
+upgrading to discover `list_pipes`, `get_pipe`, `list_chat_rooms`,
+`get_chat_room` and `read_chat_messages`.
 
 ### Delivery and recovery
 
@@ -330,6 +337,79 @@ Apply migration `0026` before serving pipe editing/removal (0025 for pipes). Sou
 in `coordinator/services.py`; focused regression tests: `tests/test_planning.py`
 and `tests/test_pipes.py`. Pipes need no Compose/env changes.
 
+## Multi-AI chat rooms
+
+A chat room is a persisted, project-scoped conversation in which several AI
+participants, each holding a distinct **role** with its own persona and its own
+model, read one shared history and answer in character. Open it at
+`/?section=chatrooms`. Migration `0027` must be applied before serving it.
+
+**Data model.** `ChatRoom` owns the room, the turn lease and the round-robin
+queue. `ChatParticipant` is one role: a free-text `role` label, a `persona`
+system prompt, a `{"providerID", "modelID"}` model and, for the worker kind, a
+`Worker` plus OpenCode agent name. `ChatMessage` is one row per message with a
+gapless server-owned `seq` that is also the read cursor. `ChatToolResult` is the
+write-idempotency ledger. `ChatWorkerTurn` ships unused; see below.
+
+**Roles, not pipeline stages.** `PipeStage.role` is a closed
+`plan|execute|test|custom` label whose only effect is loop-retry policy, so it
+cannot carry a character. A room participant therefore has its own `role` and
+`persona`, and the server composes every prompt: a fixed preamble (stay in your
+role, never speak as another participant), the room topic, that participant's
+role and persona, the roster, and whether it may act. A topic, a persona and any
+tool result are data, never instructions that can replace that preamble.
+
+**One shared history, two points of view.** Each participant sees its own
+earlier lines as its own turns and every other speaker's as labelled
+`user` lines, merged so the provider sees an alternating conversation. The
+prompt is windowed to `CHAT_ROOM_CONTEXT_MESSAGES`/`CHAT_ROOM_CONTEXT_BYTES`;
+**the stored transcript is never pruned**, and reaching a hard room ceiling
+refuses the next turn with 409 rather than deleting anything.
+
+**Turn-taking.** `POST /api/v1/chat/rooms/{id}/messages` persists the human
+message and fills the speaker queue (unmuted participants in `position` order,
+once per round); `POST /api/v1/chat/rooms/{id}/advance` runs **exactly one**
+speaker and returns. One provider call per request: six participants at the 45 s
+provider timeout would otherwise be a 270 s HTTP request. Exclusivity is the
+`VoiceConversation.busy_until` lease — the identity is the exact
+`turn_busy_until` value, renewed before every provider call and every tool, with
+lease-guarded writes and a conditional release — and the queue is durable, so a
+crash mid-turn retries the speaker in flight instead of skipping it.
+`POST .../advance {"reset": true}` recovers a stuck room.
+
+**Exactly one participant may act.** Every other participant can read tasks,
+pipes, the overview and **stored worker sessions and their messages**, but
+cannot create or change anything. That is enforced three independent ways: a
+partial unique constraint (`chat_room_single_actor`), the filtered tool schema,
+and a `can_act` re-check read from the locked participant row — so a read-only
+participant whose completion fabricates `create_task` is refused with nothing
+written. The acting participant reuses only the mutations the PM voice agent
+already exposes, each serializer-revalidated, fingerprinted against replay, and
+**audited as the room's owner**: an acting room participant changes things with
+its owner's authority, so the audit event names the room and the speaking role.
+
+**Realtime.** A committed message emits one post-commit invalidation notice
+carrying `room_id`; clients refetch the room with the `after` cursor they
+already hold, so nothing message-sized crosses the broker and a broker outage
+can never fail a committed message.
+
+**Worker-backed participants are not implemented.** `kind=worker` validates and
+stores, but advancing one returns 501 rather than quietly answering from the
+provider. A `prompt` command returns no reply text (only `{"accepted": true}`),
+dispatch happens solely inside that worker's own sync, and two concurrent worker
+participants need two provisioned `Worker` + `Agent` pairs. Design and
+acceptance criteria: [issue #150](https://github.com/aaronx3011/agents-task-manager/issues/150).
+
+Plan, acceptance criteria and verification:
+[issue #149](https://github.com/aaronx3011/agents-task-manager/issues/149).
+Source: `coordinator/chat_rooms.py` (API, tool authorization),
+`coordinator/chat_runtime.py` (turn lease, provider call),
+`coordinator/chat_policy.py` (prompt, model allowlist, tool split),
+`frontend/src/ChatRooms.tsx`; tests: `tests/test_chat_rooms.py`,
+`tests/test_chat_room_tools.py`, `tests/test_chat_room_live.py`. Rooms reuse
+`FIREWORKS_API_KEY` and need no Compose change; see the `CHAT_ROOM_*` variables
+in `.env.example`.
+
 ## Notion mirror
 
 The `notion-sync` service mirrors every project and task into the Notion
@@ -365,6 +445,7 @@ duplicates, orphans) and `--force` re-pushes everything. Source:
 | Frontend tooling | `frontend/package.json` |
 | Agent registration | `frontend/src/Configuration.tsx`, `coordinator/views.py`, `coordinator/services.py` |
 | Sessions shelf and Activity | `frontend/src/session-library.ts`, `frontend/src/ActivityPage.tsx` |
+| Multi-AI chat rooms | `coordinator/chat_rooms.py`, `coordinator/chat_runtime.py`, `coordinator/chat_policy.py`, `frontend/src/ChatRooms.tsx` |
 | Bridge configuration and calls | `bridge/settings.mjs`, `bridge/opencode.mjs` |
 | Command recovery | `bridge/receipts.mjs` |
 | Provisioning and maintenance | `coordinator/management/commands/` |

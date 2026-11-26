@@ -80,6 +80,9 @@ def requests(monkeypatch):
             None,
         ),
         (lambda: tools.get_pipe("design", 9), "GET", "/projects/design/pipes/9", None),
+        (lambda: tools.list_chat_rooms("design"), "GET", "/chat/rooms", None),
+        (lambda: tools.get_chat_room(4), "GET", "/chat/rooms/4", None),
+        (lambda: tools.read_chat_messages(4), "GET", "/chat/rooms/4/messages", None),
         (lambda: tools.claim_next_task("design"), "POST", "/tasks/next", {"project": "design"}),
         (lambda: tools.claim_task(7), "POST", "/tasks/7/claim", {}),
         (lambda: tools.heartbeat(7), "POST", "/tasks/7/heartbeat", {}),
@@ -125,6 +128,28 @@ def test_list_filters_and_pagination_are_preserved(requests):
         "limit": "5",
         "offset": "10",
     }
+
+
+def test_chat_room_reads_forward_filters_and_cursors(requests):
+    tools.list_chat_rooms("design", "open")
+    assert dict(requests[0].url.params) == {"project": "design", "status": "open"}
+    tools.list_chat_rooms()
+    assert dict(requests[1].url.params) == {}
+    tools.read_chat_messages(4)
+    assert dict(requests[2].url.params) == {"limit": "20", "latest": "true"}
+    tools.read_chat_messages(4, limit=5, before=9)
+    assert dict(requests[3].url.params) == {"limit": "5", "before": "9"}
+    tools.read_chat_messages(4, after=3)
+    assert dict(requests[4].url.params) == {"limit": "20", "after": "3"}
+    # after wins over before, so the two are never combined into a 400.
+    tools.read_chat_messages(4, before=9, after=3)
+    assert dict(requests[5].url.params) == {"limit": "20", "after": "3"}
+
+
+def test_the_mcp_exposes_no_chat_room_mutations():
+    """Room writes stay staff-session-only, as pipe create/approve/stop do."""
+    exposed = {name for name in dir(tools) if "chat" in name}
+    assert exposed == {"list_chat_rooms", "get_chat_room", "read_chat_messages"}
 
 
 def test_pipe_reads_forward_pagination(requests):
@@ -420,6 +445,9 @@ def test_stdio_protocol_registers_all_tools():
                         "list_pending_prompts",
                         "list_pipes",
                         "get_pipe",
+                        "list_chat_rooms",
+                        "get_chat_room",
+                        "read_chat_messages",
                         "claim_next_task",
                         "claim_task",
                         "heartbeat",
@@ -451,3 +479,48 @@ def test_stdio_protocol_registers_all_tools():
                     assert "COORDINATOR_API_KEY" in failure.content[0].text
 
     anyio.run(verify)
+
+
+@pytest.mark.django_db
+def test_chat_room_reads_work_over_the_real_api_and_stay_read_only(coordinator, project):
+    """An agent key reads rooms and transcripts, but can never post into one."""
+    from django.contrib.auth import get_user_model
+
+    from accounts.models import UserProfile
+    from coordinator import chat_runtime
+    from coordinator.models import ChatMessage, ChatParticipant, ChatRoom
+
+    owner = get_user_model().objects.create_user("mcp-room-owner")
+    UserProfile.objects.update_or_create(user=owner, defaults={"role": "owner"})
+    room = ChatRoom.objects.create(project=project, name="MCP room", created_by=owner)
+    ChatParticipant.objects.create(
+        room=room,
+        position=1,
+        role="Architect",
+        model={"providerID": "fireworks", "modelID": "m"},
+    )
+    for index in range(3):
+        fresh = ChatRoom.objects.get(pk=room.pk)
+        chat_runtime.append_message(
+            fresh, author_kind=ChatMessage.Author.HUMAN, text=f"Line {index}", role_label="owner"
+        )
+
+    listed = tools.list_chat_rooms("coordinator")
+    assert listed["count"] == 1
+    assert listed["items"][0]["name"] == "MCP room"
+    assert listed["items"][0]["messageCount"] == 3
+
+    detail = tools.get_chat_room(room.pk)
+    assert [item["role"] for item in detail["participants"]] == ["Architect"]
+    assert detail["limits"]["max_participants"]
+
+    page = tools.read_chat_messages(room.pk, limit=2)
+    assert [item["text"] for item in page["messages"]] == ["Line 1", "Line 2"]
+    older = tools.read_chat_messages(room.pk, before=page["olderCursor"])
+    assert [item["text"] for item in older["messages"]] == ["Line 0"]
+
+    # The MCP has no write tool at all, and the underlying write is refused.
+    assert not hasattr(tools, "post_chat_message")
+    with pytest.raises(RuntimeError, match="403"):
+        tools.call("POST", f"chat/rooms/{room.pk}/messages", json={"text": "let me in"})
+    assert ChatMessage.objects.filter(author_kind="participant").count() == 0
