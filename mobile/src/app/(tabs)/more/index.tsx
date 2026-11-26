@@ -23,6 +23,11 @@ export default function More() {
       detail: waiting ? `${waiting} waiting for an answer` : "Permission and question requests",
     },
     { href: "/more/account", title: "Account", detail: "Password and signed-in devices" },
+    {
+      href: "/more/chatrooms",
+      title: "Chat rooms",
+      detail: "Multi-AI rooms where each role answers in character",
+    },
   ];
   if (canManage)
     destinations.push({
