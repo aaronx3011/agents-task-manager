@@ -671,7 +671,7 @@ export default function App() {
               key="chatrooms"
               fallback={<Loading label="Opening chat rooms…" />}
             >
-              <ChatRooms project={filters.project} />
+              <ChatRooms project={filters.project} canManage={canManage} />
             </Suspense>
           ) : location.section === "planning" ? (
             <Suspense

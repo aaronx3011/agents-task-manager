@@ -65,10 +65,12 @@ function Bubble({ message }: { message: Message }) {
 function ParticipantRail({
   room,
   models,
+  canManage,
   onChanged,
 }: {
   room: Room;
   models: string[];
+  canManage: boolean;
   onChanged: () => void;
 }) {
   const [role, setRole] = useState("");
@@ -130,7 +132,7 @@ function ParticipantRail({
                 {participant.persona.slice(0, 90)}
               </small>
             )}
-            <div className="cr-participant-actions">
+            <div className="cr-participant-actions" hidden={!canManage}>
               <button
                 className="oc-text-button"
                 disabled={busy}
@@ -175,7 +177,7 @@ function ParticipantRail({
           </li>
         ))}
       </ul>
-      {room.status === "open" && (
+      {room.status === "open" && canManage && (
         <form
           className="cr-add-participant"
           onSubmit={(event) => {
@@ -248,7 +250,13 @@ function ParticipantRail({
   );
 }
 
-export default function ChatRooms({ project }: { project: string }) {
+export default function ChatRooms({
+  project,
+  canManage,
+}: {
+  project: string;
+  canManage: boolean;
+}) {
   const client = useQueryClient();
   const [selected, setSelected] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
@@ -364,44 +372,46 @@ export default function ChatRooms({ project }: { project: string }) {
             description="Create one to get started."
           />
         )}
-        <form
-          className="cr-new-room"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!project) {
-              setError("Choose a project in the sidebar first");
-              return;
-            }
-            void (async () => {
-              setError("");
-              try {
-                const created = await createRoom({
-                  project,
-                  name: newRoom,
-                });
-                setNewRoom("");
-                setSelected(created.id);
-                refresh();
-              } catch (problem) {
-                setError(errorText(problem));
+        {canManage && (
+          <form
+            className="cr-new-room"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!project) {
+                setError("Choose a project in the sidebar first");
+                return;
               }
-            })();
-          }}
-        >
-          <label>
-            New room
-            <input
-              maxLength={120}
-              onChange={(event) => setNewRoom(event.target.value)}
-              placeholder="Design review"
-              required
-              value={newRoom}
-            />
-          </label>
-          <button className="button secondary" disabled={!newRoom}>
-            Create room
-          </button>
-        </form>
+              void (async () => {
+                setError("");
+                try {
+                  const created = await createRoom({
+                    project,
+                    name: newRoom,
+                  });
+                  setNewRoom("");
+                  setSelected(created.id);
+                  refresh();
+                } catch (problem) {
+                  setError(errorText(problem));
+                }
+              })();
+            }}
+          >
+            <label>
+              New room
+              <input
+                maxLength={120}
+                onChange={(event) => setNewRoom(event.target.value)}
+                placeholder="Design review"
+                required
+                value={newRoom}
+              />
+            </label>
+            <button className="button secondary" disabled={!newRoom}>
+              Create room
+            </button>
+          </form>
+        )}
       </aside>
 
       {current ? (
@@ -415,7 +425,7 @@ export default function ChatRooms({ project }: { project: string }) {
                 {current.messageCount} messages
               </p>
             </div>
-            {current.status === "open" && (
+            {current.status === "open" && canManage && (
               <button
                 className="button secondary"
                 onClick={() =>
@@ -498,7 +508,8 @@ export default function ChatRooms({ project }: { project: string }) {
                 Stop after this speaker
               </button>
             ) : (
-              pending.length > 0 && (
+              pending.length > 0 &&
+              canManage && (
                 <button
                   className="button secondary"
                   onClick={() => void runTurn(current.id)}
@@ -507,28 +518,31 @@ export default function ChatRooms({ project }: { project: string }) {
                 </button>
               )
             )}
-            {!running && pending.length === 0 && current.status === "open" && (
-              <button
-                className="button secondary"
-                onClick={() =>
-                  void (async () => {
-                    setError("");
-                    try {
-                      await advanceRoom(current.id, { rounds: 1 });
-                      refresh();
-                      await runTurn(current.id);
-                    } catch (problem) {
-                      setError(errorText(problem));
-                    }
-                  })()
-                }
-              >
-                <Play size={14} /> Another round
-              </button>
-            )}
+            {!running &&
+              pending.length === 0 &&
+              current.status === "open" &&
+              canManage && (
+                <button
+                  className="button secondary"
+                  onClick={() =>
+                    void (async () => {
+                      setError("");
+                      try {
+                        await advanceRoom(current.id, { rounds: 1 });
+                        refresh();
+                        await runTurn(current.id);
+                      } catch (problem) {
+                        setError(errorText(problem));
+                      }
+                    })()
+                  }
+                >
+                  <Play size={14} /> Another round
+                </button>
+              )}
           </div>
 
-          {current.status === "open" && (
+          {current.status === "open" && canManage && (
             <form
               className="cr-composer"
               onSubmit={(event) => {
@@ -565,6 +579,7 @@ export default function ChatRooms({ project }: { project: string }) {
 
       {current && (
         <ParticipantRail
+          canManage={canManage}
           models={modelNames}
           onChanged={refresh}
           room={current}
