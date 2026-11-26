@@ -761,32 +761,39 @@ def test_removed_participant_keeps_its_name_on_past_messages(rooms, project, mon
     assert message.role_label == "Architect"
 
 
-@pytest.mark.skipif(
-    connection.vendor != "postgresql", reason="row locks are only guaranteed on PostgreSQL"
-)
+@pytest.mark.django_db(transaction=True)
 def test_postgres_allows_only_one_inflight_speaker(rooms, project, monkeypatch):
+    """Two concurrent advances really serialize, proven with live row locks.
+
+    ``locked()`` is a no-op on SQLite, so only PostgreSQL can demonstrate that
+    exactly one speaker is ever in flight.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from django.db import close_old_connections
+
+    if connection.vendor != "postgresql":
+        pytest.skip("PostgreSQL row-lock guarantee")
     room = make_room(rooms, project)
     add_participant(rooms, room["id"], "Architect")
     add_participant(rooms, room["id"], "Reviewer")
     stub(monkeypatch, [completion("One."), completion("Two.")])
     post(rooms, room["id"], "Go")
     barrier = threading.Barrier(2)
-    results = []
 
-    def contend():
-        barrier.wait()
+    def attempt():
+        close_old_connections()
         try:
             instance = ChatRoom.objects.get(pk=room["id"])
-            _, participant = chat_runtime.begin_turn(instance)
-            results.append("started" if participant else "empty")
-        except Exception as error:  # noqa: BLE001 - the refusal is the assertion
-            results.append("busy" if "already in progress" in str(error) else repr(error))
+            barrier.wait(timeout=5)
+            try:
+                _, participant = chat_runtime.begin_turn(instance)
+                return "started" if participant else "empty"
+            except chat_runtime.services.TaskError as error:
+                return "busy" if "already in progress" in str(error) else repr(error)
         finally:
-            connection.close()
+            close_old_connections()
 
-    threads = [threading.Thread(target=contend) for _ in range(2)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: attempt(), range(2)))
     assert sorted(results) == ["busy", "started"]
